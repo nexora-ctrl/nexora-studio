@@ -403,6 +403,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
         let mut selected_gpu_idx = app.settings.preferred_gpu_index.unwrap_or(0);
         let mut selected_decode_scale = app.settings.media_decode_scale;
         let mut gpu_or_scale_changed = false;
+        let mut open_slideshow_manager = false;
 
         let title = if let Some(src) = app.studio.preview_scene().selected_source() {
             format!("Properties for '{}'", src.name)
@@ -448,7 +449,16 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                     .strong(),
                                 );
                                 if ui
-                                    .small_button(format!("{} Refresh Devices", icons::REFRESH))
+                                    .add(
+                                        egui::Button::new(
+                                            RichText::new(format!(
+                                                "{} Refresh Devices",
+                                                icons::REFRESH
+                                            ))
+                                            .size(11.5),
+                                        )
+                                        .min_size(Vec2::new(116.0, 22.0)),
+                                    )
                                     .on_hover_text("Re-scan connected displays and open windows")
                                     .clicked()
                                 {
@@ -1218,121 +1228,48 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                     transition_duration_ms,
                                 } => {
                                     ui.label("Slide Images:");
-                                    ui.vertical(|ui| {
-                                        ui.horizontal(|ui| {
-                                            ui.label(
-                                                RichText::new(format!("{} photo(s)", files.len()))
-                                                    .strong(),
-                                            );
-                                            if ui
-                                                .button(format!(
-                                                    "{} Add Images (Multi-Select)...",
+                                    ui.horizontal(|ui| {
+                                        let btn_w = (PROP_FIELD_W - 8.0) * 0.5;
+                                        if ui
+                                            .add(
+                                                egui::Button::new(format!(
+                                                    "{} Add Images...",
                                                     icons::PLUS
                                                 ))
-                                                .on_hover_text(
-                                                    "Hold Ctrl or Shift in Explorer to select multiple photos at once (.png, .jpg, .jpeg, .bmp, .webp, .gif)",
-                                                )
-                                                .clicked()
-                                            {
-                                                let picked_list =
-                                                    crate::platform::pick_multiple_image_files_dialog();
-                                                if !picked_list.is_empty() {
-                                                    for p in picked_list {
-                                                        let s = p.to_string_lossy().to_string();
-                                                        if !s.trim().is_empty() {
-                                                            files.push(s);
-                                                        }
+                                                .min_size(Vec2::new(btn_w, 24.0)),
+                                            )
+                                            .on_hover_text(
+                                                "Hold Ctrl or Shift in Explorer to select multiple photos at once (.png, .jpg, .jpeg, .bmp, .webp, .gif)",
+                                            )
+                                            .clicked()
+                                        {
+                                            let picked_list =
+                                                crate::platform::pick_multiple_image_files_dialog();
+                                            if !picked_list.is_empty() {
+                                                for p in picked_list {
+                                                    let s = p.to_string_lossy().to_string();
+                                                    if !s.trim().is_empty() {
+                                                        files.push(s);
                                                     }
-                                                    any_changed = true;
                                                 }
-                                            }
-                                            if !files.is_empty()
-                                                && ui
-                                                    .small_button(format!("{} Clear", icons::TRASH))
-                                                    .clicked()
-                                            {
-                                                files.clear();
                                                 any_changed = true;
                                             }
-                                        });
-
-                                        if !files.is_empty() {
-                                            let mut remove_idx = None;
-                                            let mut swap_pair = None;
-                                            let total_len = files.len();
-                                            egui::ScrollArea::vertical()
-                                                .id_salt("slideshow_files_scroll")
-                                                .max_height(110.0)
-                                                .show(ui, |ui| {
-                                                    for (i, path_str) in files.iter().enumerate() {
-                                                        let fname = std::path::Path::new(path_str)
-                                                            .file_name()
-                                                            .and_then(|s| s.to_str())
-                                                            .unwrap_or(path_str.as_str());
-                                                        ui.horizontal(|ui| {
-                                                            ui.label(
-                                                                RichText::new(format!(
-                                                                    "#{:<2}",
-                                                                    i + 1
-                                                                ))
-                                                                .monospace()
-                                                                .small(),
-                                                            );
-                                                            ui.label(
-                                                                RichText::new(fname).small(),
-                                                            )
-                                                            .on_hover_text(path_str);
-                                                            ui.with_layout(
-                                                                egui::Layout::right_to_left(
-                                                                    egui::Align::Center,
-                                                                ),
-                                                                |ui| {
-                                                                    if ui
-                                                                        .small_button(icons::TRASH)
-                                                                        .on_hover_text("Remove photo")
-                                                                        .clicked()
-                                                                    {
-                                                                        remove_idx = Some(i);
-                                                                    }
-                                                                    if i + 1 < total_len
-                                                                        && ui
-                                                                            .small_button(
-                                                                                icons::ARROW_DOWN,
-                                                                            )
-                                                                            .on_hover_text(
-                                                                                "Move photo down",
-                                                                            )
-                                                                            .clicked()
-                                                                    {
-                                                                        swap_pair =
-                                                                            Some((i, i + 1));
-                                                                    }
-                                                                    if i > 0
-                                                                        && ui
-                                                                            .small_button(
-                                                                                icons::ARROW_UP,
-                                                                            )
-                                                                            .on_hover_text(
-                                                                                "Move photo up",
-                                                                            )
-                                                                            .clicked()
-                                                                    {
-                                                                        swap_pair =
-                                                                            Some((i, i - 1));
-                                                                    }
-                                                                },
-                                                            );
-                                                        });
-                                                    }
-                                                });
-                                            if let Some((a, b)) = swap_pair {
-                                                files.swap(a, b);
-                                                any_changed = true;
-                                            }
-                                            if let Some(idx) = remove_idx {
-                                                files.remove(idx);
-                                                any_changed = true;
-                                            }
+                                        }
+                                        if ui
+                                            .add(
+                                                egui::Button::new(format!(
+                                                    "{} Manage ({})...",
+                                                    icons::PHOTO,
+                                                    files.len()
+                                                ))
+                                                .min_size(Vec2::new(btn_w, 24.0)),
+                                            )
+                                            .on_hover_text(
+                                                "Open Slide Show Manager window with photo thumbnails to reorder or delete images",
+                                            )
+                                            .clicked()
+                                        {
+                                            open_slideshow_manager = true;
                                         }
                                     });
                                     ui.end_row();
@@ -1397,23 +1334,30 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                     ui.separator();
                     ui.label(RichText::new("Transform & Layout Preset").strong());
                     ui.horizontal_wrapped(|ui| {
-                        if ui.small_button("Fit to Screen").clicked() {
+                        let preset_btn = |ui: &mut egui::Ui, label: &str| -> bool {
+                            ui.add(
+                                egui::Button::new(RichText::new(label).size(11.5))
+                                    .min_size(Vec2::new(0.0, 22.0)),
+                            )
+                            .clicked()
+                        };
+                        if preset_btn(ui, "Fit to Screen") {
                             src.transform.reset_full_canvas();
                             any_changed = true;
                         }
-                        if ui.small_button("PiP Bottom-Right").clicked() {
+                        if preset_btn(ui, "PiP Bottom-Right") {
                             src.transform.preset_pip_bottom_right();
                             any_changed = true;
                         }
-                        if ui.small_button("PiP Bottom-Left").clicked() {
+                        if preset_btn(ui, "PiP Bottom-Left") {
                             src.transform.preset_pip_bottom_left();
                             any_changed = true;
                         }
-                        if ui.small_button("PiP Top-Right").clicked() {
+                        if preset_btn(ui, "PiP Top-Right") {
                             src.transform.preset_pip_top_right();
                             any_changed = true;
                         }
-                        if ui.small_button("Center").clicked() {
+                        if preset_btn(ui, "Center") {
                             src.transform.preset_center();
                             any_changed = true;
                         }
@@ -1439,7 +1383,14 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                             RichText::new("Crop Margins (or Hold ALT + Drag edges in Preview)")
                                 .strong(),
                         );
-                        if src.transform.has_crop() && ui.small_button("Reset Crop").clicked() {
+                        if src.transform.has_crop()
+                            && ui
+                                .add(
+                                    egui::Button::new(RichText::new("Reset Crop").size(11.5))
+                                        .min_size(Vec2::new(0.0, 22.0)),
+                                )
+                                .clicked()
+                        {
                             src.transform.reset_crop();
                             any_changed = true;
                         }
@@ -1486,7 +1437,10 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                         Vec2::new(460.0, 26.0),
                         egui::Layout::right_to_left(egui::Align::Center),
                         |ui| {
-                            if ui.button("OK").clicked() {
+                            if ui
+                                .add(egui::Button::new("OK").min_size(Vec2::new(68.0, 24.0)))
+                                .clicked()
+                            {
                                 close_clicked = true;
                             }
                         },
@@ -1499,6 +1453,9 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                 }
             });
 
+        if open_slideshow_manager {
+            app.show_slideshow_manager_dialog = true;
+        }
         if gpu_or_scale_changed {
             app.settings.preferred_gpu_index = Some(selected_gpu_idx);
             if let Some(g) = gpus.iter().find(|g| g.index == selected_gpu_idx) {
@@ -1517,6 +1474,366 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
         }
         if !open || close_clicked {
             app.show_source_properties_dialog = false;
+        }
+    }
+
+    // 4b. Manage Slide Show Images Modal Window (with medium thumbnails)
+    if app.show_slideshow_manager_dialog {
+        let p = ThemePalette::for_mode(app.settings.theme);
+        let mut open = app.show_slideshow_manager_dialog;
+        let mut done_clicked = false;
+        let mut manager_changed = false;
+
+        let current_files: Vec<String> = app
+            .studio
+            .preview_scene()
+            .selected_source()
+            .and_then(|s| match &s.kind {
+                SourceKind::ImageSlideShow { files, .. } => Some(files.clone()),
+                _ => None,
+            })
+            .unwrap_or_default();
+
+        // Pre-fetch textures for thumbnails so we don't borrow `app.studio` and `app.capture_engine` simultaneously
+        let thumb_textures: Vec<Option<egui::TextureHandle>> = current_files
+            .iter()
+            .map(|path_str| {
+                let key = format!("IMG:{}", path_str);
+                app.capture_engine.get_or_update_texture(ctx, &key)
+            })
+            .collect();
+
+        egui::Window::new(format!("{} Manage Slide Show Images", icons::PHOTO))
+            .id(egui::Id::new("nexora_slideshow_manager_modal_win"))
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .default_width(530.0)
+            .max_width(530.0)
+            .show(ctx, |ui| {
+                ui.set_width(510.0);
+                ui.set_max_width(510.0);
+
+                if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
+                    if let SourceKind::ImageSlideShow { files, .. } = &mut src.kind {
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new(format!("{} photo(s) in Slide Show", files.len()))
+                                    .strong()
+                                    .color(p.text_primary),
+                            );
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if !files.is_empty()
+                                        && ui
+                                            .add(
+                                                egui::Button::new(format!(
+                                                    "{} Clear All",
+                                                    icons::TRASH
+                                                ))
+                                                .min_size(Vec2::new(88.0, 26.0)),
+                                            )
+                                            .on_hover_text("Remove all photos from slide show")
+                                            .clicked()
+                                    {
+                                        files.clear();
+                                        manager_changed = true;
+                                    }
+                                    if ui
+                                        .add(
+                                            egui::Button::new(format!(
+                                                "{} Add Images (Multi-Select)...",
+                                                icons::PLUS
+                                            ))
+                                            .min_size(Vec2::new(205.0, 26.0)),
+                                        )
+                                        .on_hover_text(
+                                            "Hold Ctrl or Shift in Explorer to select multiple photos at once",
+                                        )
+                                        .clicked()
+                                    {
+                                        let picked_list =
+                                            crate::platform::pick_multiple_image_files_dialog();
+                                        if !picked_list.is_empty() {
+                                            for path in picked_list {
+                                                let s = path.to_string_lossy().to_string();
+                                                if !s.trim().is_empty() {
+                                                    files.push(s);
+                                                }
+                                            }
+                                            manager_changed = true;
+                                        }
+                                    }
+                                },
+                            );
+                        });
+
+                        ui.add_space(4.0);
+                        ui.separator();
+                        ui.add_space(4.0);
+
+                        if files.is_empty() {
+                            egui::Frame::new()
+                                .fill(p.bg_elevated)
+                                .corner_radius(egui::CornerRadius::same(6))
+                                .stroke(Stroke::new(1.0_f32, p.border_subtle))
+                                .inner_margin(egui::Margin::symmetric(16, 28))
+                                .show(ui, |ui| {
+                                    ui.vertical_centered(|ui| {
+                                        ui.label(
+                                            RichText::new(format!(
+                                                "{} No photos added yet",
+                                                icons::PHOTO
+                                            ))
+                                            .strong()
+                                            .size(13.0)
+                                            .color(p.text_secondary),
+                                        );
+                                        ui.add_space(4.0);
+                                        ui.label(
+                                            RichText::new(
+                                                "Click '+ Add Images (Multi-Select)...' above and use Ctrl+Click to pick multiple images.",
+                                            )
+                                            .small()
+                                            .color(p.text_muted),
+                                        );
+                                    });
+                                });
+                        } else {
+                            let mut remove_idx = None;
+                            let mut swap_pair = None;
+                            let total_len = files.len();
+
+                            egui::ScrollArea::vertical()
+                                .id_salt("slideshow_manager_cards_scroll")
+                                .max_height(330.0)
+                                .auto_shrink([false, false])
+                                .show(ui, |ui| {
+                                    for (i, path_str) in files.iter().enumerate() {
+                                        let path_obj = std::path::Path::new(path_str);
+                                        let fname = path_obj
+                                            .file_name()
+                                            .and_then(|s| s.to_str())
+                                            .unwrap_or(path_str.as_str());
+                                        let parent_dir = path_obj
+                                            .parent()
+                                            .and_then(|p| p.to_str())
+                                            .unwrap_or("");
+
+                                        egui::Frame::new()
+                                            .fill(p.bg_elevated)
+                                            .corner_radius(egui::CornerRadius::same(6))
+                                            .stroke(Stroke::new(1.0_f32, p.border_subtle))
+                                            .inner_margin(egui::Margin::symmetric(10, 6))
+                                            .show(ui, |ui| {
+                                                ui.set_width(476.0);
+                                                ui.horizontal(|ui| {
+                                                    // 1. Slide index badge
+                                                    ui.label(
+                                                        RichText::new(format!("#{:02}", i + 1))
+                                                            .monospace()
+                                                            .strong()
+                                                            .size(12.0)
+                                                            .color(p.text_secondary),
+                                                    );
+                                                    ui.add_space(4.0);
+
+                                                    // 2. Medium Thumbnail (84x48 px, 16:9 box)
+                                                    let thumb_size = Vec2::new(84.0, 48.0);
+                                                    let (thumb_rect, _) = ui.allocate_exact_size(
+                                                        thumb_size,
+                                                        egui::Sense::hover(),
+                                                    );
+                                                    ui.painter().rect_filled(
+                                                        thumb_rect,
+                                                        egui::CornerRadius::same(4),
+                                                        egui::Color32::from_rgb(18, 22, 29),
+                                                    );
+                                                    if let Some(Some(tex)) = thumb_textures.get(i)
+                                                    {
+                                                        let tsize = tex.size_vec2();
+                                                        let fit_rect = if tsize.x > 0.0
+                                                            && tsize.y > 0.0
+                                                        {
+                                                            let scale = (thumb_rect.width()
+                                                                / tsize.x)
+                                                                .min(thumb_rect.height() / tsize.y);
+                                                            let draw_w = tsize.x * scale;
+                                                            let draw_h = tsize.y * scale;
+                                                            egui::Rect::from_center_size(
+                                                                thumb_rect.center(),
+                                                                Vec2::new(draw_w, draw_h),
+                                                            )
+                                                        } else {
+                                                            thumb_rect
+                                                        };
+                                                        let uv = egui::Rect::from_min_max(
+                                                            egui::Pos2::ZERO,
+                                                            egui::Pos2::new(1.0, 1.0),
+                                                        );
+                                                        ui.painter().image(
+                                                            tex.id(),
+                                                            fit_rect,
+                                                            uv,
+                                                            egui::Color32::WHITE,
+                                                        );
+                                                    } else {
+                                                        ui.painter().text(
+                                                            thumb_rect.center(),
+                                                            egui::Align2::CENTER_CENTER,
+                                                            icons::PHOTO,
+                                                            egui::FontId::proportional(18.0),
+                                                            p.text_muted,
+                                                        );
+                                                    }
+                                                    ui.painter().rect_stroke(
+                                                        thumb_rect,
+                                                        egui::CornerRadius::same(4),
+                                                        Stroke::new(1.0_f32, p.border_subtle),
+                                                        egui::StrokeKind::Inside,
+                                                    );
+
+                                                    ui.add_space(6.0);
+
+                                                    // 3. Filename & folder info
+                                                    ui.vertical(|ui| {
+                                                        ui.set_max_width(220.0);
+                                                        ui.add_space(4.0);
+                                                        ui.add(
+                                                            egui::Label::new(
+                                                                RichText::new(fname)
+                                                                    .strong()
+                                                                    .size(12.0)
+                                                                    .color(p.text_primary),
+                                                            )
+                                                            .truncate(),
+                                                        )
+                                                        .on_hover_text(path_str);
+                                                        if !parent_dir.is_empty() {
+                                                            ui.add(
+                                                                egui::Label::new(
+                                                                    RichText::new(parent_dir)
+                                                                        .size(10.0)
+                                                                        .color(p.text_muted),
+                                                                )
+                                                                .truncate(),
+                                                            )
+                                                            .on_hover_text(path_str);
+                                                        }
+                                                    });
+
+                                                    // 4. Reorder & Delete action buttons (well-spaced)
+                                                    ui.with_layout(
+                                                        egui::Layout::right_to_left(
+                                                            egui::Align::Center,
+                                                        ),
+                                                        |ui| {
+                                                            if ui
+                                                                .add(
+                                                                    egui::Button::new(
+                                                                        RichText::new(icons::TRASH)
+                                                                            .size(13.0),
+                                                                    )
+                                                                    .min_size(Vec2::new(
+                                                                        30.0, 26.0,
+                                                                    )),
+                                                                )
+                                                                .on_hover_text("Delete photo")
+                                                                .clicked()
+                                                            {
+                                                                remove_idx = Some(i);
+                                                            }
+                                                            let can_down = i + 1 < total_len;
+                                                            if ui
+                                                                .add_enabled(
+                                                                    can_down,
+                                                                    egui::Button::new(
+                                                                        RichText::new(
+                                                                            icons::ARROW_DOWN,
+                                                                        )
+                                                                        .size(13.0),
+                                                                    )
+                                                                    .min_size(Vec2::new(
+                                                                        30.0, 26.0,
+                                                                    )),
+                                                                )
+                                                                .on_hover_text("Move photo down")
+                                                                .clicked()
+                                                            {
+                                                                swap_pair = Some((i, i + 1));
+                                                            }
+                                                            let can_up = i > 0;
+                                                            if ui
+                                                                .add_enabled(
+                                                                    can_up,
+                                                                    egui::Button::new(
+                                                                        RichText::new(
+                                                                            icons::ARROW_UP,
+                                                                        )
+                                                                        .size(13.0),
+                                                                    )
+                                                                    .min_size(Vec2::new(
+                                                                        30.0, 26.0,
+                                                                    )),
+                                                                )
+                                                                .on_hover_text("Move photo up")
+                                                                .clicked()
+                                                            {
+                                                                swap_pair = Some((i, i - 1));
+                                                            }
+                                                        },
+                                                    );
+                                                });
+                                            });
+                                        ui.add_space(4.0);
+                                    }
+                                });
+
+                            if let Some((a, b)) = swap_pair {
+                                files.swap(a, b);
+                                manager_changed = true;
+                            }
+                            if let Some(idx) = remove_idx {
+                                files.remove(idx);
+                                manager_changed = true;
+                            }
+                        }
+
+                        ui.add_space(4.0);
+                        ui.separator();
+                        ui.allocate_ui_with_layout(
+                            Vec2::new(500.0, 28.0),
+                            egui::Layout::right_to_left(egui::Align::Center),
+                            |ui| {
+                                if ui
+                                    .add(egui::Button::new("Done").min_size(Vec2::new(78.0, 26.0)))
+                                    .clicked()
+                                {
+                                    done_clicked = true;
+                                }
+                            },
+                        );
+                    } else {
+                        ui.label("Selected source is not an Image Slide Show.");
+                        if ui.button("Close").clicked() {
+                            done_clicked = true;
+                        }
+                    }
+                } else {
+                    ui.label("No Image Slide Show source selected.");
+                    if ui.button("Close").clicked() {
+                        done_clicked = true;
+                    }
+                }
+            });
+
+        if manager_changed {
+            app.studio.sync_if_linked();
+            app.save_all_state();
+        }
+        if !open || done_clicked {
+            app.show_slideshow_manager_dialog = false;
         }
     }
 
