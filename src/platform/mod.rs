@@ -579,6 +579,12 @@ mod win32_file_dialog {
         flags_ex: u32,
     }
 
+    #[repr(C)]
+    struct POINT {
+        x: i32,
+        y: i32,
+    }
+
     #[link(name = "comdlg32")]
     extern "system" {
         fn GetOpenFileNameW(lpofn: *mut OPENFILENAMEW) -> i32;
@@ -598,6 +604,14 @@ mod win32_file_dialog {
         ) -> i32;
         fn SetForegroundWindow(hwnd: isize) -> i32;
         fn GetAsyncKeyState(v_key: i32) -> i16;
+        fn GetCursorPos(lp_point: *mut POINT) -> i32;
+        fn GetDC(hwnd: *mut core::ffi::c_void) -> *mut core::ffi::c_void;
+        fn ReleaseDC(hwnd: *mut core::ffi::c_void, hdc: *mut core::ffi::c_void) -> i32;
+    }
+
+    #[link(name = "gdi32")]
+    extern "system" {
+        fn GetPixel(hdc: *mut core::ffi::c_void, x: i32, y: i32) -> u32;
     }
 
     pub fn open_file_dialog(title: &str, filter_with_nulls: &str) -> Option<PathBuf> {
@@ -731,6 +745,44 @@ mod win32_file_dialog {
             const VK_ESCAPE: i32 = 0x1B;
             (GetAsyncKeyState(VK_ESCAPE) as u16 & 0x8000) != 0
         }
+    }
+
+    pub fn sample_screen_pixel_at_cursor() -> Option<[u8; 3]> {
+        unsafe {
+            let mut pt = POINT { x: 0, y: 0 };
+            if GetCursorPos(&mut pt) == 0 {
+                return None;
+            }
+            let hdc = GetDC(core::ptr::null_mut());
+            if hdc.is_null() {
+                return None;
+            }
+            let cr = GetPixel(hdc, pt.x, pt.y);
+            ReleaseDC(core::ptr::null_mut(), hdc);
+
+            if cr == 0xFFFF_FFFF {
+                // CLR_INVALID
+                return None;
+            }
+
+            // COLORREF is 0x00bbggrr
+            let r = (cr & 0xFF) as u8;
+            let g = ((cr >> 8) & 0xFF) as u8;
+            let b = ((cr >> 16) & 0xFF) as u8;
+            Some([r, g, b])
+        }
+    }
+}
+
+/// Samples the exact RGB pixel color under the mouse cursor across any monitor or window
+pub fn sample_screen_pixel_at_cursor() -> Option<[u8; 3]> {
+    #[cfg(target_os = "windows")]
+    {
+        win32_file_dialog::sample_screen_pixel_at_cursor()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        None
     }
 }
 

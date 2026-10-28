@@ -127,6 +127,16 @@ pub fn render_library_drawer_if_open(ctx: &egui::Context, app: &mut NexoraApp) {
     }
 }
 
+/// Sinks drag events inside the window content body so that modal windows can ONLY be dragged
+/// by their Title Bar, preventing accidental window movement when clicking/dragging inside the body.
+pub fn block_window_body_drag(ui: &egui::Ui) {
+    ui.interact(
+        ui.max_rect(),
+        ui.id().with("__nexora_win_body_drag_blocker"),
+        egui::Sense::drag(),
+    );
+}
+
 pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
     // 1. Settings Modal Dialog
     if app.show_settings_dialog {
@@ -140,6 +150,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
             .default_width(485.0)
             .max_width(485.0)
             .show(ctx, |ui| {
+                block_window_body_drag(ui);
                 const SETTINGS_FIELD_W: f32 = 290.0;
                 ui.set_width(465.0);
                 ui.set_max_width(465.0);
@@ -333,6 +344,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
             .resizable(false)
             .default_width(290.0)
             .show(ctx, |ui| {
+                block_window_body_drag(ui);
                 ui.label("Enter a new name for the active Preview scene:");
                 ui.text_edit_singleline(&mut app.rename_scene_buffer);
                 ui.add_space(6.0);
@@ -364,6 +376,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
             .resizable(false)
             .default_width(290.0)
             .show(ctx, |ui| {
+                block_window_body_drag(ui);
                 ui.label("Enter a new name for the selected Source:");
                 ui.text_edit_singleline(&mut app.rename_source_buffer);
                 ui.add_space(6.0);
@@ -419,6 +432,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
             .default_width(495.0)
             .max_width(495.0)
             .show(ctx, |ui| {
+                block_window_body_drag(ui);
                 const PROP_FIELD_W: f32 = 280.0;
                 ui.set_width(475.0);
                 ui.set_max_width(475.0);
@@ -1511,6 +1525,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
             .default_width(530.0)
             .max_width(530.0)
             .show(ctx, |ui| {
+                block_window_body_drag(ui);
                 ui.set_width(510.0);
                 ui.set_max_width(510.0);
 
@@ -1837,6 +1852,300 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
         }
     }
 
+    // 4c. Video Filters Modal Window (Chroma Key, Color Key, Luma Key)
+    if app.show_source_filters_dialog {
+        let p = ThemePalette::for_mode(app.settings.theme);
+        let mut open = app.show_source_filters_dialog;
+        let mut done_clicked = false;
+        let mut filters_changed = false;
+
+        let src_name = app
+            .studio
+            .preview_scene()
+            .selected_source()
+            .map(|s| s.name.clone())
+            .unwrap_or_else(|| "Source".to_string());
+
+        egui::Window::new(format!("{} Filters for '{}'", icons::FILTER, src_name))
+            .id(egui::Id::new("nexora_source_filters_modal_win"))
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .default_width(510.0)
+            .max_width(510.0)
+            .show(ctx, |ui| {
+                block_window_body_drag(ui);
+                const FLT_FIELD_W: f32 = 270.0;
+                ui.set_width(490.0);
+                ui.set_max_width(490.0);
+
+                if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("Keying / Transparency Filter:").strong().color(p.text_primary));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            filters_changed |= ui.checkbox(&mut src.filter.enabled, "Enable Filter").changed();
+                        });
+                    });
+
+                    ui.add_space(4.0);
+
+                    // Filter selector buttons row
+                    ui.horizontal_wrapped(|ui| {
+                        for fk in crate::studio::source::KeyFilterKind::all() {
+                            let is_active = src.filter.kind == *fk;
+                            let btn_text = RichText::new(fk.short_name()).size(12.0);
+                            let resp = ui
+                                .add(
+                                    egui::Button::new(btn_text)
+                                        .min_size(Vec2::new(108.0, 26.0))
+                                        .fill(if is_active { p.accent_preview } else { p.bg_elevated }),
+                                )
+                                .on_hover_text(fk.hover_explanation());
+                            if resp.clicked() {
+                                src.filter.kind = *fk;
+                                if *fk != crate::studio::source::KeyFilterKind::None {
+                                    src.filter.enabled = true;
+                                }
+                                filters_changed = true;
+                            }
+                        }
+                    });
+
+                    ui.add_space(6.0);
+
+                    // Explanatory Info Box
+                    egui::Frame::new()
+                        .fill(p.bg_elevated)
+                        .corner_radius(egui::CornerRadius::same(5))
+                        .stroke(Stroke::new(1.0_f32, p.border_subtle))
+                        .inner_margin(egui::Margin::symmetric(10, 8))
+                        .show(ui, |ui| {
+                            ui.label(
+                                RichText::new(src.filter.kind.hover_explanation())
+                                    .small()
+                                    .color(p.text_secondary),
+                            );
+                        });
+
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.add_space(4.0);
+
+                    match src.filter.kind {
+                        crate::studio::source::KeyFilterKind::None => {
+                            ui.vertical_centered(|ui| {
+                                ui.add_space(12.0);
+                                ui.label(
+                                    RichText::new(format!("{} Original Source (Tanpa Filter Transparansi)", icons::PHOTO))
+                                        .size(13.0)
+                                        .color(p.text_muted),
+                                );
+                                ui.add_space(4.0);
+                                ui.label(
+                                    RichText::new("Pilih 'Chroma Key', 'Color Key', atau 'Luma Key' di atas untuk menghapus background.")
+                                        .small()
+                                        .color(p.text_muted),
+                                );
+                                ui.add_space(12.0);
+                            });
+                        }
+                        crate::studio::source::KeyFilterKind::ChromaKey => {
+                            egui::Grid::new("flt_chroma_grid")
+                                .num_columns(2)
+                                .spacing([12.0, 8.0])
+                                .show(ui, |ui| {
+                                    ui.label("Key Color Type:").on_hover_text("Pilih warna layar hijau / biru yang ingin dihilangkan");
+                                    egui::ComboBox::from_id_salt("flt_chroma_preset_combo")
+                                        .selected_text(src.filter.key_color_preset.label())
+                                        .width(FLT_FIELD_W)
+                                        .truncate()
+                                        .show_ui(ui, |ui| {
+                                            for preset in crate::studio::source::ChromaKeyPresetColor::all() {
+                                                if ui
+                                                    .selectable_label(src.filter.key_color_preset == *preset, preset.label())
+                                                    .clicked()
+                                                {
+                                                    src.filter.key_color_preset = *preset;
+                                                    if *preset != crate::studio::source::ChromaKeyPresetColor::Custom {
+                                                        src.filter.key_color_rgb = preset.rgb();
+                                                    }
+                                                    filters_changed = true;
+                                                }
+                                            }
+                                        });
+                                    ui.end_row();
+
+                                    ui.label("Key Color:").on_hover_text("Warna target yang akan dihapus menjadi transparan");
+                                    ui.horizontal(|ui| {
+                                        let mut col = egui::Color32::from_rgb(
+                                            src.filter.key_color_rgb[0],
+                                            src.filter.key_color_rgb[1],
+                                            src.filter.key_color_rgb[2],
+                                        );
+                                        if ui.color_edit_button_srgba(&mut col).changed() {
+                                            src.filter.key_color_rgb = [col.r(), col.g(), col.b()];
+                                            src.filter.key_color_preset = crate::studio::source::ChromaKeyPresetColor::Custom;
+                                            filters_changed = true;
+                                        }
+                                        ui.label(format!("#{:02X}{:02X}{:02X}", col.r(), col.g(), col.b())).on_hover_text("Hex Code RGB");
+
+                                        let picker_btn = ui.button(format!("{} Pipet Layar", icons::COLOR_PICKER))
+                                            .on_hover_text("Pipet Warna Layar: Klik lalu arahkan dan klik di area kanvas / layar manapun untuk mengambil sampel warna");
+                                        if picker_btn.clicked() {
+                                            app.eyedropper_active = true;
+                                            app.eyedropper_armed = false;
+                                        }
+                                    });
+                                    ui.end_row();
+
+                                    ui.label("Similarity:").on_hover_text("Ambang batas kemiripan warna. Nilai lebih tinggi menghapus rentang hijau/biru lebih luas.");
+                                    filters_changed |= ui.add(egui::Slider::new(&mut src.filter.similarity, 1..=1000)).changed();
+                                    ui.end_row();
+
+                                    ui.label("Smoothness:").on_hover_text("Kehalusan tepian objek agar tidak bergerigi atau terpotong kasar.");
+                                    filters_changed |= ui.add(egui::Slider::new(&mut src.filter.smoothness, 1..=1000)).changed();
+                                    ui.end_row();
+
+                                    ui.label("Spill Reduction:").on_hover_text("Membersihkan pantulan warna hijau/biru pada tepi rambut dan baju.");
+                                    filters_changed |= ui.add(egui::Slider::new(&mut src.filter.spill_reduction, 0..=1000)).changed();
+                                    ui.end_row();
+
+                                    ui.label("Opacity:").on_hover_text("Tingkat transparansi keseluruhan layer");
+                                    filters_changed |= ui.add(egui::Slider::new(&mut src.filter.opacity, 0.0..=1.0).fixed_decimals(2)).changed();
+                                    ui.end_row();
+                                });
+                        }
+                        crate::studio::source::KeyFilterKind::ColorKey => {
+                            egui::Grid::new("flt_color_grid")
+                                .num_columns(2)
+                                .spacing([12.0, 8.0])
+                                .show(ui, |ui| {
+                                    ui.label("Key Color:").on_hover_text("Pilih warna solid spesifik yang ingin dihilangkan dari gambar/video");
+                                    ui.horizontal(|ui| {
+                                        let mut col = egui::Color32::from_rgb(
+                                            src.filter.key_color_rgb[0],
+                                            src.filter.key_color_rgb[1],
+                                            src.filter.key_color_rgb[2],
+                                        );
+                                        if ui.color_edit_button_srgba(&mut col).changed() {
+                                            src.filter.key_color_rgb = [col.r(), col.g(), col.b()];
+                                            filters_changed = true;
+                                        }
+                                        ui.label(format!("#{:02X}{:02X}{:02X}", col.r(), col.g(), col.b()));
+
+                                        let picker_btn = ui.button(format!("{} Pipet Layar", icons::COLOR_PICKER))
+                                            .on_hover_text("Pipet Warna Layar: Klik lalu arahkan dan klik di area kanvas / layar manapun untuk mengambil sampel warna");
+                                        if picker_btn.clicked() {
+                                            app.eyedropper_active = true;
+                                            app.eyedropper_armed = false;
+                                        }
+
+                                        // Quick Presets
+                                        if ui.small_button("Black").on_hover_text("Set ke Hitam").clicked() {
+                                            src.filter.key_color_rgb = [0, 0, 0];
+                                            filters_changed = true;
+                                        }
+                                        if ui.small_button("White").on_hover_text("Set ke Putih").clicked() {
+                                            src.filter.key_color_rgb = [255, 255, 255];
+                                            filters_changed = true;
+                                        }
+                                    });
+                                    ui.end_row();
+
+                                    ui.label("Similarity:").on_hover_text("Tingkat toleransi kemiripan warna target");
+                                    filters_changed |= ui.add(egui::Slider::new(&mut src.filter.similarity, 1..=1000)).changed();
+                                    ui.end_row();
+
+                                    ui.label("Smoothness:").on_hover_text("Kehalusan degradasi transparansi tepi");
+                                    filters_changed |= ui.add(egui::Slider::new(&mut src.filter.smoothness, 1..=1000)).changed();
+                                    ui.end_row();
+
+                                    ui.label("Opacity:").on_hover_text("Tingkat transparansi keseluruhan layer");
+                                    filters_changed |= ui.add(egui::Slider::new(&mut src.filter.opacity, 0.0..=1.0).fixed_decimals(2)).changed();
+                                    ui.end_row();
+                                });
+                        }
+                        crate::studio::source::KeyFilterKind::LumaKey => {
+                            egui::Grid::new("flt_luma_grid")
+                                .num_columns(2)
+                                .spacing([12.0, 8.0])
+                                .show(ui, |ui| {
+                                    ui.label("Preset Cepat:").on_hover_text("Pilih preset penghapusan background gelap atau terang");
+                                    ui.horizontal(|ui| {
+                                        if ui.add(egui::Button::new("Hapus Hitam (Api/Partikel)").min_size(Vec2::new(150.0, 22.0))).clicked() {
+                                            src.filter.luma_min = 0.08;
+                                            src.filter.luma_min_smooth = 0.06;
+                                            src.filter.luma_max = 1.00;
+                                            src.filter.luma_max_smooth = 0.04;
+                                            filters_changed = true;
+                                        }
+                                        if ui.add(egui::Button::new("Hapus Putih (Logo Putih)").min_size(Vec2::new(140.0, 22.0))).clicked() {
+                                            src.filter.luma_min = 0.00;
+                                            src.filter.luma_min_smooth = 0.02;
+                                            src.filter.luma_max = 0.88;
+                                            src.filter.luma_max_smooth = 0.06;
+                                            filters_changed = true;
+                                        }
+                                    });
+                                    ui.end_row();
+
+                                    ui.label("Luma Min (Cut Black):").on_hover_text("Menghapus area hitam/gelap di bawah batas kecerahan ini");
+                                    filters_changed |= ui.add(egui::Slider::new(&mut src.filter.luma_min, 0.0..=1.0).fixed_decimals(2)).changed();
+                                    ui.end_row();
+
+                                    ui.label("Min Smoothness:").on_hover_text("Kehalusan tepi area hitam yang dihapus");
+                                    filters_changed |= ui.add(egui::Slider::new(&mut src.filter.luma_min_smooth, 0.0..=0.5).fixed_decimals(2)).changed();
+                                    ui.end_row();
+
+                                    ui.label("Luma Max (Cut White):").on_hover_text("Menghapus area putih/terang di atas batas kecerahan ini (turunkan jika ingin menghapus background putih)");
+                                    filters_changed |= ui.add(egui::Slider::new(&mut src.filter.luma_max, 0.0..=1.0).fixed_decimals(2)).changed();
+                                    ui.end_row();
+
+                                    ui.label("Max Smoothness:").on_hover_text("Kehalusan tepi area putih yang dihapus");
+                                    filters_changed |= ui.add(egui::Slider::new(&mut src.filter.luma_max_smooth, 0.0..=0.5).fixed_decimals(2)).changed();
+                                    ui.end_row();
+
+                                    ui.label("Opacity:").on_hover_text("Tingkat transparansi keseluruhan layer");
+                                    filters_changed |= ui.add(egui::Slider::new(&mut src.filter.opacity, 0.0..=1.0).fixed_decimals(2)).changed();
+                                    ui.end_row();
+                                });
+                        }
+                    }
+
+                    ui.add_space(6.0);
+                    ui.separator();
+                    ui.allocate_ui_with_layout(
+                        Vec2::new(480.0, 26.0),
+                        egui::Layout::right_to_left(egui::Align::Center),
+                        |ui| {
+                            if ui.add(egui::Button::new("Done").min_size(Vec2::new(76.0, 24.0))).clicked() {
+                                done_clicked = true;
+                            }
+                            if ui.add(egui::Button::new(format!("{} Reset Default", icons::REFRESH)).min_size(Vec2::new(115.0, 24.0))).clicked() {
+                                let k = src.filter.kind;
+                                src.filter = crate::studio::source::SourceFilterConfig::default();
+                                src.filter.kind = k;
+                                filters_changed = true;
+                            }
+                        },
+                    );
+                } else {
+                    ui.label("No source is currently selected.");
+                    if ui.button("Close").clicked() {
+                        done_clicked = true;
+                    }
+                }
+            });
+
+        if filters_changed {
+            app.studio.sync_if_linked();
+            app.save_all_state();
+        }
+        if !open || done_clicked {
+            app.show_source_filters_dialog = false;
+        }
+    }
+
     // 5. Save Screen & Layout Preset Modal Dialog
     if app.show_save_layout_dialog {
         let mut open = app.show_save_layout_dialog;
@@ -1852,6 +2161,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
         .resizable(false)
         .default_width(360.0)
         .show(ctx, |ui| {
+            block_window_body_drag(ui);
             ui.label(
                 "Save your current Screen, Camera PiP positions, Scenes, Audio Mixer, and Dock Layout as a reusable preset:",
             );
@@ -1994,7 +2304,8 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                     let proj_painter = painter.with_clip_rect(rect);
 
                     let time_sec = ui.input(|i| i.time);
-                    for src in &scene_to_render.sources {
+                    // Draw from bottom of Source list (back layer) to top of Source list (front layer)
+                    for src in scene_to_render.sources.iter().rev() {
                         if !src.visible {
                             continue;
                         }
@@ -2040,4 +2351,202 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
             app.projector_target = None;
         }
     }
+}
+
+pub fn render_eyedropper_overlay(ctx: &egui::Context, app: &mut NexoraApp) {
+    if !app.eyedropper_active {
+        return;
+    }
+
+    let ptr = ctx.input(|i| i.pointer.latest_pos());
+
+    // Sample color at cursor: directly from canvas/sources, fallback to OS screen
+    if let Some(p) = ptr {
+        if let Some(rgb) = sample_canvas_pixel_at(app, p) {
+            app.eyedropper_color = Some(rgb);
+        }
+    }
+
+    // Force crosshair cursor while sampling
+    ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
+    ctx.request_repaint();
+
+    // Cancellation: Escape key or right click
+    if ctx.input(|i| i.key_pressed(egui::Key::Escape) || i.pointer.secondary_clicked()) {
+        app.eyedropper_active = false;
+        app.eyedropper_armed = false;
+        return;
+    }
+
+    // Arm eyedropper only after mouse button has been released from clicking the "Pipet Layar" button
+    if !app.eyedropper_armed {
+        if !ctx.input(|i| i.pointer.primary_down()) {
+            app.eyedropper_armed = true;
+        }
+    } else {
+        // Armed! Click anywhere on canvas or window to commit selected color
+        if ctx.input(|i| i.pointer.primary_clicked() || i.pointer.primary_down()) {
+            if let Some([r, g, b]) = app.eyedropper_color {
+                if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
+                    src.filter.key_color_rgb = [r, g, b];
+                    src.filter.key_color_preset = crate::studio::source::ChromaKeyPresetColor::Custom;
+                    if let SourceKind::ColorSource { color_rgba, .. } = &mut src.kind {
+                        *color_rgba = [r, g, b, 255];
+                    }
+                }
+                app.studio.sync_if_linked();
+            }
+            app.eyedropper_active = false;
+            app.eyedropper_armed = false;
+            return;
+        }
+    }
+
+    // Floating magnifying/preview pill next to mouse cursor
+    if let Some(p) = ptr {
+        let p_theme = ThemePalette::for_mode(app.settings.theme);
+        let tooltip_pos = p + egui::vec2(16.0, 16.0);
+        egui::Area::new(egui::Id::new("nexora_eyedropper_floating_pill"))
+            .order(egui::Order::Tooltip)
+            .fixed_pos(tooltip_pos)
+            .interactable(false)
+            .show(ctx, |ui| {
+                egui::Frame::popup(ui.style())
+                    .fill(p_theme.bg_panel)
+                    .stroke(egui::Stroke::new(1.5_f32, p_theme.accent_primary))
+                    .inner_margin(egui::Margin::symmetric(10, 8))
+                    .corner_radius(6)
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            if let Some([r, g, b]) = app.eyedropper_color {
+                                let (rect, _) =
+                                    ui.allocate_exact_size(egui::vec2(22.0, 22.0), egui::Sense::hover());
+                                ui.painter().rect_filled(rect, 4.0, egui::Color32::from_rgb(r, g, b));
+                                ui.painter().rect_stroke(
+                                    rect,
+                                    4.0,
+                                    egui::Stroke::new(1.0_f32, egui::Color32::WHITE),
+                                    egui::StrokeKind::Inside,
+                                );
+                                ui.vertical(|ui| {
+                                    ui.label(
+                                        RichText::new(format!("#{:02X}{:02X}{:02X}", r, g, b))
+                                            .strong()
+                                            .color(p_theme.text_primary),
+                                    );
+                                    ui.label(
+                                        RichText::new("Klik kanvas: Pilih Warna • Esc: Batal")
+                                            .small()
+                                            .color(p_theme.text_secondary),
+                                    );
+                                });
+                            } else {
+                                ui.label(
+                                    RichText::new("Arahkan ke kanvas...")
+                                        .small()
+                                        .color(p_theme.text_secondary),
+                                );
+                            }
+                        });
+                    });
+            });
+    }
+}
+
+/// Samples the exact RGB pixel value at a given position from Preview/Program canvas sources
+fn sample_canvas_pixel_at(app: &NexoraApp, pos: egui::Pos2) -> Option<[u8; 3]> {
+    // 1. Try Preview canvas first
+    if let Some(canvas_rect) = app.preview_canvas_rect {
+        if canvas_rect.contains(pos) {
+            return sample_scene_sources_at(app, app.studio.preview_scene(), canvas_rect, pos);
+        }
+    }
+    // 2. Try Program canvas next
+    if let Some(canvas_rect) = app.program_canvas_rect {
+        if canvas_rect.contains(pos) {
+            return sample_scene_sources_at(app, app.studio.program_scene(), canvas_rect, pos);
+        }
+    }
+    // 3. Fallback: OS level screen pixel sampler
+    crate::platform::sample_screen_pixel_at_cursor()
+}
+
+fn sample_scene_sources_at(
+    app: &NexoraApp,
+    scene: &crate::studio::scene::Scene,
+    canvas_rect: egui::Rect,
+    pos: egui::Pos2,
+) -> Option<[u8; 3]> {
+    let norm_x = ((pos.x - canvas_rect.min.x) / canvas_rect.width()).clamp(0.0, 1.0);
+    let norm_y = ((pos.y - canvas_rect.min.y) / canvas_rect.height()).clamp(0.0, 1.0);
+
+    // Hit test sources in OBS order: top to bottom (index 0 is topmost foreground)
+    for src in scene.sources.iter() {
+        if !src.visible {
+            continue;
+        }
+        let (vx, vy, vw, vh) = src.transform.visible_norm_rect();
+        if norm_x >= vx && norm_x <= vx + vw && norm_y >= vy && norm_y <= vy + vh {
+            let u = if vw > 0.0001 { ((norm_x - vx) / vw).clamp(0.0, 1.0) } else { 0.0 };
+            let v = if vh > 0.0001 { ((norm_y - vy) / vh).clamp(0.0, 1.0) } else { 0.0 };
+
+            match &src.kind {
+                SourceKind::ColorSource { color_rgba, .. } => {
+                    return Some([color_rgba[0], color_rgba[1], color_rgba[2]]);
+                }
+                SourceKind::ImageSource { file_path, .. } => {
+                    let key = format!("IMG:{}", file_path);
+                    if let Some(rgb) = app.capture_engine.sample_latest_frame_pixel(&key, u, v) {
+                        return Some(rgb);
+                    }
+                }
+                SourceKind::ImageSlideShow { files, .. } => {
+                    let valid_files: Vec<&String> = files.iter().filter(|f| !f.trim().is_empty()).collect();
+                    for f in valid_files {
+                        let key = format!("IMG:{}", f);
+                        if let Some(rgb) = app.capture_engine.sample_latest_frame_pixel(&key, u, v) {
+                            return Some(rgb);
+                        }
+                    }
+                }
+                SourceKind::MediaSource { file_path, .. } => {
+                    let key = format!("MEDIA:{}", file_path);
+                    if let Some(rgb) = app.capture_engine.sample_latest_frame_pixel(&key, u, v) {
+                        return Some(rgb);
+                    }
+                }
+                SourceKind::WebcamDevice { device_id, resolution, .. } => {
+                    let key = format!("CAM:{}:{}x{}", device_id, resolution.0, resolution.1);
+                    if let Some(rgb) = app.capture_engine.sample_latest_frame_pixel(&key, u, v) {
+                        return Some(rgb);
+                    }
+                }
+                SourceKind::DisplayCapture { monitor_id, capture_cursor, .. } => {
+                    let resolved_id = app
+                        .capture_catalog
+                        .find_display(monitor_id)
+                        .map(|d| d.id.as_str())
+                        .unwrap_or(monitor_id.as_str());
+                    let key = format!("DISP:{}:{}", resolved_id, capture_cursor);
+                    if let Some(rgb) = app.capture_engine.sample_latest_frame_pixel(&key, u, v) {
+                        return Some(rgb);
+                    }
+                }
+                SourceKind::WindowCapture { window_hwnd, capture_cursor, .. }
+                | SourceKind::GameCapture { window_hwnd, capture_cursor, .. } => {
+                    let key = format!("WIN:{}:{}", window_hwnd, capture_cursor);
+                    if let Some(rgb) = app.capture_engine.sample_latest_frame_pixel(&key, u, v) {
+                        return Some(rgb);
+                    }
+                }
+                SourceKind::TextGdiPlus { color_rgba, .. } => {
+                    return Some([color_rgba[0], color_rgba[1], color_rgba[2]]);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // Default stage surface color
+    Some([16, 20, 28])
 }

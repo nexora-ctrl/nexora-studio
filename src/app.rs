@@ -74,11 +74,17 @@ pub struct NexoraApp {
     pub show_rename_scene_dialog: bool,
     pub rename_scene_buffer: String,
     pub show_source_properties_dialog: bool,
+    pub show_source_filters_dialog: bool,
     pub show_slideshow_manager_dialog: bool,
     pub show_rename_source_dialog: bool,
     pub rename_source_buffer: String,
     pub show_save_layout_dialog: bool,
     pub save_layout_name_buffer: String,
+    pub eyedropper_active: bool,
+    pub eyedropper_armed: bool,
+    pub eyedropper_color: Option<[u8; 3]>,
+    pub preview_canvas_rect: Option<egui::Rect>,
+    pub program_canvas_rect: Option<egui::Rect>,
     pub show_projector_window: bool,
     pub projector_target_label: String,
     pub projector_target: Option<ProjectorTarget>,
@@ -205,11 +211,17 @@ impl NexoraApp {
             show_rename_scene_dialog: false,
             rename_scene_buffer: String::new(),
             show_source_properties_dialog: false,
+            show_source_filters_dialog: false,
             show_slideshow_manager_dialog: false,
             show_rename_source_dialog: false,
             rename_source_buffer: String::new(),
             show_save_layout_dialog: false,
             save_layout_name_buffer: String::new(),
+            eyedropper_active: false,
+            eyedropper_armed: false,
+            eyedropper_color: None,
+            preview_canvas_rect: None,
+            program_canvas_rect: None,
             show_projector_window: false,
             projector_target_label: String::new(),
             projector_target: None,
@@ -751,6 +763,16 @@ impl NexoraApp {
         hasher.finish()
     }
 
+    pub fn is_any_modal_open(&self) -> bool {
+        self.show_settings_dialog
+            || self.show_rename_scene_dialog
+            || self.show_rename_source_dialog
+            || self.show_source_properties_dialog
+            || self.show_slideshow_manager_dialog
+            || self.show_source_filters_dialog
+            || self.show_save_layout_dialog
+    }
+
     pub fn can_undo(&self) -> bool {
         !self.undo_stack.is_empty() || self.compute_undoable_hash() != self.committed_hash
     }
@@ -914,6 +936,7 @@ impl eframe::App for NexoraApp {
 
         // 6. Floating Modal Dialogs (Settings, Rename Scene, Save Screen & Layout Preset)
         crate::ui::dialogs::render_dialogs(ctx, self);
+        crate::ui::dialogs::render_eyedropper_overlay(ctx, self);
 
         // 7. Automatic Undo History Commit (settled after mouse release) & Background Auto-Save
         let live_u_hash = self.compute_undoable_hash();

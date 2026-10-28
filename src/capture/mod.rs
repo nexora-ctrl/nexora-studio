@@ -295,6 +295,224 @@ impl LiveCaptureEngine {
 
         self.textures.get(key).map(|(_, h)| h.clone())
     }
+
+    /// Uploads and applies real-time Chroma Key, Color Key, or Luma Key filters to source frames
+    pub fn get_or_update_filtered_texture(
+        &mut self,
+        ctx: &egui::Context,
+        base_key: &str,
+        filter: &crate::studio::source::SourceFilterConfig,
+    ) -> Option<egui::TextureHandle> {
+        if !filter.is_active() {
+            return self.get_or_update_texture(ctx, base_key);
+        }
+
+        let filter_sig = filter.cache_signature();
+        let composite_key = format!("{}|FLT:{}", base_key, filter_sig);
+
+        let maybe_new_frame = {
+            let guard = self.shared.lock().ok()?;
+            let frame = guard.latest_frames.get(base_key)?;
+            let needs_upload = match self.textures.get(&composite_key) {
+                Some((last_seq, _)) => *last_seq != frame.seq,
+                None => true,
+            };
+            if needs_upload {
+                Some(frame.clone())
+            } else {
+                None
+            }
+        };
+
+        if let Some(frame) = maybe_new_frame {
+            let mut processed_rgba = frame.rgba.to_vec();
+            apply_key_filter_to_rgba(&mut processed_rgba, filter);
+
+            let color_image = egui::ColorImage::from_rgba_unmultiplied(
+                [frame.width, frame.height],
+                &processed_rgba,
+            );
+            if let Some((seq_ref, tex_handle)) = self.textures.get_mut(&composite_key) {
+                tex_handle.set(color_image, egui::TextureOptions::LINEAR);
+                *seq_ref = frame.seq;
+            } else {
+                let handle = ctx.load_texture(
+                    format!("capture_tex_{}", composite_key),
+                    color_image,
+                    egui::TextureOptions::LINEAR,
+                );
+                self.textures.insert(composite_key.clone(), (frame.seq, handle));
+            }
+        }
+
+        self.textures.get(&composite_key).map(|(_, h)| h.clone())
+    }
+
+    /// Samples the real RGB pixel value of the latest captured frame at normalized (u, v) coordinates (0.0..=1.0)
+    pub fn sample_latest_frame_pixel(&self, key: &str, u: f32, v: f32) -> Option<[u8; 3]> {
+        if let Ok(guard) = self.shared.lock() {
+            if let Some(frame) = guard.latest_frames.get(key) {
+                if frame.width > 0 && frame.height > 0 && !frame.rgba.is_empty() {
+                    let px = ((u.clamp(0.0, 1.0) * (frame.width - 1) as f32).round() as usize).min(frame.width - 1);
+                    let py = ((v.clamp(0.0, 1.0) * (frame.height - 1) as f32).round() as usize).min(frame.height - 1);
+                    let idx = (py * frame.width + px) * 4;
+                    if idx + 2 < frame.rgba.len() {
+                        return Some([frame.rgba[idx], frame.rgba[idx + 1], frame.rgba[idx + 2]]);
+                    }
+                }
+            }
+        }
+
+        // Direct fallback for local image files if frame has not yet been processed by background worker
+        if let Some(path_str) = key.strip_prefix("IMG:") {
+            if let Ok(img) = image::open(path_str) {
+                let rgba = img.to_rgba8();
+                let w = rgba.width();
+                let h = rgba.height();
+                if w > 0 && h > 0 {
+                    let px = ((u.clamp(0.0, 1.0) * (w - 1) as f32).round() as u32).min(w - 1);
+                    let py = ((v.clamp(0.0, 1.0) * (h - 1) as f32).round() as u32).min(h - 1);
+                    let p = rgba.get_pixel(px, py);
+                    return Some([p[0], p[1], p[2]]);
+                }
+            }
+        }
+        None
+    }
+}
+
+/// Applies Chroma Key, Color Key, or Luma Key in place to 32-bit RGBA pixel buffer
+fn apply_key_filter_to_rgba(
+    rgba: &mut [u8],
+    filter: &crate::studio::source::SourceFilterConfig,
+) {
+    use crate::studio::source::KeyFilterKind;
+
+    match filter.kind {
+        KeyFilterKind::None => {}
+        KeyFilterKind::LumaKey => {
+            let l_min = filter.luma_min.clamp(0.0, 1.0);
+            let l_min_s = filter.luma_min_smooth.max(0.001);
+            let l_max = filter.luma_max.clamp(0.0, 1.0);
+            let l_max_s = filter.luma_max_smooth.max(0.001);
+            let op = filter.opacity.clamp(0.0, 1.0);
+
+            for chunk in rgba.chunks_exact_mut(4) {
+                let r = chunk[0] as f32;
+                let g = chunk[1] as f32;
+                let b = chunk[2] as f32;
+                let a = chunk[3] as f32 / 255.0;
+
+                // Rec.709 relative luminance
+                let lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255.0;
+
+                let a_low = if lum <= l_min {
+                    0.0
+                } else if lum < l_min + l_min_s {
+                    let t = (lum - l_min) / l_min_s;
+                    t * t * (3.0 - 2.0 * t)
+                } else {
+                    1.0
+                };
+
+                let a_high = if lum >= l_max {
+                    0.0
+                } else if lum > l_max - l_max_s {
+                    let t = (l_max - lum) / l_max_s;
+                    t * t * (3.0 - 2.0 * t)
+                } else {
+                    1.0
+                };
+
+                let final_a = (a * a_low * a_high * op).clamp(0.0, 1.0);
+                chunk[3] = (final_a * 255.0).round() as u8;
+            }
+        }
+        KeyFilterKind::ColorKey => {
+            let kr = filter.key_color_rgb[0] as f32;
+            let kg = filter.key_color_rgb[1] as f32;
+            let kb = filter.key_color_rgb[2] as f32;
+
+            let sim = (filter.similarity as f32 / 1000.0) * 0.75;
+            let smooth = (filter.smoothness as f32 / 1000.0) * 0.35 + 0.005;
+            let op = filter.opacity.clamp(0.0, 1.0);
+
+            for chunk in rgba.chunks_exact_mut(4) {
+                let r = chunk[0] as f32;
+                let g = chunk[1] as f32;
+                let b = chunk[2] as f32;
+                let a = chunk[3] as f32 / 255.0;
+
+                // Weighted Euclidean color distance
+                let dr = r - kr;
+                let dg = g - kg;
+                let db = b - kb;
+                let dist = ((2.0 * dr * dr + 4.0 * dg * dg + 3.0 * db * db) / (9.0 * 255.0 * 255.0)).sqrt();
+
+                let key_a = if dist <= sim {
+                    0.0
+                } else if dist < sim + smooth {
+                    let t = (dist - sim) / smooth;
+                    t * t * (3.0 - 2.0 * t)
+                } else {
+                    1.0
+                };
+
+                let final_a = (a * key_a * op).clamp(0.0, 1.0);
+                chunk[3] = (final_a * 255.0).round() as u8;
+            }
+        }
+        KeyFilterKind::ChromaKey => {
+            let kr = filter.key_color_rgb[0] as f32;
+            let kg = filter.key_color_rgb[1] as f32;
+            let kb = filter.key_color_rgb[2] as f32;
+
+            // Target YCbCr
+            let key_cb = -0.168736 * kr - 0.331264 * kg + 0.5 * kb;
+            let key_cr = 0.5 * kr - 0.418688 * kg - 0.081312 * kb;
+
+            let sim = (filter.similarity as f32 / 1000.0) * 160.0;
+            let smooth = (filter.smoothness as f32 / 1000.0) * 90.0 + 1.0;
+            let spill = (filter.spill_reduction as f32 / 1000.0).clamp(0.0, 1.0);
+            let op = filter.opacity.clamp(0.0, 1.0);
+
+            for chunk in rgba.chunks_exact_mut(4) {
+                let r = chunk[0] as f32;
+                let g = chunk[1] as f32;
+                let b = chunk[2] as f32;
+                let a = chunk[3] as f32 / 255.0;
+
+                let _y = 0.299 * r + 0.587 * g + 0.114 * b;
+                let cb = -0.168736 * r - 0.331264 * g + 0.5 * b;
+                let cr = 0.5 * r - 0.418688 * g - 0.081312 * b;
+
+                let d_cb = cb - key_cb;
+                let d_cr = cr - key_cr;
+                let dist = (d_cb * d_cb + d_cr * d_cr).sqrt();
+
+                let key_a = if dist <= sim {
+                    0.0
+                } else if dist < sim + smooth {
+                    let t = (dist - sim) / smooth;
+                    t * t * (3.0 - 2.0 * t)
+                } else {
+                    1.0
+                };
+
+                // Spill suppression: if green dominant, desaturate excess green
+                if spill > 0.01 && key_a > 0.0 {
+                    let excess_g = g - ((r + b) * 0.5);
+                    if excess_g > 0.0 {
+                        let corrected_g = g - excess_g * spill * (1.0 - (key_a * 0.5));
+                        chunk[1] = corrected_g.clamp(0.0, 255.0).round() as u8;
+                    }
+                }
+
+                let final_a = (a * key_a * op).clamp(0.0, 1.0);
+                chunk[3] = (final_a * 255.0).round() as u8;
+            }
+        }
+    }
 }
 
 impl Drop for LiveCaptureEngine {

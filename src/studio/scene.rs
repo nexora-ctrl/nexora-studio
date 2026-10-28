@@ -110,7 +110,8 @@ impl Scene {
 
     pub fn add_source(&mut self, item: SourceItem) {
         self.selected_source_id = Some(item.id);
-        self.sources.push(item);
+        // Insert at index 0 (top of the Source panel = front/foreground layer on canvas)
+        self.sources.insert(0, item);
     }
 
     pub fn remove_selected_source(&mut self) -> bool {
@@ -181,7 +182,7 @@ impl Scene {
         copy.id = Uuid::new_v4();
         copy.name = format!("{} (Copy)", copy.name);
         let new_id = copy.id;
-        self.sources.insert(idx + 1, copy);
+        self.sources.insert(idx, copy);
         self.selected_source_id = Some(new_id);
         Some(new_id)
     }

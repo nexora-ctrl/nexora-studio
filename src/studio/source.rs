@@ -664,6 +664,163 @@ impl SourceColorTag {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum KeyFilterKind {
+    #[default]
+    None,
+    ChromaKey,
+    ColorKey,
+    LumaKey,
+}
+
+impl KeyFilterKind {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::None => "None (Original / Tanpa Filter)",
+            Self::ChromaKey => "Chroma Key (Green / Blue Screen)",
+            Self::ColorKey => "Color Key (Hapus Warna Tertentu)",
+            Self::LumaKey => "Luma Key (Hapus Gelap / Terang)",
+        }
+    }
+
+    pub fn short_name(&self) -> &'static str {
+        match self {
+            Self::None => "None",
+            Self::ChromaKey => "Chroma Key",
+            Self::ColorKey => "Color Key",
+            Self::LumaKey => "Luma Key",
+        }
+    }
+
+    pub fn hover_explanation(&self) -> &'static str {
+        match self {
+            Self::None => "Menampilkan gambar/video asli tanpa transparansi atau pemotongan warna latar.",
+            Self::ChromaKey => "Chroma Key: Menghapus latar belakang Green Screen atau Blue Screen secara halus.\n• Cocok untuk: Video presenter/webcam dengan kain hijau/biru, animasi transisi / subscribe green screen.\n• Dilengkapi: Fitur Spill Reduction untuk membersihkan sisa pantulan warna hijau di tepi rambut/badan objek.",
+            Self::ColorKey => "Color Key: Menghapus satu warna spesifik pilihan Anda menjadi transparan.\n• Cocok untuk: Logo, stiker, atau grafik overlay yang memiliki latar belakang satu warna solid (misal putih, merah, atau biru).\n• Fleksibel: Warna target dapat dipilih langsung menggunakan color picker.",
+            Self::LumaKey => "Luma Key: Menghapus bagian gambar/video berdasarkan tingkat kecerahan / gelap-terang (Luminance).\n• Cocok untuk: Menghilangkan background hitam pekat (seperti video efek api, partikel debu, kilatan cahaya, ledakan, atau logo berlatar hitam pekat tanpa green screen).\n• Juga dapat memotong area putih terang jika disesuaikan.",
+        }
+    }
+
+    pub fn all() -> &'static [KeyFilterKind] {
+        &[Self::None, Self::ChromaKey, Self::ColorKey, Self::LumaKey]
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum ChromaKeyPresetColor {
+    #[default]
+    Green,
+    Blue,
+    Magenta,
+    Custom,
+}
+
+impl ChromaKeyPresetColor {
+    pub fn rgb(&self) -> [u8; 3] {
+        match self {
+            Self::Green => [0, 255, 0],
+            Self::Blue => [0, 71, 187],
+            Self::Magenta => [255, 0, 255],
+            Self::Custom => [0, 255, 0],
+        }
+    }
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Green => "Green Screen (Hijau Standard)",
+            Self::Blue => "Blue Screen (Biru Studio)",
+            Self::Magenta => "Magenta Screen",
+            Self::Custom => "Custom Color",
+        }
+    }
+
+    pub fn all() -> &'static [ChromaKeyPresetColor] {
+        &[Self::Green, Self::Blue, Self::Magenta, Self::Custom]
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SourceFilterConfig {
+    pub kind: KeyFilterKind,
+    pub enabled: bool,
+    pub key_color_preset: ChromaKeyPresetColor,
+    pub key_color_rgb: [u8; 3],
+    /// Similarity threshold (1..=1000)
+    pub similarity: u32,
+    /// Smoothness feathering (1..=1000)
+    pub smoothness: u32,
+    /// Chroma spill reduction (1..=1000)
+    pub spill_reduction: u32,
+    /// Luma Key minimum cut (cuts dark/black pixels) 0.0..=1.0
+    pub luma_min: f32,
+    /// Luma Key minimum smoothness feathering 0.0..=0.5
+    pub luma_min_smooth: f32,
+    /// Luma Key maximum cut (cuts bright/white pixels) 0.0..=1.0
+    pub luma_max: f32,
+    /// Luma Key maximum smoothness feathering 0.0..=0.5
+    pub luma_max_smooth: f32,
+    /// Overall layer opacity (0.0..=1.0)
+    pub opacity: f32,
+}
+
+impl Default for SourceFilterConfig {
+    fn default() -> Self {
+        Self {
+            kind: KeyFilterKind::None,
+            enabled: true,
+            key_color_preset: ChromaKeyPresetColor::Green,
+            key_color_rgb: [0, 255, 0],
+            similarity: 400,
+            smoothness: 80,
+            spill_reduction: 100,
+            luma_min: 0.08,
+            luma_min_smooth: 0.06,
+            luma_max: 1.00,
+            luma_max_smooth: 0.04,
+            opacity: 1.0,
+        }
+    }
+}
+
+impl SourceFilterConfig {
+    pub fn is_active(&self) -> bool {
+        self.enabled && self.kind != KeyFilterKind::None
+    }
+
+    pub fn cache_signature(&self) -> String {
+        if !self.is_active() {
+            return "NONE".to_string();
+        }
+        match self.kind {
+            KeyFilterKind::None => "NONE".to_string(),
+            KeyFilterKind::ChromaKey => format!(
+                "CHK:{:02x}{:02x}{:02x}:{}:{}:{}",
+                self.key_color_rgb[0],
+                self.key_color_rgb[1],
+                self.key_color_rgb[2],
+                self.similarity,
+                self.smoothness,
+                self.spill_reduction
+            ),
+            KeyFilterKind::ColorKey => format!(
+                "CLK:{:02x}{:02x}{:02x}:{}:{}",
+                self.key_color_rgb[0],
+                self.key_color_rgb[1],
+                self.key_color_rgb[2],
+                self.similarity,
+                self.smoothness
+            ),
+            KeyFilterKind::LumaKey => format!(
+                "LUM:{:.3}:{:.3}:{:.3}:{:.3}",
+                self.luma_min,
+                self.luma_min_smooth,
+                self.luma_max,
+                self.luma_max_smooth
+            ),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SourceItem {
     pub id: Uuid,
@@ -674,6 +831,8 @@ pub struct SourceItem {
     pub transform: SourceTransform,
     #[serde(default)]
     pub color_tag: SourceColorTag,
+    #[serde(default)]
+    pub filter: SourceFilterConfig,
 }
 
 impl SourceItem {
@@ -690,6 +849,7 @@ impl SourceItem {
             kind,
             transform,
             color_tag: SourceColorTag::None,
+            filter: SourceFilterConfig::default(),
         }
     }
 

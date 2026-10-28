@@ -730,6 +730,8 @@ enum SourceContextAction {
     CenterOnScreen(Uuid),
     ToggleLock(Uuid),
     SetColor(Uuid, SourceColorTag),
+    SetFilterKind(Uuid, crate::studio::source::KeyFilterKind),
+    OpenFilters(Uuid),
     Duplicate(Uuid),
     Remove(Uuid),
     Rename(Uuid),
@@ -828,6 +830,7 @@ fn populate_source_context_menu(
     src_id: Uuid,
     is_locked: bool,
     current_color: SourceColorTag,
+    current_filter_kind: crate::studio::source::KeyFilterKind,
     action_out: &mut Option<SourceContextAction>,
 ) {
     ui.set_min_width(220.0);
@@ -837,6 +840,27 @@ fn populate_source_context_menu(
     });
 
     ui.separator();
+
+    ui.menu_button(format!("{}  Filters", icons::FILTER), |ui| {
+        ui.set_min_width(220.0);
+        for fk in crate::studio::source::KeyFilterKind::all() {
+            let active = current_filter_kind == *fk;
+            let resp = ui.selectable_label(active, fk.label()).on_hover_text(fk.hover_explanation());
+            if resp.clicked() {
+                *action_out = Some(SourceContextAction::SetFilterKind(src_id, *fk));
+                ui.close_menu();
+            }
+        }
+        ui.separator();
+        if ui
+            .button(format!("{}  Configure Filters...", icons::ADJUSTMENTS))
+            .on_hover_text("Buka jendela pengaturan intensitas, warna target, dan kehalusan filter")
+            .clicked()
+        {
+            *action_out = Some(SourceContextAction::OpenFilters(src_id));
+            ui.close_menu();
+        }
+    });
 
     ui.menu_button(format!("{}  Set Color", icons::PALETTE), |ui| {
         ui.set_min_width(145.0);
@@ -852,27 +876,27 @@ fn populate_source_context_menu(
     });
 
     ui.menu_button(format!("{}  Order", icons::ARROWS_UP_DOWN), |ui| {
-        ui.set_min_width(155.0);
+        ui.set_min_width(185.0);
         if ui
-            .button(format!("{}  Move Up", icons::ARROW_UP))
+            .button(format!("{}  Move Up (Bring Forward)", icons::ARROW_UP))
             .clicked()
         {
             *action_out = Some(SourceContextAction::MoveUp(src_id));
             ui.close_menu();
         }
         if ui
-            .button(format!("{}  Move Down", icons::ARROW_DOWN))
+            .button(format!("{}  Move Down (Send Backward)", icons::ARROW_DOWN))
             .clicked()
         {
             *action_out = Some(SourceContextAction::MoveDown(src_id));
             ui.close_menu();
         }
         ui.separator();
-        if ui.button("Move to Top").clicked() {
+        if ui.button("Move to Top (Front)").clicked() {
             *action_out = Some(SourceContextAction::MoveTop(src_id));
             ui.close_menu();
         }
-        if ui.button("Move to Bottom").clicked() {
+        if ui.button("Move to Bottom (Back)").clicked() {
             *action_out = Some(SourceContextAction::MoveBottom(src_id));
             ui.close_menu();
         }
@@ -952,6 +976,15 @@ fn populate_source_context_menu(
     ui.separator();
 
     if ui
+        .button(format!("{}  Filters...", icons::FILTER))
+        .on_hover_text("Atur Chroma Key, Color Key, atau Luma Key")
+        .clicked()
+    {
+        *action_out = Some(SourceContextAction::OpenFilters(src_id));
+        ui.close_menu();
+    }
+
+    if ui
         .button(format!("{}  Properties", icons::SETTINGS))
         .clicked()
     {
@@ -1027,146 +1060,261 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                     });
                 }
 
+                let row_w = (body_size.x - 4.0).max(150.0);
+                ui.spacing_mut().item_spacing.y = 4.0;
+
                 for src in &mut scene.sources {
                     let is_sel = cur_sel == Some(src.id);
                     let src_id = src.id;
                     let is_locked = src.locked;
                     let current_color = src.color_tag;
+                    let current_filter_kind = src.filter.kind;
+                    let is_media = matches!(src.kind, SourceKind::MediaSource { .. });
 
-                    let row_frame = if let Some(tint) = color_tag_tint(src.color_tag) {
-                        egui::Frame::new()
-                            .fill(tint)
-                            .corner_radius(CornerRadius::same(4))
-                            .inner_margin(egui::Margin::symmetric(4, 2))
+                    let row_h = 31.0;
+                    let (row_rect, _) =
+                        ui.allocate_exact_size(Vec2::new(row_w, row_h), Sense::hover());
+
+                    // Reserve right-hand zone for action buttons ([Play] [Mute] [Eye] [Lock])
+                    let btn_count = if is_media { 4 } else { 2 };
+                    let buttons_zone_w = (btn_count as f32) * 28.0 + 6.0;
+                    let select_rect = Rect::from_min_max(
+                        row_rect.min,
+                        Pos2::new(
+                            (row_rect.max.x - buttons_zone_w).max(row_rect.min.x + 48.0),
+                            row_rect.max.y,
+                        ),
+                    );
+
+                    let row_resp = ui.interact(
+                        select_rect,
+                        ui.id().with(("source_row_select", src_id)),
+                        Sense::click(),
+                    );
+                    let hovered = row_resp.hovered() || ui.rect_contains_pointer(row_rect);
+
+                    // Card Fill & Border (matching Scenes card style + optional color tag tint)
+                    let tag_tint = color_tag_tint(src.color_tag);
+                    let (card_fill, border_stroke, strip_col) = if is_sel {
+                        let base_fill = tag_tint.unwrap_or_else(|| {
+                            Color32::from_rgba_unmultiplied(
+                                p.accent_preview.r(),
+                                p.accent_preview.g(),
+                                p.accent_preview.b(),
+                                if hovered { 38 } else { 26 },
+                            )
+                        });
+                        (
+                            base_fill,
+                            Stroke::new(1.4_f32, p.accent_preview),
+                            p.accent_preview,
+                        )
+                    } else if let Some(tint) = tag_tint {
+                        (
+                            tint,
+                            Stroke::new(
+                                1.0_f32,
+                                if hovered {
+                                    p.accent_preview
+                                } else {
+                                    p.border_subtle
+                                },
+                            ),
+                            tint.gamma_multiply(1.8),
+                        )
                     } else {
-                        egui::Frame::new().inner_margin(egui::Margin::symmetric(4, 2))
+                        (
+                            if hovered {
+                                p.bg_elevated
+                            } else {
+                                Color32::from_rgba_unmultiplied(
+                                    p.bg_elevated.r(),
+                                    p.bg_elevated.g(),
+                                    p.bg_elevated.b(),
+                                    140,
+                                )
+                            },
+                            Stroke::new(1.0_f32, p.border_subtle),
+                            p.border_subtle,
+                        )
                     };
 
-                    row_frame.show(ui, |ui| {
-                        ui.set_min_height(24.0);
-                        ui.horizontal(|ui| {
-                            let label_text =
-                                format!("{}  {}", src.kind.tabler_icon(), src.name);
-                            let row_resp = ui
-                                .selectable_label(is_sel, label_text)
-                                .on_hover_text(format!(
-                                    "{}\n(Right-click for options • Double-click for Properties)",
-                                    src.kind.summary()
-                                ));
+                    ui.painter()
+                        .rect_filled(row_rect, CornerRadius::same(6), card_fill);
 
-                            if row_resp.clicked() {
-                                new_selected = Some(src_id);
-                            }
-                            if row_resp.double_clicked() {
-                                new_selected = Some(src_id);
-                                pending_action =
-                                    Some(SourceContextAction::OpenProperties(src_id));
-                            }
+                    // Left Accent Strip (4.5px wide)
+                    let strip_rect = Rect::from_min_max(
+                        row_rect.min,
+                        Pos2::new(row_rect.min.x + 4.5, row_rect.max.y),
+                    );
+                    ui.painter().rect_filled(
+                        strip_rect,
+                        CornerRadius {
+                            nw: 6,
+                            ne: 0,
+                            sw: 6,
+                            se: 0,
+                        },
+                        strip_col,
+                    );
 
-                            row_resp.context_menu(|ui| {
-                                populate_source_context_menu(
-                                    ui,
-                                    src_id,
-                                    is_locked,
-                                    current_color,
-                                    &mut pending_action,
-                                );
-                            });
+                    ui.painter().rect_stroke(
+                        row_rect,
+                        CornerRadius::same(6),
+                        border_stroke,
+                        egui::StrokeKind::Inside,
+                    );
 
-                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                ui.spacing_mut().item_spacing.x = 4.0;
-                                let lock_label = if src.locked {
-                                    icons::LOCK
-                                } else {
-                                    icons::LOCK_OPEN
-                                };
-                                let lock_col = if src.locked {
-                                    Some(p.rec_red)
-                                } else {
-                                    None
-                                };
-                                if paint_icon_action_btn(
-                                    ui,
-                                    lock_label,
-                                    lock_col,
-                                    &p,
-                                    "Lock / Unlock position on canvas",
-                                ) {
-                                    src.locked = !src.locked;
-                                    vis_changed = true;
-                                }
+                    // Draw Source Icon & Name (and optional Filter badge) inside `select_rect`
+                    let text_col = if !src.visible {
+                        p.text_muted
+                    } else if is_sel {
+                        p.text_primary
+                    } else {
+                        p.text_secondary
+                    };
 
-                                let vis_label = if src.visible {
-                                    icons::EYE
-                                } else {
-                                    icons::EYE_OFF
-                                };
-                                let vis_col = if src.visible {
-                                    None
-                                } else {
-                                    Some(p.text_muted)
-                                };
-                                if paint_icon_action_btn(
-                                    ui,
-                                    vis_label,
-                                    vis_col,
-                                    &p,
-                                    "Show / Hide this source",
-                                ) {
-                                    src.visible = !src.visible;
-                                    vis_changed = true;
-                                }
+                    let label_text = if src.filter.is_active() {
+                        format!("{}  {} [{}]", src.kind.tabler_icon(), src.name, src.filter.kind.short_name())
+                    } else {
+                        format!("{}  {}", src.kind.tabler_icon(), src.name)
+                    };
 
-                                if let SourceKind::MediaSource {
-                                    muted, is_playing, ..
-                                } = &mut src.kind
-                                {
-                                    let snd_icon = if *muted {
-                                        icons::VOLUME_OFF
-                                    } else {
-                                        icons::VOLUME
-                                    };
-                                    let snd_col = if *muted {
-                                        Some(p.rec_red)
-                                    } else {
-                                        None
-                                    };
-                                    if paint_icon_action_btn(
-                                        ui,
-                                        snd_icon,
-                                        snd_col,
-                                        &p,
-                                        "Mute / Unmute Media Playback Audio",
-                                    ) {
-                                        *muted = !*muted;
-                                        vis_changed = true;
-                                    }
+                    let text_clip = Rect::from_min_max(
+                        Pos2::new(row_rect.min.x + 11.0, row_rect.min.y),
+                        Pos2::new(select_rect.max.x - 4.0, row_rect.max.y),
+                    );
+                    ui.painter().with_clip_rect(text_clip).text(
+                        Pos2::new(row_rect.min.x + 11.0, row_rect.center().y),
+                        egui::Align2::LEFT_CENTER,
+                        label_text,
+                        egui::FontId::proportional(12.0),
+                        text_col,
+                    );
 
-                                    let play_icon = if *is_playing {
-                                        icons::PLAYER_PAUSE
-                                    } else {
-                                        icons::PLAYER_PLAY
-                                    };
-                                    let play_col = if *is_playing {
-                                        None
-                                    } else {
-                                        Some(p.accent_preview)
-                                    };
-                                    if paint_icon_action_btn(
-                                        ui,
-                                        play_icon,
-                                        play_col,
-                                        &p,
-                                        "Pause / Play Media",
-                                    ) {
-                                        *is_playing = !*is_playing;
-                                        vis_changed = true;
-                                    }
-                                }
-                            });
-                        });
+                    if row_resp.clicked() {
+                        new_selected = Some(src_id);
+                    }
+                    if row_resp.double_clicked() {
+                        new_selected = Some(src_id);
+                        pending_action = Some(SourceContextAction::OpenProperties(src_id));
+                    }
+
+                    row_resp.context_menu(|ui| {
+                        populate_source_context_menu(
+                            ui,
+                            src_id,
+                            is_locked,
+                            current_color,
+                            current_filter_kind,
+                            &mut pending_action,
+                        );
                     });
+                    row_resp.on_hover_text(format!(
+                        "{}\n• Click anywhere on row: Select Source\n• Double-click: Open Properties\n• Right-click: Source Options",
+                        src.kind.summary()
+                    ));
+
+                    // Render Right-Side Action Buttons inside the right zone of `row_rect`
+                    let buttons_rect = Rect::from_min_max(
+                        Pos2::new(select_rect.max.x, row_rect.min.y),
+                        Pos2::new(row_rect.max.x - 6.0, row_rect.max.y),
+                    );
+                    let mut btn_ui = ui.new_child(
+                        egui::UiBuilder::new()
+                            .max_rect(buttons_rect)
+                            .layout(Layout::right_to_left(Align::Center)),
+                    );
+                    btn_ui.spacing_mut().item_spacing.x = 4.0;
+
+                    let lock_label = if src.locked {
+                        icons::LOCK
+                    } else {
+                        icons::LOCK_OPEN
+                    };
+                    let lock_col = if src.locked { Some(p.rec_red) } else { None };
+                    if paint_icon_action_btn(
+                        &mut btn_ui,
+                        lock_label,
+                        lock_col,
+                        &p,
+                        "Lock / Unlock position on canvas",
+                    ) {
+                        src.locked = !src.locked;
+                        vis_changed = true;
+                    }
+
+                    let vis_label = if src.visible {
+                        icons::EYE
+                    } else {
+                        icons::EYE_OFF
+                    };
+                    let vis_col = if src.visible {
+                        None
+                    } else {
+                        Some(p.text_muted)
+                    };
+                    if paint_icon_action_btn(
+                        &mut btn_ui,
+                        vis_label,
+                        vis_col,
+                        &p,
+                        "Show / Hide this source",
+                    ) {
+                        src.visible = !src.visible;
+                        vis_changed = true;
+                    }
+
+                    if let SourceKind::MediaSource {
+                        muted, is_playing, ..
+                    } = &mut src.kind
+                    {
+                        let snd_icon = if *muted {
+                            icons::VOLUME_OFF
+                        } else {
+                            icons::VOLUME
+                        };
+                        let snd_col = if *muted { Some(p.rec_red) } else { None };
+                        if paint_icon_action_btn(
+                            &mut btn_ui,
+                            snd_icon,
+                            snd_col,
+                            &p,
+                            "Mute / Unmute Media Playback Audio",
+                        ) {
+                            *muted = !*muted;
+                            vis_changed = true;
+                        }
+
+                        let play_icon = if *is_playing {
+                            icons::PLAYER_PAUSE
+                        } else {
+                            icons::PLAYER_PLAY
+                        };
+                        let play_col = if *is_playing {
+                            None
+                        } else {
+                            Some(p.accent_preview)
+                        };
+                        if paint_icon_action_btn(
+                            &mut btn_ui,
+                            play_icon,
+                            play_col,
+                            &p,
+                            "Pause / Play Media",
+                        ) {
+                            *is_playing = !*is_playing;
+                            vis_changed = true;
+                        }
+                    }
                 }
+                let sel_filter_k = scene
+                    .sources
+                    .iter()
+                    .find(|s| s.id == new_selected.unwrap_or(uuid::Uuid::nil()))
+                    .map(|s| s.filter.kind)
+                    .unwrap_or_default();
+
                 scene.selected_source_id = new_selected;
                 if vis_changed {
                     app.studio.sync_media_transport_to_program();
@@ -1186,6 +1334,7 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                                 sel_id,
                                 false,
                                 SourceColorTag::None,
+                                sel_filter_k,
                                 &mut pending_action,
                             );
                         } else {
@@ -1242,10 +1391,26 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
         if ui
             .add_enabled(
                 selected_id.is_some(),
+                egui::Button::new(
+                    RichText::new(format!("{} Filters", icons::FILTER)).small(),
+                )
+                .min_size(Vec2::new(68.0, 24.0)),
+            )
+            .on_hover_text("Open Filters (Chroma Key, Color Key, Luma Key)")
+            .clicked()
+        {
+            if let Some(id) = selected_id {
+                pending_action = Some(SourceContextAction::OpenFilters(id));
+            }
+        }
+
+        if ui
+            .add_enabled(
+                selected_id.is_some(),
                 egui::Button::new(RichText::new(format!(" {} ", icons::ARROW_UP)).small())
                     .min_size(Vec2::new(26.0, 24.0)),
             )
-            .on_hover_text("Move Source Up")
+            .on_hover_text("Move Source Up (Bring Forward — Closer to Front of Screen)")
             .clicked()
         {
             if let Some(id) = selected_id {
@@ -1259,7 +1424,7 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                 egui::Button::new(RichText::new(format!(" {} ", icons::ARROW_DOWN)).small())
                     .min_size(Vec2::new(26.0, 24.0)),
             )
-            .on_hover_text("Move Source Down")
+            .on_hover_text("Move Source Down (Send Backward — Behind Other Layers)")
             .clicked()
         {
             if let Some(id) = selected_id {
@@ -1643,6 +1808,20 @@ fn execute_source_context_action(app: &mut NexoraApp, action: SourceContextActio
                 src.color_tag = color;
             }
             app.studio.sync_if_linked();
+        }
+        SourceContextAction::SetFilterKind(id, filter_kind) => {
+            let scene = app.studio.preview_scene_mut();
+            scene.selected_source_id = Some(id);
+            if let Some(src) = scene.selected_source_mut() {
+                src.filter.kind = filter_kind;
+                src.filter.enabled = filter_kind != crate::studio::source::KeyFilterKind::None;
+            }
+            app.studio.sync_if_linked();
+        }
+        SourceContextAction::OpenFilters(id) => {
+            let scene = app.studio.preview_scene_mut();
+            scene.selected_source_id = Some(id);
+            app.show_source_filters_dialog = true;
         }
         SourceContextAction::Duplicate(id) => {
             let scene = app.studio.preview_scene_mut();

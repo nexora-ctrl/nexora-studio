@@ -443,6 +443,11 @@ fn render_single_viewport_card(
 
             let canvas_rect = Rect::from_center_size(well_rect.center(), Vec2::new(canvas_w, canvas_h));
 
+            match role {
+                ViewportRole::Preview => app.preview_canvas_rect = Some(canvas_rect),
+                ViewportRole::Program => app.program_canvas_rect = Some(canvas_rect),
+            }
+
             // Base stage surface
             painter.rect_filled(
                 canvas_rect,
@@ -460,7 +465,12 @@ fn render_single_viewport_card(
             };
 
             // Interactive OBS-Style Selection, Move, 8-Handle Resize, and Alt-Crop in Preview
-            if role == ViewportRole::Preview && canvas_rect.width() > 10.0 && canvas_rect.height() > 10.0 {
+            if role == ViewportRole::Preview
+                && canvas_rect.width() > 10.0
+                && canvas_rect.height() > 10.0
+                && !app.is_any_modal_open()
+                && !app.eyedropper_active
+            {
                 let alt_held = ui.input(|i| i.modifiers.alt) || app.preview_crop_mode;
                 let shift_held = ui.input(|i| i.modifiers.shift);
                 let pointer_pos = response.interact_pointer_pos().or_else(|| ui.input(|i| i.pointer.hover_pos()));
@@ -471,35 +481,75 @@ fn render_single_viewport_card(
                     .filter(|s| s.visible)
                     .map(|s| compute_layer_screen_rect(canvas_rect, &s.transform));
 
-                // Update cursor icon when hovering over handles or selected source
+                // Update cursor icon:
+                // - standard default cursor for clicking and hovering layer body
+                // - directional resize cursors ONLY when hovering handles of an unlocked selected source
+                // - grabbing cursor ONLY when actively dragging layer
                 if let Some(ptr) = pointer_pos {
                     if app.preview_drag_mode == PreviewDragMode::None {
-                        if let Some(sel_rect) = selected_screen_rect {
-                            let hover_mode = hit_test_handles(sel_rect, ptr, alt_held);
-                            match hover_mode {
-                                PreviewDragMode::ResizeTopLeft | PreviewDragMode::ResizeBottomRight => {
-                                    ui.ctx().set_cursor_icon(CursorIcon::ResizeNwSe);
+                        if let Some(sel_src) = scene_clone.selected_source() {
+                            if !sel_src.locked {
+                                if let Some(sel_rect) = selected_screen_rect {
+                                    let hover_mode = hit_test_handles(sel_rect, ptr, alt_held);
+                                    match hover_mode {
+                                        PreviewDragMode::ResizeTopLeft | PreviewDragMode::ResizeBottomRight => {
+                                            ui.ctx().set_cursor_icon(CursorIcon::ResizeNwSe);
+                                        }
+                                        PreviewDragMode::ResizeTopRight | PreviewDragMode::ResizeBottomLeft => {
+                                            ui.ctx().set_cursor_icon(CursorIcon::ResizeNeSw);
+                                        }
+                                        PreviewDragMode::ResizeTop
+                                        | PreviewDragMode::ResizeBottom
+                                        | PreviewDragMode::CropTop
+                                        | PreviewDragMode::CropBottom => {
+                                            ui.ctx().set_cursor_icon(CursorIcon::ResizeVertical);
+                                        }
+                                        PreviewDragMode::ResizeLeft
+                                        | PreviewDragMode::ResizeRight
+                                        | PreviewDragMode::CropLeft
+                                        | PreviewDragMode::CropRight => {
+                                            ui.ctx().set_cursor_icon(CursorIcon::ResizeHorizontal);
+                                        }
+                                        PreviewDragMode::Move => {
+                                            // Normal hover over layer body: standard click cursor
+                                            ui.ctx().set_cursor_icon(CursorIcon::Default);
+                                        }
+                                        PreviewDragMode::None => {
+                                            ui.ctx().set_cursor_icon(CursorIcon::Default);
+                                        }
+                                    }
                                 }
-                                PreviewDragMode::ResizeTopRight | PreviewDragMode::ResizeBottomLeft => {
-                                    ui.ctx().set_cursor_icon(CursorIcon::ResizeNeSw);
-                                }
-                                PreviewDragMode::ResizeTop
-                                | PreviewDragMode::ResizeBottom
-                                | PreviewDragMode::CropTop
-                                | PreviewDragMode::CropBottom => {
-                                    ui.ctx().set_cursor_icon(CursorIcon::ResizeVertical);
-                                }
-                                PreviewDragMode::ResizeLeft
-                                | PreviewDragMode::ResizeRight
-                                | PreviewDragMode::CropLeft
-                                | PreviewDragMode::CropRight => {
-                                    ui.ctx().set_cursor_icon(CursorIcon::ResizeHorizontal);
-                                }
-                                PreviewDragMode::Move => {
-                                    ui.ctx().set_cursor_icon(CursorIcon::Grab);
-                                }
-                                PreviewDragMode::None => {}
+                            } else {
+                                ui.ctx().set_cursor_icon(CursorIcon::Default);
                             }
+                        } else {
+                            ui.ctx().set_cursor_icon(CursorIcon::Default);
+                        }
+                    } else if app.preview_drag_mode == PreviewDragMode::Move {
+                        // Actively dragging layer
+                        ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
+                    } else {
+                        // Actively resizing/cropping layer: maintain corresponding resize cursor
+                        match app.preview_drag_mode {
+                            PreviewDragMode::ResizeTopLeft | PreviewDragMode::ResizeBottomRight => {
+                                ui.ctx().set_cursor_icon(CursorIcon::ResizeNwSe);
+                            }
+                            PreviewDragMode::ResizeTopRight | PreviewDragMode::ResizeBottomLeft => {
+                                ui.ctx().set_cursor_icon(CursorIcon::ResizeNeSw);
+                            }
+                            PreviewDragMode::ResizeTop
+                            | PreviewDragMode::ResizeBottom
+                            | PreviewDragMode::CropTop
+                            | PreviewDragMode::CropBottom => {
+                                ui.ctx().set_cursor_icon(CursorIcon::ResizeVertical);
+                            }
+                            PreviewDragMode::ResizeLeft
+                            | PreviewDragMode::ResizeRight
+                            | PreviewDragMode::CropLeft
+                            | PreviewDragMode::CropRight => {
+                                ui.ctx().set_cursor_icon(CursorIcon::ResizeHorizontal);
+                            }
+                            _ => {}
                         }
                     }
                 }
@@ -515,9 +565,9 @@ fn render_single_viewport_card(
                         if matched_handle != PreviewDragMode::None && matched_handle != PreviewDragMode::Move {
                             app.preview_drag_mode = matched_handle;
                         } else {
-                            // Hit-test visible sources from top-most to bottom-most
+                            // Hit-test visible sources from top-most (index 0, top of Source list) to bottom-most (back)
                             let mut hit_id = None;
-                            for src in scene_clone.sources.iter().rev() {
+                            for src in scene_clone.sources.iter() {
                                 if !src.visible {
                                     continue;
                                 }
@@ -619,7 +669,8 @@ fn render_single_viewport_card(
                 if let Some(prog_alpha) = fade_progress {
                     if let Some(from_scene) = app.studio.transition_from_snapshot.clone() {
                         let out_alpha = (1.0 - prog_alpha).clamp(0.0, 1.0);
-                        for src in &from_scene.sources {
+                        // Draw from bottom of Source list (back layer) to top of Source list (front layer)
+                        for src in from_scene.sources.iter().rev() {
                             if !src.visible {
                                 continue;
                             }
@@ -644,7 +695,8 @@ fn render_single_viewport_card(
 
                 let active_alpha = fade_progress.unwrap_or(1.0);
 
-                for src in &scene_clone.sources {
+                // Draw from bottom of Source list (back layer) to top of Source list (front layer)
+                for src in scene_clone.sources.iter().rev() {
                     if !src.visible {
                         continue;
                     }
@@ -677,107 +729,145 @@ fn render_single_viewport_card(
                         time_sec,
                         active_alpha,
                     );
+                }
 
-                    // Highlight selected source bounding box + 8 OBS resize/crop handles in Preview
-                    if role == ViewportRole::Preview
-                        && scene_clone.selected_source_id == Some(src.id)
-                    {
-                        let crop_active = ui.input(|i| i.modifiers.alt) || app.preview_crop_mode;
-                        let crop_green = Color32::from_rgb(34, 197, 94);
-                        let base_box_color = if src.locked {
-                            p.pause_amber
-                        } else if crop_active {
-                            crop_green
-                        } else {
-                            p.accent_preview
-                        };
-
-                        // Draw base bounding box
-                        canvas_painter.rect_stroke(
-                            raw_layer_rect,
-                            CornerRadius::same(1),
-                            Stroke::new(1.5_f32, base_box_color),
-                            egui::StrokeKind::Inside,
+                // Highlight selected source bounding box + 8 OBS resize/crop handles on top in Preview
+                if role == ViewportRole::Preview {
+                    if let Some(src) = scene_clone.selected_source().filter(|s| s.visible) {
+                        let is_audio_only = matches!(
+                            &src.kind,
+                            SourceKind::AudioInputCapture { .. }
+                                | SourceKind::AudioOutputCapture { .. }
+                                | SourceKind::ApplicationAudioCapture { .. }
+                        ) || matches!(
+                            &src.kind,
+                            SourceKind::MediaSource { file_path, .. }
+                                if SourceKind::is_audio_only_media(file_path)
                         );
+                        if !is_audio_only {
+                            let raw_layer_rect =
+                                compute_layer_screen_rect(canvas_rect, &src.transform);
+                            let crop_active =
+                                ui.input(|i| i.modifiers.alt) || app.preview_crop_mode;
+                            let crop_green = Color32::from_rgb(34, 197, 94);
+                            let base_box_color = if src.locked {
+                                p.pause_amber
+                            } else if crop_active {
+                                crop_green
+                            } else {
+                                p.accent_preview
+                            };
 
-                        // Highlight individual cropped edges in OBS Green
-                        let t = &src.transform;
-                        if t.crop_left > 0.002 {
-                            canvas_painter.line_segment(
-                                [raw_layer_rect.left_top(), raw_layer_rect.left_bottom()],
-                                Stroke::new(2.5_f32, crop_green),
+                            // Draw base bounding box
+                            canvas_painter.rect_stroke(
+                                raw_layer_rect,
+                                CornerRadius::same(1),
+                                Stroke::new(1.5_f32, base_box_color),
+                                egui::StrokeKind::Inside,
                             );
-                        }
-                        if t.crop_right > 0.002 {
-                            canvas_painter.line_segment(
-                                [raw_layer_rect.right_top(), raw_layer_rect.right_bottom()],
-                                Stroke::new(2.5_f32, crop_green),
-                            );
-                        }
-                        if t.crop_top > 0.002 {
-                            canvas_painter.line_segment(
-                                [raw_layer_rect.left_top(), raw_layer_rect.right_top()],
-                                Stroke::new(2.5_f32, crop_green),
-                            );
-                        }
-                        if t.crop_bottom > 0.002 {
-                            canvas_painter.line_segment(
-                                [raw_layer_rect.left_bottom(), raw_layer_rect.right_bottom()],
-                                Stroke::new(2.5_f32, crop_green),
-                            );
-                        }
 
-                        if !src.locked {
-                            // 4 Corner Handles (Resize / Aspect Scale)
-                            for corner in [
-                                raw_layer_rect.left_top(),
-                                raw_layer_rect.right_top(),
-                                raw_layer_rect.left_bottom(),
-                                raw_layer_rect.right_bottom(),
-                            ] {
-                                let handle = Rect::from_center_size(corner, Vec2::splat(7.5));
-                                canvas_painter.rect_filled(handle, CornerRadius::same(1), base_box_color);
-                                canvas_painter.rect_stroke(
-                                    handle,
-                                    CornerRadius::same(1),
-                                    Stroke::new(1.0_f32, Color32::WHITE),
-                                    egui::StrokeKind::Inside,
+                            // Highlight individual cropped edges in OBS Green
+                            let t = &src.transform;
+                            if t.crop_left > 0.002 {
+                                canvas_painter.line_segment(
+                                    [raw_layer_rect.left_top(), raw_layer_rect.left_bottom()],
+                                    Stroke::new(2.5_f32, crop_green),
+                                );
+                            }
+                            if t.crop_right > 0.002 {
+                                canvas_painter.line_segment(
+                                    [raw_layer_rect.right_top(), raw_layer_rect.right_bottom()],
+                                    Stroke::new(2.5_f32, crop_green),
+                                );
+                            }
+                            if t.crop_top > 0.002 {
+                                canvas_painter.line_segment(
+                                    [raw_layer_rect.left_top(), raw_layer_rect.right_top()],
+                                    Stroke::new(2.5_f32, crop_green),
+                                );
+                            }
+                            if t.crop_bottom > 0.002 {
+                                canvas_painter.line_segment(
+                                    [
+                                        raw_layer_rect.left_bottom(),
+                                        raw_layer_rect.right_bottom(),
+                                    ],
+                                    Stroke::new(2.5_f32, crop_green),
                                 );
                             }
 
-                            // 4 Edge Midpoint Handles (Stretch or Alt-Crop like OBS Studio)
-                            let edge_points = [
-                                (
-                                    Pos2::new(raw_layer_rect.center().x, raw_layer_rect.min.y),
-                                    t.crop_top > 0.002 || crop_active,
-                                ),
-                                (
-                                    Pos2::new(raw_layer_rect.center().x, raw_layer_rect.max.y),
-                                    t.crop_bottom > 0.002 || crop_active,
-                                ),
-                                (
-                                    Pos2::new(raw_layer_rect.min.x, raw_layer_rect.center().y),
-                                    t.crop_left > 0.002 || crop_active,
-                                ),
-                                (
-                                    Pos2::new(raw_layer_rect.max.x, raw_layer_rect.center().y),
-                                    t.crop_right > 0.002 || crop_active,
-                                ),
-                            ];
-                            for (pt, is_crop_edge) in edge_points {
-                                let h_color = if is_crop_edge {
-                                    crop_green
-                                } else {
-                                    base_box_color
-                                };
-                                let handle = Rect::from_center_size(pt, Vec2::splat(6.5));
-                                canvas_painter.rect_filled(handle, CornerRadius::same(1), h_color);
-                                canvas_painter.rect_stroke(
-                                    handle,
-                                    CornerRadius::same(1),
-                                    Stroke::new(1.0_f32, Color32::WHITE),
-                                    egui::StrokeKind::Inside,
-                                );
+                            if !src.locked {
+                                // 4 Corner Handles (Resize / Aspect Scale)
+                                for corner in [
+                                    raw_layer_rect.left_top(),
+                                    raw_layer_rect.right_top(),
+                                    raw_layer_rect.left_bottom(),
+                                    raw_layer_rect.right_bottom(),
+                                ] {
+                                    let handle = Rect::from_center_size(corner, Vec2::splat(7.5));
+                                    canvas_painter.rect_filled(
+                                        handle,
+                                        CornerRadius::same(1),
+                                        base_box_color,
+                                    );
+                                    canvas_painter.rect_stroke(
+                                        handle,
+                                        CornerRadius::same(1),
+                                        Stroke::new(1.0_f32, Color32::WHITE),
+                                        egui::StrokeKind::Inside,
+                                    );
+                                }
+
+                                // 4 Edge Midpoint Handles (Stretch or Alt-Crop like OBS Studio)
+                                let edge_points = [
+                                    (
+                                        Pos2::new(
+                                            raw_layer_rect.center().x,
+                                            raw_layer_rect.min.y,
+                                        ),
+                                        t.crop_top > 0.002 || crop_active,
+                                    ),
+                                    (
+                                        Pos2::new(
+                                            raw_layer_rect.center().x,
+                                            raw_layer_rect.max.y,
+                                        ),
+                                        t.crop_bottom > 0.002 || crop_active,
+                                    ),
+                                    (
+                                        Pos2::new(
+                                            raw_layer_rect.min.x,
+                                            raw_layer_rect.center().y,
+                                        ),
+                                        t.crop_left > 0.002 || crop_active,
+                                    ),
+                                    (
+                                        Pos2::new(
+                                            raw_layer_rect.max.x,
+                                            raw_layer_rect.center().y,
+                                        ),
+                                        t.crop_right > 0.002 || crop_active,
+                                    ),
+                                ];
+                                for (pt, is_crop_edge) in edge_points {
+                                    let h_color = if is_crop_edge {
+                                        crop_green
+                                    } else {
+                                        base_box_color
+                                    };
+                                    let handle = Rect::from_center_size(pt, Vec2::splat(6.5));
+                                    canvas_painter.rect_filled(
+                                        handle,
+                                        CornerRadius::same(1),
+                                        h_color,
+                                    );
+                                    canvas_painter.rect_stroke(
+                                        handle,
+                                        CornerRadius::same(1),
+                                        Stroke::new(1.0_f32, Color32::WHITE),
+                                        egui::StrokeKind::Inside,
+                                    );
+                                }
                             }
                         }
                     }
@@ -1174,10 +1264,10 @@ pub(crate) fn render_source_item_on_canvas(
             };
 
             let cur_key = format!("IMG:{}", valid_files[cur_idx]);
-            let cur_tex = app.capture_engine.get_or_update_texture(egui_ctx, &cur_key);
+            let cur_tex = app.capture_engine.get_or_update_filtered_texture(egui_ctx, &cur_key, &src.filter);
             let next_tex = if next_idx != cur_idx {
                 let next_key = format!("IMG:{}", valid_files[next_idx]);
-                app.capture_engine.get_or_update_texture(egui_ctx, &next_key)
+                app.capture_engine.get_or_update_filtered_texture(egui_ctx, &next_key, &src.filter)
             } else {
                 None
             };
@@ -1246,15 +1336,15 @@ pub(crate) fn render_source_item_on_canvas(
             ..
         } => {
             let key = format!("CAM:{}:{}x{}", device_id, resolution.0, resolution.1);
-            app.capture_engine.get_or_update_texture(egui_ctx, &key)
+            app.capture_engine.get_or_update_filtered_texture(egui_ctx, &key, &src.filter)
         }
         SourceKind::MediaSource { file_path, .. } => {
             let key = format!("MEDIA:{}", file_path);
-            app.capture_engine.get_or_update_texture(egui_ctx, &key)
+            app.capture_engine.get_or_update_filtered_texture(egui_ctx, &key, &src.filter)
         }
         SourceKind::ImageSource { file_path, .. } => {
             let key = format!("IMG:{}", file_path);
-            app.capture_engine.get_or_update_texture(egui_ctx, &key)
+            app.capture_engine.get_or_update_filtered_texture(egui_ctx, &key, &src.filter)
         }
         _ => None,
     };

@@ -1,6 +1,6 @@
 # AGENTS.md — Panduan Cepat untuk Agen AI di Workspace NEXORA Studio
 
-Selamat datang di repositori **NEXORA Studio** (Aplikasi Desktop Screen Recording Native Windows berbasis Rust & `egui`).
+Selamat datang di repositori **NEXORA Studio** (Aplikasi Desktop Screen Recording & Studio Presentation Native Windows berbasis Rust & `egui`).
 
 Sebelum melakukan perubahan kode, **baca peta arsitektur lengkap di [`ARCHITECTURE_MAP.md`](file:///d:/Rust/Nexora%20Studio/ARCHITECTURE_MAP.md)**.
 
@@ -22,9 +22,29 @@ Sebelum melakukan perubahan kode, **baca peta arsitektur lengkap di [`ARCHITECTU
    - Seluruh 5.936 ikon **Tabler Icons** sudah diunduh secara offline di [`assets/icons/`](file:///d:/Rust/Nexora%20Studio/assets/icons) (`tabler-icons.ttf`, `tabler-sprite.svg`, `tabler-icons-codepoints.json`) dan di-*embed* melalui [`src/ui/icons.rs`](file:///d:/Rust/Nexora%20Studio/src/ui/icons.rs).
    - Jangan gunakan karakter emoji mentah yang tidak didukung oleh font bawaan; gunakan konstanta dari [`src/ui/icons.rs`](file:///d:/Rust/Nexora%20Studio/src/ui/icons.rs).
 
-3. **Konvensi UI/UX:**
-   - Pertahankan **Studio Mode** (*Preview* di kiri, *Program* di kanan) dengan rasio kanvas `16:9`.
-   - Label deskriptif scene & source hanya boleh tampil otomatis di bagian *header* atas kanvas/frame.
-   - Panel bawah terdiri dari **`Scenes`**, **`Source`**, **`Audio Mixer`**, dan **`Controls`** dengan tata letak vertikal (`Layout::top_down`).
-   - Dilarang menambahkan fitur *live streaming* / RTMP / cloud / login.
-
+3. **Konvensi Konsistensi UI/UX & Arsitektur Studio:**
+   - **Studio Mode & Transisi:** Pertahankan **Studio Mode** (*Preview* di kiri, *Program* di kanan) dengan rasio kanvas `16:9` serta jembatan transisi tengah yang simpel (`TRANSITION ->` dengan pilihan efek **`Cut`** & **`Fade`**).
+   - **Urutan Layer `Source` (Z-Order Standar OBS):**
+     - Baris **atas** di panel `Source` (`index 0`) = **di depan layar (foreground)**.
+     - Baris **bawah** di panel `Source` (`index terakhir`) = **di belakang layar (background)**.
+     - Render kanvas & projector wajib menggunakan `sources.iter().rev()`, sedangkan *hit-testing* klik kanvas menggunakan `sources.iter()`.
+   - **Seleksi Baris Full-Width (`Scenes` & `Source`):**
+     - Setiap item di panel `Scenes` dan `Source` wajib berupa kartu baris penuh (*full-width row card*) sehingga pengguna dapat memilih item dengan mengklik di mana saja pada baris tersebut (tidak harus tepat di atas teks).
+     - Kartu `Scenes` wajib menampilkan indikator visual `👁 PREVIEW` (Teal) dan `● LIVE` (Merah).
+   - **Konsistensi Form Modal & Padding Tombol:**
+     - Kunci lebar jendela modal (`Properties`, `Settings`, `Manage Slide Show Images`) dan seragamkan lebar `ComboBox` (`PROP_FIELD_W = 280.0`, `SETTINGS_FIELD_W = 270.0` dengan `.truncate()`) agar jendela tidak pernah memanjang sendiri ke kanan.
+     - Berikan ukuran minimum vertikal (`min_size` tinggi `20px–26px` atau `paint_icon_action_btn`) pada tombol agar ikon dan teks tidak pernah mepet dengan garis batas tombol.
+   - **Audio Media Hanya Aktif Saat Live (`Program`):**
+     - Suara dari `MediaSource` hanya boleh diputar ketika scene sudah ditransisikan ke **Program (`LIVE`)**, bukan saat baru disiapkan di Preview.
+   - **Drag Modal Window Hanya Lewat Title Bar:**
+     - Semua jendela modal (`Settings`, `Properties`, `Filters`, `Manage Slide Show Images`, `Rename`, `Save Layout Preset`) wajib memanggil `block_window_body_drag(ui)` di awal isi modal. Window hanya boleh digeser/dipindahkan melalui **Title Bar** saja untuk menjaga konsistensi dan mencegah pergeseran window yang tidak disengaja saat berinteraksi dengan widget/form.
+   - **Standar Ikon Kursor & Drag-Drop:**
+     - Kursor standar saat hovering/klik biasa adalah panah default (`CursorIcon::Default`).
+     - Kursor arah resize hanya muncul saat kursor berada tepat di atas 8 handle sudut/sisi layer yang sedang aktif dan tidak terkunci.
+     - Kursor drag (`CursorIcon::Grabbing`) hanya aktif ketika mouse sedang benar-benar ditahan dan digeser (*actively dragging*), tidak boleh muncul sembarangan di seluruh area kanvas.
+     - Jika modal dialog sedang terbuka (`app.is_any_modal_open()`), kanvas tidak boleh merebut kursor atau memicu resize/drag.
+   - **Screen Color Picker / Pipet Warna Layar:**
+     - Fitur pemilih warna pada filter (`Chroma Key`, `Color Key`) menyediakan tombol `Pipet Layar` (`COLOR_PICKER`) yang memungkinkan pengambilan sampel warna RGB asli dari area layar manapun secara real-time via Win32 API (`GetPixel`), dilengkapi floating pill pembesar dan pembatalan mudah via tombol `Esc` atau klik kanan.
+   - **Projector Layar Kedua:**
+     - Klik kanan kanvas -> `Open Preview/Program Projector` langsung melakukan *auto-fullscreen* ke monitor yang dipilih dan langsung tertutup saat tombol **`Esc`** ditekan.
+   - **Larangan Mutlak:** Dilarang menambahkan fitur *live streaming* / RTMP / cloud / login.

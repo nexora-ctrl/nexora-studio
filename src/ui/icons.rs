@@ -237,6 +237,14 @@ pub const MUSIC: &str = "\u{eafc}";
 pub const UNDO: &str = "\u{eb77}";
 /// `ti-arrow-forward-up` — Redo Action
 pub const REDO: &str = "\u{eb78}";
+/// `ti-filter` — Video Filters (Chroma Key, Color Key, Luma Key)
+pub const FILTER: &str = "\u{eaa5}";
+/// `ti-adjustments` — Adjustments / Sliders
+pub const ADJUSTMENTS: &str = "\u{ea03}";
+/// `ti-wand` — Keying FX Magic Wand
+pub const WAND: &str = "\u{ebcb}";
+/// `ti-color-picker` — Screen Color Picker / Eyedropper Pipet
+pub const COLOR_PICKER: &str = "\u{ebe6}";
 
 
 
