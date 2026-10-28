@@ -1,0 +1,13 @@
+# Rust build artifacts
+/target/
+**/*.rs.bk
+*.pdb
+
+# Local recordings & temporary snapshots
+/Recordings/
+*.mp4
+*.nexora.json
+
+# OS metadata
+Thumbs.db
+.DS_Store

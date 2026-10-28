@@ -1,0 +1,7 @@
+{
+    "terminal.integrated.env.windows": {
+        "PATH": "${env:USERPROFILE}\\.cargo\\bin;${env:PATH}"
+    },
+    "rust-analyzer.cargo.targetDir": "D:/Rust/.nexora-target"
+}
+
