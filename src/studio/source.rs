@@ -31,6 +31,202 @@ fn default_speed_100() -> u32 {
     100
 }
 
+fn default_scroll_speed() -> f32 {
+    95.0
+}
+
+fn default_loop_gap_px() -> f32 {
+    80.0
+}
+
+fn default_text_bg_rgba() -> [u8; 4] {
+    [15, 23, 42, 225]
+}
+
+fn default_text_accent_rgba() -> [u8; 4] {
+    [220, 38, 38, 255]
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum TextAnimationEffect {
+    #[default]
+    Static,
+    ScrollLeft,
+    ScrollRight,
+    ScrollUp,
+    BounceHorizontal,
+    Typewriter,
+    PulseGlow,
+    FadeInOut,
+}
+
+impl TextAnimationEffect {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Static => "Static (Diam)",
+            Self::ScrollLeft => "Running Text <- Ke Kiri (TV Ticker)",
+            Self::ScrollRight => "Running Text -> Ke Kanan",
+            Self::ScrollUp => "Scroll Ke Atas (Credits Roll)",
+            Self::BounceHorizontal => "Pantul Kiri <-> Kanan (Ping-Pong)",
+            Self::Typewriter => "Efek Ketik Berjalan (Typewriter)",
+            Self::PulseGlow => "Berdenyut Halus (Pulse Live)",
+            Self::FadeInOut => "Fade In / Out Berulang",
+        }
+    }
+
+    pub fn is_scrolling(&self) -> bool {
+        matches!(
+            self,
+            Self::ScrollLeft | Self::ScrollRight | Self::ScrollUp | Self::BounceHorizontal
+        )
+    }
+
+    pub fn is_animated(&self) -> bool {
+        *self != Self::Static
+    }
+
+    pub fn all() -> &'static [TextAnimationEffect] {
+        &[
+            Self::Static,
+            Self::ScrollLeft,
+            Self::ScrollRight,
+            Self::ScrollUp,
+            Self::BounceHorizontal,
+            Self::Typewriter,
+            Self::PulseGlow,
+            Self::FadeInOut,
+        ]
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum TvBannerStyle {
+    #[default]
+    PlainText,
+    SolidBanner,
+    BreakingNewsTv,
+    LowerThirdCard,
+    HeadlineStrap,
+    CornerBugLive,
+}
+
+impl TvBannerStyle {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::PlainText => "Teks Polos (Tanpa Kotak Latar)",
+            Self::SolidBanner => "Banner Latar Solid (Ticker Strip)",
+            Self::BreakingNewsTv => "TV Breaking News (Badge + Running Bar)",
+            Self::LowerThirdCard => "TV Lower-Third (Kartu Nama / Acara)",
+            Self::HeadlineStrap => "TV Headline Strap (Garis Aksen Atas/Bawah)",
+            Self::CornerBugLive => "TV Corner Bug (Kapsul Pojok LIVE)",
+        }
+    }
+
+    pub fn uses_badge(&self) -> bool {
+        matches!(
+            self,
+            Self::BreakingNewsTv
+                | Self::LowerThirdCard
+                | Self::HeadlineStrap
+                | Self::CornerBugLive
+        )
+    }
+
+    pub fn uses_background(&self) -> bool {
+        *self != Self::PlainText
+    }
+
+    pub fn all() -> &'static [TvBannerStyle] {
+        &[
+            Self::PlainText,
+            Self::SolidBanner,
+            Self::BreakingNewsTv,
+            Self::LowerThirdCard,
+            Self::HeadlineStrap,
+            Self::CornerBugLive,
+        ]
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TvTextTemplate {
+    BreakingNewsTicker,
+    InfoRunningMarquee,
+    TalkshowLowerThird,
+    HeadlineBroadcastBanner,
+    LiveCornerBug,
+    EndingCreditsRoll,
+}
+
+impl TvTextTemplate {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::BreakingNewsTicker => "TV Breaking News Ticker (Bawah)",
+            Self::InfoRunningMarquee => "TV Running Text Info (Marquee)",
+            Self::TalkshowLowerThird => "TV Talkshow Lower-Third (Kiri Bawah)",
+            Self::HeadlineBroadcastBanner => "TV Headline Strap (Judul Utama)",
+            Self::LiveCornerBug => "TV LIVE Corner Bug (Pojok Atas)",
+            Self::EndingCreditsRoll => "TV Ending Credits (Roll ke Atas)",
+        }
+    }
+
+    pub fn all() -> &'static [TvTextTemplate] {
+        &[
+            Self::BreakingNewsTicker,
+            Self::InfoRunningMarquee,
+            Self::TalkshowLowerThird,
+            Self::HeadlineBroadcastBanner,
+            Self::LiveCornerBug,
+            Self::EndingCreditsRoll,
+        ]
+    }
+}
+
+fn default_slide_transition_ms() -> u32 {
+    650
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum SlideTransitionEffect {
+    Cut,
+    #[default]
+    CrossFade,
+    SlideLeft,
+    SlideRight,
+    SlideUp,
+    SlideDown,
+    ZoomInKenBurns,
+    ZoomOut,
+}
+
+impl SlideTransitionEffect {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Cut => "Cut (Berganti Instan)",
+            Self::CrossFade => "Fade / Dissolve (Transisi Halus)",
+            Self::SlideLeft => "Geser ke Kiri (Slide Left)",
+            Self::SlideRight => "Geser ke Kanan (Slide Right)",
+            Self::SlideUp => "Geser ke Atas (Slide Up)",
+            Self::SlideDown => "Geser ke Bawah (Slide Down)",
+            Self::ZoomInKenBurns => "Zoom In Sinematik (Ken Burns)",
+            Self::ZoomOut => "Zoom Out Reveal",
+        }
+    }
+
+    pub fn all() -> &'static [SlideTransitionEffect] {
+        &[
+            Self::Cut,
+            Self::CrossFade,
+            Self::SlideLeft,
+            Self::SlideRight,
+            Self::SlideUp,
+            Self::SlideDown,
+            Self::ZoomInKenBurns,
+            Self::ZoomOut,
+        ]
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum SourceKind {
     DisplayCapture {
@@ -93,6 +289,10 @@ pub enum SourceKind {
         files: Vec<String>,
         slide_time_ms: u32,
         loop_slides: bool,
+        #[serde(default)]
+        transition_effect: SlideTransitionEffect,
+        #[serde(default = "default_slide_transition_ms")]
+        transition_duration_ms: u32,
     },
     AudioInputCapture {
         device_name: String,
@@ -119,6 +319,24 @@ pub enum SourceKind {
         text: String,
         font_size: f32,
         color_rgba: [u8; 4],
+        #[serde(default)]
+        effect: TextAnimationEffect,
+        #[serde(default = "default_scroll_speed")]
+        scroll_speed: f32,
+        #[serde(default = "default_true")]
+        loop_animation: bool,
+        #[serde(default = "default_loop_gap_px")]
+        loop_gap_px: f32,
+        #[serde(default)]
+        banner_style: TvBannerStyle,
+        #[serde(default = "default_text_bg_rgba")]
+        bg_color_rgba: [u8; 4],
+        #[serde(default = "default_text_accent_rgba")]
+        accent_color_rgba: [u8; 4],
+        #[serde(default)]
+        badge_text: String,
+        #[serde(default = "default_true")]
+        text_shadow: bool,
     },
     BrowserSource {
         url: String,
@@ -472,6 +690,150 @@ impl SourceItem {
             kind,
             transform,
             color_tag: SourceColorTag::None,
+        }
+    }
+
+    pub fn apply_tv_text_template(&mut self, template: TvTextTemplate) {
+        self.transform.reset_crop();
+        match template {
+            TvTextTemplate::BreakingNewsTicker => {
+                self.name = "TV Breaking News Ticker".to_string();
+                self.transform.pos_x = 0.0;
+                self.transform.pos_y = 0.90;
+                self.transform.scale = 1.0;
+                self.transform.scale_x = 1.0;
+                self.transform.scale_y = 0.10;
+                self.transform.lock_aspect = false;
+                self.kind = SourceKind::TextGdiPlus {
+                    text: "SELAMAT DATANG DI NEXORA STUDIO LIVE • SIARAN BERKUALITAS TINGGI FULL HD 60 FPS • UPDATE INFORMASI TERKINI SETIAP SAAT".to_string(),
+                    font_size: 22.0,
+                    color_rgba: [255, 255, 255, 255],
+                    effect: TextAnimationEffect::ScrollLeft,
+                    scroll_speed: 110.0,
+                    loop_animation: true,
+                    loop_gap_px: 90.0,
+                    banner_style: TvBannerStyle::BreakingNewsTv,
+                    bg_color_rgba: [15, 23, 42, 235],
+                    accent_color_rgba: [220, 38, 38, 255],
+                    badge_text: "BREAKING NEWS".to_string(),
+                    text_shadow: true,
+                };
+            }
+            TvTextTemplate::InfoRunningMarquee => {
+                self.name = "TV Running Text Info".to_string();
+                self.transform.pos_x = 0.0;
+                self.transform.pos_y = 0.92;
+                self.transform.scale = 1.0;
+                self.transform.scale_x = 1.0;
+                self.transform.scale_y = 0.08;
+                self.transform.lock_aspect = false;
+                self.kind = SourceKind::TextGdiPlus {
+                    text: "Jangan lupa ikuti agenda acara hari ini • Hubungi redaksi untuk informasi lebih lanjut • Terima kasih telah menyaksikan".to_string(),
+                    font_size: 20.0,
+                    color_rgba: [254, 240, 138, 255],
+                    effect: TextAnimationEffect::ScrollLeft,
+                    scroll_speed: 85.0,
+                    loop_animation: true,
+                    loop_gap_px: 80.0,
+                    banner_style: TvBannerStyle::SolidBanner,
+                    bg_color_rgba: [9, 14, 26, 230],
+                    accent_color_rgba: [245, 158, 11, 255],
+                    badge_text: "INFO".to_string(),
+                    text_shadow: true,
+                };
+            }
+            TvTextTemplate::TalkshowLowerThird => {
+                self.name = "TV Talkshow Lower-Third".to_string();
+                self.transform.pos_x = 0.04;
+                self.transform.pos_y = 0.77;
+                self.transform.scale = 0.44;
+                self.transform.scale_x = 1.0;
+                self.transform.scale_y = 0.28;
+                self.transform.lock_aspect = false;
+                self.kind = SourceKind::TextGdiPlus {
+                    text: "Bpk. Ahmad Pratama — Pembicara Utama".to_string(),
+                    font_size: 24.0,
+                    color_rgba: [255, 255, 255, 255],
+                    effect: TextAnimationEffect::Static,
+                    scroll_speed: 80.0,
+                    loop_animation: true,
+                    loop_gap_px: 80.0,
+                    banner_style: TvBannerStyle::LowerThirdCard,
+                    bg_color_rgba: [15, 23, 42, 230],
+                    accent_color_rgba: [14, 165, 233, 255],
+                    badge_text: "LIVE TALKSHOW".to_string(),
+                    text_shadow: true,
+                };
+            }
+            TvTextTemplate::HeadlineBroadcastBanner => {
+                self.name = "TV Headline Banner".to_string();
+                self.transform.pos_x = 0.08;
+                self.transform.pos_y = 0.81;
+                self.transform.scale = 0.84;
+                self.transform.scale_x = 1.0;
+                self.transform.scale_y = 0.14;
+                self.transform.lock_aspect = false;
+                self.kind = SourceKind::TextGdiPlus {
+                    text: "LAPORAN UTAMA: TRANSFORMASI DIGITAL & TEKNOLOGI MASA DEPAN".to_string(),
+                    font_size: 24.0,
+                    color_rgba: [255, 255, 255, 255],
+                    effect: TextAnimationEffect::Typewriter,
+                    scroll_speed: 95.0,
+                    loop_animation: true,
+                    loop_gap_px: 80.0,
+                    banner_style: TvBannerStyle::HeadlineStrap,
+                    bg_color_rgba: [17, 24, 39, 235],
+                    accent_color_rgba: [239, 68, 68, 255],
+                    badge_text: "HEADLINE".to_string(),
+                    text_shadow: true,
+                };
+            }
+            TvTextTemplate::LiveCornerBug => {
+                self.name = "TV LIVE Corner Bug".to_string();
+                self.transform.pos_x = 0.77;
+                self.transform.pos_y = 0.04;
+                self.transform.scale = 0.19;
+                self.transform.scale_x = 1.0;
+                self.transform.scale_y = 0.34;
+                self.transform.lock_aspect = false;
+                self.kind = SourceKind::TextGdiPlus {
+                    text: "STUDIO 1 HD".to_string(),
+                    font_size: 18.0,
+                    color_rgba: [255, 255, 255, 255],
+                    effect: TextAnimationEffect::PulseGlow,
+                    scroll_speed: 80.0,
+                    loop_animation: true,
+                    loop_gap_px: 60.0,
+                    banner_style: TvBannerStyle::CornerBugLive,
+                    bg_color_rgba: [15, 23, 42, 220],
+                    accent_color_rgba: [220, 38, 38, 255],
+                    badge_text: "LIVE".to_string(),
+                    text_shadow: true,
+                };
+            }
+            TvTextTemplate::EndingCreditsRoll => {
+                self.name = "TV Ending Credits Roll".to_string();
+                self.transform.pos_x = 0.18;
+                self.transform.pos_y = 0.12;
+                self.transform.scale = 0.64;
+                self.transform.scale_x = 1.0;
+                self.transform.scale_y = 1.15;
+                self.transform.lock_aspect = false;
+                self.kind = SourceKind::TextGdiPlus {
+                    text: "TIM PRODUKSI NEXORA STUDIO\nEksekutif Produser: Studio Lead\nPengarah Acara: Broadcast Director\nEditor Visual: Creative Team\nTerima Kasih Atas Perhatian Anda".to_string(),
+                    font_size: 24.0,
+                    color_rgba: [255, 255, 255, 255],
+                    effect: TextAnimationEffect::ScrollUp,
+                    scroll_speed: 55.0,
+                    loop_animation: true,
+                    loop_gap_px: 70.0,
+                    banner_style: TvBannerStyle::PlainText,
+                    bg_color_rgba: [15, 23, 42, 180],
+                    accent_color_rgba: [56, 189, 248, 255],
+                    badge_text: String::new(),
+                    text_shadow: true,
+                };
+            }
         }
     }
 }

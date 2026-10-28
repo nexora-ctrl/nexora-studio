@@ -1,7 +1,10 @@
 use crate::app::NexoraApp;
 use crate::audio::AudioChannel;
 use crate::recording::RecordingStatus;
-use crate::studio::source::{SourceColorTag, SourceItem, SourceKind};
+use crate::studio::source::{
+    SlideTransitionEffect, SourceColorTag, SourceItem, SourceKind, TextAnimationEffect,
+    TvBannerStyle, TvTextTemplate,
+};
 use crate::ui::icons;
 use crate::ui::theme::ThemePalette;
 use egui::{Align, Color32, CornerRadius, Layout, Pos2, Rect, RichText, Sense, Stroke, Vec2};
@@ -166,6 +169,67 @@ fn paint_and_split_dock_card(
         body,
         footer,
     }
+}
+
+fn paint_icon_action_btn(
+    ui: &mut egui::Ui,
+    icon: &str,
+    accent_color: Option<Color32>,
+    p: &ThemePalette,
+    tooltip: &str,
+) -> bool {
+    let btn_size = Vec2::new(24.0, 22.0);
+    let (rect, resp) = ui.allocate_exact_size(btn_size, Sense::click());
+    let hovered = resp.hovered();
+    let active = resp.is_pointer_button_down_on();
+
+    let bg_fill = if active {
+        p.border_subtle
+    } else if hovered {
+        p.bg_elevated
+    } else {
+        Color32::from_rgba_unmultiplied(
+            p.bg_elevated.r(),
+            p.bg_elevated.g(),
+            p.bg_elevated.b(),
+            175,
+        )
+    };
+    let border_col = if hovered {
+        p.text_secondary
+    } else {
+        p.border_subtle
+    };
+    let icon_col = accent_color.unwrap_or(if hovered {
+        p.text_primary
+    } else {
+        p.text_secondary
+    });
+
+    ui.painter()
+        .rect_filled(rect, CornerRadius::same(5), bg_fill);
+    ui.painter().rect_stroke(
+        rect,
+        CornerRadius::same(5),
+        Stroke::new(1.0_f32, border_col),
+        egui::StrokeKind::Inside,
+    );
+
+    let font_id = egui::FontId::proportional(11.5);
+    let galley = ui
+        .painter()
+        .layout_no_wrap(icon.to_string(), font_id, icon_col);
+    let pos = Pos2::new(
+        rect.center().x - galley.size().x * 0.5,
+        rect.center().y - galley.size().y * 0.5,
+    );
+    ui.painter().galley(pos, galley, icon_col);
+
+    let clicked = resp.clicked();
+    if !tooltip.is_empty() {
+        resp.on_hover_text(tooltip);
+    }
+    clicked
 }
 
 fn paint_status_pill(
@@ -651,6 +715,7 @@ enum SourceContextAction {
     AddMedia,
     AddSceneSource,
     AddTextGdiPlus,
+    AddTvTextTemplate(TvTextTemplate),
     AddCamera,
     AddWindow,
     MoveUp(Uuid),
@@ -739,6 +804,23 @@ fn populate_add_source_menu(ui: &mut egui::Ui, action_out: &mut Option<SourceCon
             ui.close_menu();
         }
     }
+
+    ui.separator();
+    ui.menu_button(
+        format!("{}  TV Text Show Templates", icons::PRESENTATION),
+        |ui| {
+            ui.set_min_width(240.0);
+            for tpl in TvTextTemplate::all() {
+                if ui
+                    .button(format!("{}  {}", icons::LETTER_CASE, tpl.label()))
+                    .clicked()
+                {
+                    *action_out = Some(SourceContextAction::AddTvTextTemplate(*tpl));
+                    ui.close_menu();
+                }
+            }
+        },
+    );
 }
 
 fn populate_source_context_menu(
@@ -954,13 +1036,14 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                     let row_frame = if let Some(tint) = color_tag_tint(src.color_tag) {
                         egui::Frame::new()
                             .fill(tint)
-                            .corner_radius(CornerRadius::same(3))
-                            .inner_margin(egui::Margin::symmetric(3, 1))
+                            .corner_radius(CornerRadius::same(4))
+                            .inner_margin(egui::Margin::symmetric(4, 2))
                     } else {
-                        egui::Frame::new().inner_margin(egui::Margin::symmetric(3, 1))
+                        egui::Frame::new().inner_margin(egui::Margin::symmetric(4, 2))
                     };
 
                     row_frame.show(ui, |ui| {
+                        ui.set_min_height(24.0);
                         ui.horizontal(|ui| {
                             let label_text =
                                 format!("{}  {}", src.kind.tabler_icon(), src.name);
@@ -991,16 +1074,24 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                             });
 
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                ui.spacing_mut().item_spacing.x = 4.0;
                                 let lock_label = if src.locked {
                                     icons::LOCK
                                 } else {
                                     icons::LOCK_OPEN
                                 };
-                                if ui
-                                    .small_button(lock_label)
-                                    .on_hover_text("Lock / Unlock position on canvas")
-                                    .clicked()
-                                {
+                                let lock_col = if src.locked {
+                                    Some(p.rec_red)
+                                } else {
+                                    None
+                                };
+                                if paint_icon_action_btn(
+                                    ui,
+                                    lock_label,
+                                    lock_col,
+                                    &p,
+                                    "Lock / Unlock position on canvas",
+                                ) {
                                     src.locked = !src.locked;
                                     vis_changed = true;
                                 }
@@ -1010,11 +1101,18 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                                 } else {
                                     icons::EYE_OFF
                                 };
-                                if ui
-                                    .small_button(vis_label)
-                                    .on_hover_text("Show / Hide this source")
-                                    .clicked()
-                                {
+                                let vis_col = if src.visible {
+                                    None
+                                } else {
+                                    Some(p.text_muted)
+                                };
+                                if paint_icon_action_btn(
+                                    ui,
+                                    vis_label,
+                                    vis_col,
+                                    &p,
+                                    "Show / Hide this source",
+                                ) {
                                     src.visible = !src.visible;
                                     vis_changed = true;
                                 }
@@ -1028,11 +1126,18 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                                     } else {
                                         icons::VOLUME
                                     };
-                                    if ui
-                                        .small_button(snd_icon)
-                                        .on_hover_text("Mute / Unmute Media Playback Audio")
-                                        .clicked()
-                                    {
+                                    let snd_col = if *muted {
+                                        Some(p.rec_red)
+                                    } else {
+                                        None
+                                    };
+                                    if paint_icon_action_btn(
+                                        ui,
+                                        snd_icon,
+                                        snd_col,
+                                        &p,
+                                        "Mute / Unmute Media Playback Audio",
+                                    ) {
                                         *muted = !*muted;
                                         vis_changed = true;
                                     }
@@ -1042,11 +1147,18 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                                     } else {
                                         icons::PLAYER_PLAY
                                     };
-                                    if ui
-                                        .small_button(play_icon)
-                                        .on_hover_text("Pause / Play Media")
-                                        .clicked()
-                                    {
+                                    let play_col = if *is_playing {
+                                        None
+                                    } else {
+                                        Some(p.accent_preview)
+                                    };
+                                    if paint_icon_action_btn(
+                                        ui,
+                                        play_icon,
+                                        play_col,
+                                        &p,
+                                        "Pause / Play Media",
+                                    ) {
                                         *is_playing = !*is_playing;
                                         vis_changed = true;
                                     }
@@ -1363,12 +1475,44 @@ fn execute_source_context_action(app: &mut NexoraApp, action: SourceContextActio
                     text: "NEXORA Studio Live".to_string(),
                     font_size: 32.0,
                     color_rgba: [255, 255, 255, 255],
+                    effect: TextAnimationEffect::Static,
+                    scroll_speed: 95.0,
+                    loop_animation: true,
+                    loop_gap_px: 80.0,
+                    banner_style: TvBannerStyle::PlainText,
+                    bg_color_rgba: [15, 23, 42, 225],
+                    accent_color_rgba: [220, 38, 38, 255],
+                    badge_text: "LIVE".to_string(),
+                    text_shadow: true,
                 },
             );
             item.transform.pos_x = 0.04;
             item.transform.pos_y = 0.05;
             item.transform.scale = 0.35;
             item.transform.scale_y = 0.35;
+            app.studio.preview_scene_mut().add_source(item);
+            app.studio.sync_if_linked();
+            app.show_source_properties_dialog = true;
+        }
+        SourceContextAction::AddTvTextTemplate(tpl) => {
+            let mut item = SourceItem::new(
+                tpl.label(),
+                SourceKind::TextGdiPlus {
+                    text: String::new(),
+                    font_size: 24.0,
+                    color_rgba: [255, 255, 255, 255],
+                    effect: TextAnimationEffect::ScrollLeft,
+                    scroll_speed: 100.0,
+                    loop_animation: true,
+                    loop_gap_px: 80.0,
+                    banner_style: TvBannerStyle::BreakingNewsTv,
+                    bg_color_rgba: [15, 23, 42, 235],
+                    accent_color_rgba: [220, 38, 38, 255],
+                    badge_text: "BREAKING NEWS".to_string(),
+                    text_shadow: true,
+                },
+            );
+            item.apply_tv_text_template(tpl);
             app.studio.preview_scene_mut().add_source(item);
             app.studio.sync_if_linked();
             app.show_source_properties_dialog = true;
@@ -1393,8 +1537,10 @@ fn execute_source_context_action(app: &mut NexoraApp, action: SourceContextActio
                 "Image Slide Show",
                 SourceKind::ImageSlideShow {
                     files: Vec::new(),
-                    slide_time_ms: 8000,
+                    slide_time_ms: 4500,
                     loop_slides: true,
+                    transition_effect: SlideTransitionEffect::CrossFade,
+                    transition_duration_ms: 650,
                 },
             );
             app.studio.preview_scene_mut().add_source(item);
@@ -1660,19 +1806,23 @@ fn render_audio_mixer_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) 
                                     } else {
                                         icons::PLAYER_PLAY
                                     };
-                                    if ui
-                                        .small_button(play_icon)
-                                        .on_hover_text("Pause / Play Media")
-                                        .clicked()
-                                    {
+                                    if paint_icon_action_btn(
+                                        ui,
+                                        play_icon,
+                                        None,
+                                        &p,
+                                        "Pause / Play Media",
+                                    ) {
                                         *is_playing = !*is_playing;
                                         media_changed = true;
                                     }
-                                    if ui
-                                        .small_button(icons::REFRESH)
-                                        .on_hover_text("Restart Media from 00:00")
-                                        .clicked()
-                                    {
+                                    if paint_icon_action_btn(
+                                        ui,
+                                        icons::REFRESH,
+                                        None,
+                                        &p,
+                                        "Restart Media from 00:00",
+                                    ) {
                                         *is_playing = true;
                                         *restart_nonce = restart_nonce.wrapping_add(1);
                                         media_changed = true;

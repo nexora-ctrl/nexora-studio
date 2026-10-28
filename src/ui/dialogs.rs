@@ -1,6 +1,9 @@
 use crate::app::NexoraApp;
 use crate::settings::{BitratePreset, MediaDecodeScale, ThemeMode, VideoPreset};
-use crate::studio::source::{MediaColorRange, SourceColorTag, SourceKind};
+use crate::studio::source::{
+    MediaColorRange, SlideTransitionEffect, SourceColorTag, SourceKind, TextAnimationEffect,
+    TvBannerStyle, TvTextTemplate,
+};
 use crate::ui::icons;
 use crate::ui::theme::{apply_studio_theme, ThemePalette};
 use egui::{RichText, Stroke, Vec2};
@@ -420,6 +423,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                 ui.set_max_width(475.0);
 
                 if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
+                    let mut pending_tv_template: Option<TvTextTemplate> = None;
                     egui::Grid::new("source_props_grid")
                         .num_columns(2)
                         .spacing([12.0, 8.0])
@@ -1008,21 +1012,177 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                     text,
                                     font_size,
                                     color_rgba,
+                                    effect,
+                                    scroll_speed,
+                                    loop_animation,
+                                    loop_gap_px,
+                                    banner_style,
+                                    bg_color_rgba,
+                                    accent_color_rgba,
+                                    badge_text,
+                                    text_shadow,
                                 } => {
-                                    ui.label("Text:");
-                                    any_changed |= ui.text_edit_multiline(text).changed();
+                                    ui.label("TV Show Template:");
+                                    egui::ComboBox::from_id_salt("prop_tv_text_template_combo")
+                                        .selected_text("Pilih Template TV Text Show (1-Klik)...")
+                                        .width(PROP_FIELD_W)
+                                        .truncate()
+                                        .show_ui(ui, |ui| {
+                                            for tpl in TvTextTemplate::all() {
+                                                if ui
+                                                    .selectable_label(false, tpl.label())
+                                                    .clicked()
+                                                {
+                                                    pending_tv_template = Some(*tpl);
+                                                }
+                                            }
+                                        });
+                                    ui.end_row();
+
+                                    ui.label("TV Banner Style:");
+                                    egui::ComboBox::from_id_salt("prop_tv_banner_style_combo")
+                                        .selected_text(banner_style.label())
+                                        .width(PROP_FIELD_W)
+                                        .truncate()
+                                        .show_ui(ui, |ui| {
+                                            for style in TvBannerStyle::all() {
+                                                any_changed |= ui
+                                                    .selectable_value(
+                                                        banner_style,
+                                                        *style,
+                                                        style.label(),
+                                                    )
+                                                    .changed();
+                                            }
+                                        });
+                                    ui.end_row();
+
+                                    if banner_style.uses_badge() {
+                                        ui.label("TV Badge / Tag:");
+                                        ui.horizontal(|ui| {
+                                            any_changed |= ui
+                                                .add(
+                                                    egui::TextEdit::singleline(badge_text)
+                                                        .desired_width(175.0)
+                                                        .hint_text("BREAKING NEWS / LIVE"),
+                                                )
+                                                .changed();
+                                            ui.label("Accent:");
+                                            any_changed |= ui
+                                                .color_edit_button_srgba_unmultiplied(
+                                                    accent_color_rgba,
+                                                )
+                                                .changed();
+                                        });
+                                        ui.end_row();
+                                    }
+
+                                    if banner_style.uses_background() {
+                                        ui.label("Banner Background:");
+                                        ui.horizontal(|ui| {
+                                            any_changed |= ui
+                                                .color_edit_button_srgba_unmultiplied(bg_color_rgba)
+                                                .changed();
+                                            ui.label(
+                                                RichText::new("(Atur warna & transparansi bar TV)")
+                                                    .small(),
+                                            );
+                                        });
+                                        ui.end_row();
+                                    }
+
+                                    ui.label("Text Content:");
+                                    any_changed |= ui
+                                        .add(
+                                            egui::TextEdit::multiline(text)
+                                                .desired_width(PROP_FIELD_W - 8.0)
+                                                .desired_rows(3),
+                                        )
+                                        .changed();
                                     ui.end_row();
 
                                     ui.label("Font Size & Color:");
                                     ui.horizontal(|ui| {
                                         any_changed |= ui
-                                            .add(egui::Slider::new(font_size, 12.0..=96.0))
+                                            .add(
+                                                egui::Slider::new(font_size, 12.0..=96.0)
+                                                    .fixed_decimals(0),
+                                            )
                                             .changed();
                                         any_changed |= ui
                                             .color_edit_button_srgba_unmultiplied(color_rgba)
                                             .changed();
+                                        any_changed |=
+                                            ui.checkbox(text_shadow, "Shadow").changed();
                                     });
                                     ui.end_row();
+
+                                    ui.label("Text Effect / Motion:");
+                                    egui::ComboBox::from_id_salt("prop_text_effect_combo")
+                                        .selected_text(effect.label())
+                                        .width(PROP_FIELD_W)
+                                        .truncate()
+                                        .show_ui(ui, |ui| {
+                                            for eff in TextAnimationEffect::all() {
+                                                any_changed |= ui
+                                                    .selectable_value(effect, *eff, eff.label())
+                                                    .changed();
+                                            }
+                                        });
+                                    ui.end_row();
+
+                                    if effect.is_animated() {
+                                        ui.label("Loop & Speed:");
+                                        ui.vertical(|ui| {
+                                            any_changed |= ui
+                                                .checkbox(
+                                                    loop_animation,
+                                                    "Loop Berulang Tanpa Putus (Continuous Loop)",
+                                                )
+                                                .changed();
+                                            ui.horizontal(|ui| {
+                                                ui.label("Speed:");
+                                                any_changed |= ui
+                                                    .add(
+                                                        egui::Slider::new(
+                                                            scroll_speed,
+                                                            15.0..=360.0,
+                                                        )
+                                                        .suffix(" px/s")
+                                                        .fixed_decimals(0),
+                                                    )
+                                                    .changed();
+                                                if ui.small_button("Slow").clicked() {
+                                                    *scroll_speed = 55.0;
+                                                    any_changed = true;
+                                                }
+                                                if ui.small_button("Normal").clicked() {
+                                                    *scroll_speed = 105.0;
+                                                    any_changed = true;
+                                                }
+                                                if ui.small_button("Fast").clicked() {
+                                                    *scroll_speed = 185.0;
+                                                    any_changed = true;
+                                                }
+                                            });
+                                        });
+                                        ui.end_row();
+                                    }
+
+                                    if effect.is_scrolling() && *loop_animation {
+                                        ui.label("Loop Gap Spacing:");
+                                        any_changed |= ui
+                                            .add(
+                                                egui::Slider::new(loop_gap_px, 20.0..=260.0)
+                                                    .suffix(" px")
+                                                    .fixed_decimals(0),
+                                            )
+                                            .on_hover_text(
+                                                "Jarak spasi antar pengulangan teks berjalan (loop)",
+                                            )
+                                            .changed();
+                                        ui.end_row();
+                                    }
                                 }
                                 SourceKind::BrowserSource {
                                     url,
@@ -1054,29 +1214,162 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                     files,
                                     slide_time_ms,
                                     loop_slides,
+                                    transition_effect,
+                                    transition_duration_ms,
                                 } => {
                                     ui.label("Slide Images:");
-                                    ui.horizontal(|ui| {
-                                        ui.label(format!("{} file(s)", files.len()));
-                                        if ui
-                                            .button(format!("{} Add Image...", icons::PLUS))
-                                            .clicked()
-                                        {
-                                            if let Some(picked) =
-                                                crate::platform::pick_image_file_dialog()
+                                    ui.vertical(|ui| {
+                                        ui.horizontal(|ui| {
+                                            ui.label(
+                                                RichText::new(format!("{} photo(s)", files.len()))
+                                                    .strong(),
+                                            );
+                                            if ui
+                                                .button(format!(
+                                                    "{} Add Images (Multi-Select)...",
+                                                    icons::PLUS
+                                                ))
+                                                .on_hover_text(
+                                                    "Hold Ctrl or Shift in Explorer to select multiple photos at once (.png, .jpg, .jpeg, .bmp, .webp, .gif)",
+                                                )
+                                                .clicked()
                                             {
-                                                files.push(picked.to_string_lossy().to_string());
+                                                let picked_list =
+                                                    crate::platform::pick_multiple_image_files_dialog();
+                                                if !picked_list.is_empty() {
+                                                    for p in picked_list {
+                                                        let s = p.to_string_lossy().to_string();
+                                                        if !s.trim().is_empty() {
+                                                            files.push(s);
+                                                        }
+                                                    }
+                                                    any_changed = true;
+                                                }
+                                            }
+                                            if !files.is_empty()
+                                                && ui
+                                                    .small_button(format!("{} Clear", icons::TRASH))
+                                                    .clicked()
+                                            {
+                                                files.clear();
                                                 any_changed = true;
                                             }
-                                        }
-                                        if !files.is_empty() && ui.small_button("Clear").clicked() {
-                                            files.clear();
-                                            any_changed = true;
+                                        });
+
+                                        if !files.is_empty() {
+                                            let mut remove_idx = None;
+                                            let mut swap_pair = None;
+                                            let total_len = files.len();
+                                            egui::ScrollArea::vertical()
+                                                .id_salt("slideshow_files_scroll")
+                                                .max_height(110.0)
+                                                .show(ui, |ui| {
+                                                    for (i, path_str) in files.iter().enumerate() {
+                                                        let fname = std::path::Path::new(path_str)
+                                                            .file_name()
+                                                            .and_then(|s| s.to_str())
+                                                            .unwrap_or(path_str.as_str());
+                                                        ui.horizontal(|ui| {
+                                                            ui.label(
+                                                                RichText::new(format!(
+                                                                    "#{:<2}",
+                                                                    i + 1
+                                                                ))
+                                                                .monospace()
+                                                                .small(),
+                                                            );
+                                                            ui.label(
+                                                                RichText::new(fname).small(),
+                                                            )
+                                                            .on_hover_text(path_str);
+                                                            ui.with_layout(
+                                                                egui::Layout::right_to_left(
+                                                                    egui::Align::Center,
+                                                                ),
+                                                                |ui| {
+                                                                    if ui
+                                                                        .small_button(icons::TRASH)
+                                                                        .on_hover_text("Remove photo")
+                                                                        .clicked()
+                                                                    {
+                                                                        remove_idx = Some(i);
+                                                                    }
+                                                                    if i + 1 < total_len
+                                                                        && ui
+                                                                            .small_button(
+                                                                                icons::ARROW_DOWN,
+                                                                            )
+                                                                            .on_hover_text(
+                                                                                "Move photo down",
+                                                                            )
+                                                                            .clicked()
+                                                                    {
+                                                                        swap_pair =
+                                                                            Some((i, i + 1));
+                                                                    }
+                                                                    if i > 0
+                                                                        && ui
+                                                                            .small_button(
+                                                                                icons::ARROW_UP,
+                                                                            )
+                                                                            .on_hover_text(
+                                                                                "Move photo up",
+                                                                            )
+                                                                            .clicked()
+                                                                    {
+                                                                        swap_pair =
+                                                                            Some((i, i - 1));
+                                                                    }
+                                                                },
+                                                            );
+                                                        });
+                                                    }
+                                                });
+                                            if let Some((a, b)) = swap_pair {
+                                                files.swap(a, b);
+                                                any_changed = true;
+                                            }
+                                            if let Some(idx) = remove_idx {
+                                                files.remove(idx);
+                                                any_changed = true;
+                                            }
                                         }
                                     });
                                     ui.end_row();
 
-                                    ui.label("Slide Timing (ms):");
+                                    ui.label("Slide Transition:");
+                                    egui::ComboBox::from_id_salt("prop_slide_transition_combo")
+                                        .selected_text(transition_effect.label())
+                                        .width(PROP_FIELD_W)
+                                        .truncate()
+                                        .show_ui(ui, |ui| {
+                                            for eff in SlideTransitionEffect::all() {
+                                                any_changed |= ui
+                                                    .selectable_value(
+                                                        transition_effect,
+                                                        *eff,
+                                                        eff.label(),
+                                                    )
+                                                    .changed();
+                                            }
+                                        });
+                                    ui.end_row();
+
+                                    if *transition_effect != SlideTransitionEffect::Cut {
+                                        ui.label("Transition Speed:");
+                                        any_changed |= ui
+                                            .add(
+                                                egui::Slider::new(
+                                                    transition_duration_ms,
+                                                    150..=2000,
+                                                )
+                                                .suffix(" ms"),
+                                            )
+                                            .changed();
+                                        ui.end_row();
+                                    }
+
+                                    ui.label("Time Per Slide:");
                                     ui.horizontal(|ui| {
                                         any_changed |= ui
                                             .add(
@@ -1095,6 +1388,11 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                 }
                             }
                         });
+
+                    if let Some(tpl) = pending_tv_template {
+                        src.apply_tv_text_template(tpl);
+                        any_changed = true;
+                    }
 
                     ui.separator();
                     ui.label(RichText::new("Transform & Layout Preset").strong());
@@ -1378,6 +1676,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                     let egui_ctx = ui.ctx().clone();
                     let proj_painter = painter.with_clip_rect(rect);
 
+                    let time_sec = ui.input(|i| i.time);
                     for src in &scene_to_render.sources {
                         if !src.visible {
                             continue;
@@ -1396,89 +1695,15 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                             continue;
                         }
 
-                        if let SourceKind::ColorSource { color_rgba, .. } = &src.kind {
-                            proj_painter.rect_filled(
-                                layer_rect,
-                                egui::CornerRadius::ZERO,
-                                egui::Color32::from_rgba_unmultiplied(
-                                    color_rgba[0],
-                                    color_rgba[1],
-                                    color_rgba[2],
-                                    color_rgba[3],
-                                ),
-                            );
-                            continue;
-                        }
-                        if let SourceKind::TextGdiPlus { text, font_size, .. } = &src.kind {
-                            let scaled_font = (*font_size as f32 * (rect.height() / 1080.0)).clamp(10.0, 96.0);
-                            proj_painter.text(
-                                layer_rect.left_top() + Vec2::new(6.0, 4.0),
-                                egui::Align2::LEFT_TOP,
-                                text,
-                                egui::FontId::proportional(scaled_font),
-                                egui::Color32::WHITE,
-                            );
-                            continue;
-                        }
-
-                        let live_tex = match &src.kind {
-                            SourceKind::DisplayCapture {
-                                monitor_id,
-                                capture_cursor,
-                                ..
-                            } => {
-                                let resolved_id = app
-                                    .capture_catalog
-                                    .find_display(monitor_id)
-                                    .map(|d| d.id.as_str())
-                                    .unwrap_or(monitor_id.as_str());
-                                let key = format!("DISP:{}:{}", resolved_id, capture_cursor);
-                                app.capture_engine.get_or_update_texture(&egui_ctx, &key)
-                            }
-                            SourceKind::WindowCapture {
-                                window_hwnd,
-                                capture_cursor,
-                                ..
-                            }
-                            | SourceKind::GameCapture {
-                                window_hwnd,
-                                capture_cursor,
-                                ..
-                            } => {
-                                let key = format!("WIN:{}:{}", window_hwnd, capture_cursor);
-                                app.capture_engine.get_or_update_texture(&egui_ctx, &key)
-                            }
-                            SourceKind::WebcamDevice {
-                                device_id,
-                                resolution,
-                                ..
-                            } => {
-                                let key = format!("CAM:{}:{}x{}", device_id, resolution.0, resolution.1);
-                                app.capture_engine.get_or_update_texture(&egui_ctx, &key)
-                            }
-                            SourceKind::MediaSource { file_path, .. } => {
-                                let key = format!("MEDIA:{}", file_path);
-                                app.capture_engine.get_or_update_texture(&egui_ctx, &key)
-                            }
-                            SourceKind::ImageSource { file_path, .. } => {
-                                let key = format!("IMG:{}", file_path);
-                                app.capture_engine.get_or_update_texture(&egui_ctx, &key)
-                            }
-                            _ => None,
-                        };
-
-                        if let Some(tex) = live_tex {
-                            let (u0, v0, u1, v1) = src.transform.uv_bounds();
-                            proj_painter.image(
-                                tex.id(),
-                                layer_rect,
-                                egui::Rect::from_min_max(
-                                    egui::Pos2::new(u0, v0),
-                                    egui::Pos2::new(u1, v1),
-                                ),
-                                egui::Color32::WHITE,
-                            );
-                        }
+                        crate::ui::workspace::render_source_item_on_canvas(
+                            &proj_painter,
+                            &egui_ctx,
+                            app,
+                            src,
+                            layer_rect,
+                            time_sec,
+                            1.0,
+                        );
                     }
 
                     response.context_menu(|ui| {

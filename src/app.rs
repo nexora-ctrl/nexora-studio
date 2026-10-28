@@ -462,6 +462,15 @@ impl NexoraApp {
                             });
                         }
                     }
+                    SourceKind::ImageSlideShow { files, .. } => {
+                        for f in files {
+                            if !f.trim().is_empty() {
+                                set.insert(CaptureRequestTarget::ImageFile {
+                                    file_path: f.clone(),
+                                });
+                            }
+                        }
+                    }
                     _ => {}
                 }
             }

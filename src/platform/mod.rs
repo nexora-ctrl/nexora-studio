@@ -58,6 +58,22 @@ pub fn pick_image_file_dialog() -> Option<PathBuf> {
     }
 }
 
+/// Opens a native Windows Multi-Select File Open Dialog (`OFN_ALLOWMULTISELECT`) so the user can Ctrl+Click or Shift+Click multiple photos at once
+pub fn pick_multiple_image_files_dialog() -> Vec<PathBuf> {
+    #[cfg(target_os = "windows")]
+    {
+        let filter = "Image Files (*.png;*.jpg;*.jpeg;*.bmp;*.webp;*.gif)\0*.png;*.jpg;*.jpeg;*.bmp;*.webp;*.gif\0All Files (*.*)\0*.*\0\0";
+        win32_file_dialog::open_multi_file_dialog(
+            "Select Slide Show Images (Hold Ctrl or Shift to select multiple photos)",
+            filter,
+        )
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Vec::new()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ActiveMediaAudioSpec {
     pub id_key: String,
@@ -615,6 +631,62 @@ mod win32_file_dialog {
                 }
             }
             None
+        }
+    }
+
+    pub fn open_multi_file_dialog(title: &str, filter_with_nulls: &str) -> Vec<PathBuf> {
+        unsafe {
+            let filter_utf16: Vec<u16> = filter_with_nulls.encode_utf16().collect();
+            let title_utf16: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
+            let mut file_buf = vec![0u16; 32768];
+
+            const OFN_ALLOWMULTISELECT: u32 = 0x0000_0200;
+            const OFN_PATHMUSTEXIST: u32 = 0x0000_0800;
+            const OFN_FILEMUSTEXIST: u32 = 0x0000_1000;
+            const OFN_NOCHANGEDIR: u32 = 0x0000_0008;
+            const OFN_EXPLORER: u32 = 0x0008_0000;
+
+            let mut ofn: OPENFILENAMEW = std::mem::zeroed();
+            ofn.l_struct_size = std::mem::size_of::<OPENFILENAMEW>() as u32;
+            ofn.lpstr_filter = filter_utf16.as_ptr();
+            ofn.n_filter_index = 1;
+            ofn.lpstr_file = file_buf.as_mut_ptr();
+            ofn.n_max_file = file_buf.len() as u32;
+            ofn.lpstr_title = title_utf16.as_ptr();
+            ofn.flags = OFN_ALLOWMULTISELECT
+                | OFN_PATHMUSTEXIST
+                | OFN_FILEMUSTEXIST
+                | OFN_NOCHANGEDIR
+                | OFN_EXPLORER;
+
+            let mut results = Vec::new();
+            if GetOpenFileNameW(&mut ofn) != 0 {
+                // Parse double-null-terminated UTF-16 string list
+                let mut parts: Vec<String> = Vec::new();
+                let mut start = 0usize;
+                while start < file_buf.len() {
+                    let rel_end = file_buf[start..]
+                        .iter()
+                        .position(|&c| c == 0)
+                        .unwrap_or(0);
+                    if rel_end == 0 {
+                        break;
+                    }
+                    let s = String::from_utf16_lossy(&file_buf[start..start + rel_end]);
+                    parts.push(s);
+                    start += rel_end + 1;
+                }
+
+                if parts.len() == 1 {
+                    results.push(PathBuf::from(&parts[0]));
+                } else if parts.len() > 1 {
+                    let base_dir = PathBuf::from(&parts[0]);
+                    for file_name in &parts[1..] {
+                        results.push(base_dir.join(file_name));
+                    }
+                }
+            }
+            results
         }
     }
 

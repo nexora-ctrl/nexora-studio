@@ -2023,7 +2023,13 @@ mod win32_capture {
             return None; // Already uploaded to GPU texture!
         }
         if let Ok(img) = image::open(file_path) {
-            let rgba_img = img.to_rgba8();
+            let (orig_w, orig_h) = (img.width(), img.height());
+            let resized = if orig_w > 1920 || orig_h > 1080 {
+                img.resize(1920, 1080, image::imageops::FilterType::Triangle)
+            } else {
+                img
+            };
+            let rgba_img = resized.to_rgba8();
             let (w, h) = rgba_img.dimensions();
             if w > 0 && h > 0 {
                 IMAGE_CACHE.with(|c| {

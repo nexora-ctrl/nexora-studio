@@ -1,7 +1,10 @@
 use crate::app::{NexoraApp, PreviewDragMode};
 use crate::recording::RecordingStatus;
 use crate::studio::scene::Scene;
-use crate::studio::source::{SourceKind, SourceTransform};
+use crate::studio::source::{
+    SlideTransitionEffect, SourceItem, SourceKind, SourceTransform, TextAnimationEffect,
+    TvBannerStyle,
+};
 use crate::ui::icons;
 use crate::ui::theme::ThemePalette;
 use egui::{
@@ -626,61 +629,12 @@ fn render_single_viewport_card(
                             if clipped_rect.width() <= 2.0 || clipped_rect.height() <= 2.0 {
                                 continue;
                             }
-                            let live_tex = match &src.kind {
-                                SourceKind::DisplayCapture {
-                                    monitor_id,
-                                    capture_cursor,
-                                    ..
-                                } => {
-                                    let resolved_id = app
-                                        .capture_catalog
-                                        .find_display(monitor_id)
-                                        .map(|d| d.id.as_str())
-                                        .unwrap_or(monitor_id.as_str());
-                                    let key = format!("DISP:{}:{}", resolved_id, capture_cursor);
-                                    app.capture_engine.get_or_update_texture(&egui_ctx, &key)
-                                }
-                                SourceKind::WindowCapture {
-                                    window_hwnd,
-                                    capture_cursor,
-                                    ..
-                                }
-                                | SourceKind::GameCapture {
-                                    window_hwnd,
-                                    capture_cursor,
-                                    ..
-                                } => {
-                                    let key = format!("WIN:{}:{}", window_hwnd, capture_cursor);
-                                    app.capture_engine.get_or_update_texture(&egui_ctx, &key)
-                                }
-                                SourceKind::WebcamDevice {
-                                    device_id,
-                                    resolution,
-                                    ..
-                                } => {
-                                    let key = format!(
-                                        "CAM:{}:{}x{}",
-                                        device_id, resolution.0, resolution.1
-                                    );
-                                    app.capture_engine.get_or_update_texture(&egui_ctx, &key)
-                                }
-                                SourceKind::MediaSource { file_path, .. } => {
-                                    let key = format!("MEDIA:{}", file_path);
-                                    app.capture_engine.get_or_update_texture(&egui_ctx, &key)
-                                }
-                                SourceKind::ImageSource { file_path, .. } => {
-                                    let key = format!("IMG:{}", file_path);
-                                    app.capture_engine.get_or_update_texture(&egui_ctx, &key)
-                                }
-                                _ => None,
-                            };
-                            draw_source_layer_visual(
+                            render_source_item_on_canvas(
                                 &canvas_painter,
+                                &egui_ctx,
+                                app,
+                                src,
                                 raw_layer_rect,
-                                &src.name,
-                                &src.kind,
-                                &src.transform,
-                                live_tex.as_ref(),
                                 time_sec,
                                 out_alpha,
                             );
@@ -714,59 +668,12 @@ fn render_single_viewport_card(
                         continue;
                     }
 
-                    let live_tex = match &src.kind {
-                        SourceKind::DisplayCapture {
-                            monitor_id,
-                            capture_cursor,
-                            ..
-                        } => {
-                            let resolved_id = app
-                                .capture_catalog
-                                .find_display(monitor_id)
-                                .map(|d| d.id.as_str())
-                                .unwrap_or(monitor_id.as_str());
-                            let key = format!("DISP:{}:{}", resolved_id, capture_cursor);
-                            app.capture_engine.get_or_update_texture(&egui_ctx, &key)
-                        }
-                        SourceKind::WindowCapture {
-                            window_hwnd,
-                            capture_cursor,
-                            ..
-                        }
-                        | SourceKind::GameCapture {
-                            window_hwnd,
-                            capture_cursor,
-                            ..
-                        } => {
-                            let key = format!("WIN:{}:{}", window_hwnd, capture_cursor);
-                            app.capture_engine.get_or_update_texture(&egui_ctx, &key)
-                        }
-                        SourceKind::WebcamDevice {
-                            device_id,
-                            resolution,
-                            ..
-                        } => {
-                            let key = format!("CAM:{}:{}x{}", device_id, resolution.0, resolution.1);
-                            app.capture_engine.get_or_update_texture(&egui_ctx, &key)
-                        }
-                        SourceKind::MediaSource { file_path, .. } => {
-                            let key = format!("MEDIA:{}", file_path);
-                            app.capture_engine.get_or_update_texture(&egui_ctx, &key)
-                        }
-                        SourceKind::ImageSource { file_path, .. } => {
-                            let key = format!("IMG:{}", file_path);
-                            app.capture_engine.get_or_update_texture(&egui_ctx, &key)
-                        }
-                        _ => None,
-                    };
-
-                    draw_source_layer_visual(
+                    render_source_item_on_canvas(
                         &canvas_painter,
+                        &egui_ctx,
+                        app,
+                        src,
                         raw_layer_rect,
-                        &src.name,
-                        &src.kind,
-                        &src.transform,
-                        live_tex.as_ref(),
                         time_sec,
                         active_alpha,
                     );
@@ -1230,6 +1137,297 @@ fn apply_transform_drag(
     }
 }
 
+pub(crate) fn render_source_item_on_canvas(
+    painter: &egui::Painter,
+    egui_ctx: &egui::Context,
+    app: &mut NexoraApp,
+    src: &SourceItem,
+    raw_layer_rect: Rect,
+    time_sec: f64,
+    alpha_mul: f32,
+) {
+    if let SourceKind::ImageSlideShow {
+        files,
+        slide_time_ms,
+        loop_slides,
+        transition_effect,
+        transition_duration_ms,
+    } = &src.kind
+    {
+        let valid_files: Vec<&String> = files.iter().filter(|f| !f.trim().is_empty()).collect();
+        if !valid_files.is_empty() {
+            let n = valid_files.len();
+            let slide_ms = (*slide_time_ms).clamp(800, 60_000) as f64;
+            let trans_ms = (*transition_duration_ms)
+                .clamp(120, ((*slide_time_ms) / 2).max(150)) as f64;
+            let total_ms = time_sec * 1000.0;
+            let raw_idx = (total_ms / slide_ms).floor() as usize;
+            let cur_idx = if *loop_slides {
+                raw_idx % n
+            } else {
+                raw_idx.min(n - 1)
+            };
+            let next_idx = if *loop_slides {
+                (cur_idx + 1) % n
+            } else {
+                (cur_idx + 1).min(n - 1)
+            };
+
+            let cur_key = format!("IMG:{}", valid_files[cur_idx]);
+            let cur_tex = app.capture_engine.get_or_update_texture(egui_ctx, &cur_key);
+            let next_tex = if next_idx != cur_idx {
+                let next_key = format!("IMG:{}", valid_files[next_idx]);
+                app.capture_engine.get_or_update_texture(egui_ctx, &next_key)
+            } else {
+                None
+            };
+
+            if let Some(c_tex) = cur_tex {
+                let elapsed_in_slide = total_ms % slide_ms;
+                let slide_progress = (elapsed_in_slide / slide_ms).clamp(0.0, 1.0) as f32;
+                let in_transition = n > 1
+                    && cur_idx != next_idx
+                    && *transition_effect != SlideTransitionEffect::Cut
+                    && elapsed_in_slide >= (slide_ms - trans_ms);
+                let trans_t = if in_transition {
+                    let raw_t = ((elapsed_in_slide - (slide_ms - trans_ms)) / trans_ms)
+                        .clamp(0.0, 1.0) as f32;
+                    raw_t * raw_t * (3.0 - 2.0 * raw_t)
+                } else {
+                    0.0
+                };
+
+                draw_slideshow_layer(
+                    painter,
+                    raw_layer_rect,
+                    &src.transform,
+                    &c_tex,
+                    next_tex.as_ref(),
+                    *transition_effect,
+                    slide_progress,
+                    trans_t,
+                    alpha_mul,
+                );
+                return;
+            }
+        }
+    }
+
+    let live_tex = match &src.kind {
+        SourceKind::DisplayCapture {
+            monitor_id,
+            capture_cursor,
+            ..
+        } => {
+            let resolved_id = app
+                .capture_catalog
+                .find_display(monitor_id)
+                .map(|d| d.id.as_str())
+                .unwrap_or(monitor_id.as_str());
+            let key = format!("DISP:{}:{}", resolved_id, capture_cursor);
+            app.capture_engine.get_or_update_texture(egui_ctx, &key)
+        }
+        SourceKind::WindowCapture {
+            window_hwnd,
+            capture_cursor,
+            ..
+        }
+        | SourceKind::GameCapture {
+            window_hwnd,
+            capture_cursor,
+            ..
+        } => {
+            let key = format!("WIN:{}:{}", window_hwnd, capture_cursor);
+            app.capture_engine.get_or_update_texture(egui_ctx, &key)
+        }
+        SourceKind::WebcamDevice {
+            device_id,
+            resolution,
+            ..
+        } => {
+            let key = format!("CAM:{}:{}x{}", device_id, resolution.0, resolution.1);
+            app.capture_engine.get_or_update_texture(egui_ctx, &key)
+        }
+        SourceKind::MediaSource { file_path, .. } => {
+            let key = format!("MEDIA:{}", file_path);
+            app.capture_engine.get_or_update_texture(egui_ctx, &key)
+        }
+        SourceKind::ImageSource { file_path, .. } => {
+            let key = format!("IMG:{}", file_path);
+            app.capture_engine.get_or_update_texture(egui_ctx, &key)
+        }
+        _ => None,
+    };
+
+    draw_source_layer_visual(
+        painter,
+        raw_layer_rect,
+        &src.name,
+        &src.kind,
+        &src.transform,
+        live_tex.as_ref(),
+        time_sec,
+        alpha_mul,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_slideshow_layer(
+    painter: &egui::Painter,
+    rect: Rect,
+    transform: &SourceTransform,
+    cur_tex: &egui::TextureHandle,
+    next_tex: Option<&egui::TextureHandle>,
+    effect: SlideTransitionEffect,
+    slide_progress: f32,
+    trans_t: f32,
+    alpha_mul: f32,
+) {
+    let clipped = painter.with_clip_rect(rect);
+    let (u0, v0, u1, v1) = transform.uv_bounds();
+    let base_uv = Rect::from_min_max(Pos2::new(u0, v0), Pos2::new(u1, v1));
+    let a_factor = alpha_mul.clamp(0.0, 1.0);
+    let full_tint = Color32::from_rgba_unmultiplied(255, 255, 255, (a_factor * 255.0) as u8);
+
+    match effect {
+        SlideTransitionEffect::Cut => {
+            clipped.image(cur_tex.id(), rect, base_uv, full_tint);
+        }
+        SlideTransitionEffect::CrossFade => {
+            if trans_t > 0.001 {
+                if let Some(n_tex) = next_tex {
+                    let cur_a = ((1.0 - trans_t) * a_factor * 255.0).round() as u8;
+                    let nxt_a = (trans_t * a_factor * 255.0).round() as u8;
+                    clipped.image(
+                        cur_tex.id(),
+                        rect,
+                        base_uv,
+                        Color32::from_rgba_unmultiplied(255, 255, 255, cur_a),
+                    );
+                    clipped.image(
+                        n_tex.id(),
+                        rect,
+                        base_uv,
+                        Color32::from_rgba_unmultiplied(255, 255, 255, nxt_a),
+                    );
+                    return;
+                }
+            }
+            clipped.image(cur_tex.id(), rect, base_uv, full_tint);
+        }
+        SlideTransitionEffect::SlideLeft => {
+            if trans_t > 0.001 {
+                if let Some(n_tex) = next_tex {
+                    let w = rect.width();
+                    let cur_r = rect.translate(Vec2::new(-w * trans_t, 0.0));
+                    let nxt_r = rect.translate(Vec2::new(w * (1.0 - trans_t), 0.0));
+                    clipped.image(cur_tex.id(), cur_r, base_uv, full_tint);
+                    clipped.image(n_tex.id(), nxt_r, base_uv, full_tint);
+                    return;
+                }
+            }
+            clipped.image(cur_tex.id(), rect, base_uv, full_tint);
+        }
+        SlideTransitionEffect::SlideRight => {
+            if trans_t > 0.001 {
+                if let Some(n_tex) = next_tex {
+                    let w = rect.width();
+                    let cur_r = rect.translate(Vec2::new(w * trans_t, 0.0));
+                    let nxt_r = rect.translate(Vec2::new(-w * (1.0 - trans_t), 0.0));
+                    clipped.image(cur_tex.id(), cur_r, base_uv, full_tint);
+                    clipped.image(n_tex.id(), nxt_r, base_uv, full_tint);
+                    return;
+                }
+            }
+            clipped.image(cur_tex.id(), rect, base_uv, full_tint);
+        }
+        SlideTransitionEffect::SlideUp => {
+            if trans_t > 0.001 {
+                if let Some(n_tex) = next_tex {
+                    let h = rect.height();
+                    let cur_r = rect.translate(Vec2::new(0.0, -h * trans_t));
+                    let nxt_r = rect.translate(Vec2::new(0.0, h * (1.0 - trans_t)));
+                    clipped.image(cur_tex.id(), cur_r, base_uv, full_tint);
+                    clipped.image(n_tex.id(), nxt_r, base_uv, full_tint);
+                    return;
+                }
+            }
+            clipped.image(cur_tex.id(), rect, base_uv, full_tint);
+        }
+        SlideTransitionEffect::SlideDown => {
+            if trans_t > 0.001 {
+                if let Some(n_tex) = next_tex {
+                    let h = rect.height();
+                    let cur_r = rect.translate(Vec2::new(0.0, h * trans_t));
+                    let nxt_r = rect.translate(Vec2::new(0.0, -h * (1.0 - trans_t)));
+                    clipped.image(cur_tex.id(), cur_r, base_uv, full_tint);
+                    clipped.image(n_tex.id(), nxt_r, base_uv, full_tint);
+                    return;
+                }
+            }
+            clipped.image(cur_tex.id(), rect, base_uv, full_tint);
+        }
+        SlideTransitionEffect::ZoomInKenBurns => {
+            let zoom_inset = 0.09 * slide_progress;
+            let uw = (u1 - u0) * zoom_inset * 0.5;
+            let vh = (v1 - v0) * zoom_inset * 0.5;
+            let kb_uv = Rect::from_min_max(
+                Pos2::new(u0 + uw, v0 + vh),
+                Pos2::new(u1 - uw, v1 - vh),
+            );
+            if trans_t > 0.001 {
+                if let Some(n_tex) = next_tex {
+                    let cur_a = ((1.0 - trans_t) * a_factor * 255.0).round() as u8;
+                    let nxt_a = (trans_t * a_factor * 255.0).round() as u8;
+                    clipped.image(
+                        cur_tex.id(),
+                        rect,
+                        kb_uv,
+                        Color32::from_rgba_unmultiplied(255, 255, 255, cur_a),
+                    );
+                    clipped.image(
+                        n_tex.id(),
+                        rect,
+                        base_uv,
+                        Color32::from_rgba_unmultiplied(255, 255, 255, nxt_a),
+                    );
+                    return;
+                }
+            }
+            clipped.image(cur_tex.id(), rect, kb_uv, full_tint);
+        }
+        SlideTransitionEffect::ZoomOut => {
+            let zoom_inset = 0.10 * (1.0 - slide_progress);
+            let uw = (u1 - u0) * zoom_inset * 0.5;
+            let vh = (v1 - v0) * zoom_inset * 0.5;
+            let zo_uv = Rect::from_min_max(
+                Pos2::new(u0 + uw, v0 + vh),
+                Pos2::new(u1 - uw, v1 - vh),
+            );
+            if trans_t > 0.001 {
+                if let Some(n_tex) = next_tex {
+                    let cur_a = ((1.0 - trans_t) * a_factor * 255.0).round() as u8;
+                    let nxt_a = (trans_t * a_factor * 255.0).round() as u8;
+                    clipped.image(
+                        cur_tex.id(),
+                        rect,
+                        zo_uv,
+                        Color32::from_rgba_unmultiplied(255, 255, 255, cur_a),
+                    );
+                    clipped.image(
+                        n_tex.id(),
+                        rect,
+                        base_uv,
+                        Color32::from_rgba_unmultiplied(255, 255, 255, nxt_a),
+                    );
+                    return;
+                }
+            }
+            clipped.image(cur_tex.id(), rect, zo_uv, full_tint);
+        }
+    }
+}
+
 fn draw_source_layer_visual(
     painter: &egui::Painter,
     rect: Rect,
@@ -1256,21 +1454,34 @@ fn draw_source_layer_visual(
         text,
         font_size,
         color_rgba,
+        effect,
+        scroll_speed,
+        loop_animation,
+        loop_gap_px,
+        banner_style,
+        bg_color_rgba,
+        accent_color_rgba,
+        badge_text,
+        text_shadow,
     } = kind
     {
-        let c = Color32::from_rgba_unmultiplied(
-            color_rgba[0],
-            color_rgba[1],
-            color_rgba[2],
-            ((color_rgba[3] as f32) * a_factor) as u8,
-        );
-        let scaled_font = (*font_size * transform.scale.clamp(0.4, 2.5)).clamp(10.0, 96.0);
-        painter.text(
-            rect.center(),
-            Align2::CENTER_CENTER,
+        draw_tv_text_layer(
+            painter,
+            rect,
             text,
-            FontId::proportional(scaled_font),
-            c,
+            *font_size,
+            *color_rgba,
+            *effect,
+            *scroll_speed,
+            *loop_animation,
+            *loop_gap_px,
+            *banner_style,
+            *bg_color_rgba,
+            *accent_color_rgba,
+            badge_text,
+            *text_shadow,
+            time_sec,
+            a_factor,
         );
         return;
     }
@@ -1332,5 +1543,489 @@ fn draw_source_layer_visual(
             FontId::proportional(11.0),
             Color32::from_rgba_unmultiplied(220, 228, 240, 160),
         );
+    }
+}
+
+fn paint_text_with_optional_shadow(
+    painter: &egui::Painter,
+    pos: Pos2,
+    text: &str,
+    font_id: FontId,
+    color: Color32,
+    shadow: bool,
+    alpha_mul: f32,
+) -> Vec2 {
+    if shadow {
+        let shadow_alpha = ((175.0 * alpha_mul).clamp(0.0, 255.0)) as u8;
+        let shadow_col = Color32::from_rgba_unmultiplied(0, 0, 0, shadow_alpha);
+        let shadow_galley =
+            painter.layout_no_wrap(text.to_string(), font_id.clone(), shadow_col);
+        painter.galley(Pos2::new(pos.x + 1.5, pos.y + 1.5), shadow_galley, shadow_col);
+    }
+    let galley = painter.layout_no_wrap(text.to_string(), font_id, color);
+    let sz = galley.size();
+    painter.galley(pos, galley, color);
+    sz
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_tv_text_layer(
+    painter: &egui::Painter,
+    rect: Rect,
+    text: &str,
+    font_size: f32,
+    color_rgba: [u8; 4],
+    effect: TextAnimationEffect,
+    scroll_speed: f32,
+    loop_animation: bool,
+    loop_gap_px: f32,
+    banner_style: TvBannerStyle,
+    bg_color_rgba: [u8; 4],
+    accent_color_rgba: [u8; 4],
+    badge_text: &str,
+    text_shadow: bool,
+    time_sec: f64,
+    alpha_mul: f32,
+) {
+    if rect.width() < 8.0 || rect.height() < 8.0 {
+        return;
+    }
+
+    let clipped = painter.with_clip_rect(rect);
+
+    // Compute pulse / fade multipliers if active
+    let speed_factor = (scroll_speed.clamp(15.0, 360.0) / 95.0) as f64;
+    let effect_alpha_mul = match effect {
+        TextAnimationEffect::FadeInOut => {
+            let s = ((time_sec * speed_factor * 2.2).sin() * 0.5 + 0.5) as f32;
+            0.15 + 0.85 * s
+        }
+        TextAnimationEffect::PulseGlow => {
+            let s = ((time_sec * speed_factor * 3.0).sin() * 0.5 + 0.5) as f32;
+            0.65 + 0.35 * s
+        }
+        _ => 1.0,
+    };
+    let final_alpha = (alpha_mul * effect_alpha_mul).clamp(0.0, 1.0);
+
+    let bg_col = Color32::from_rgba_unmultiplied(
+        bg_color_rgba[0],
+        bg_color_rgba[1],
+        bg_color_rgba[2],
+        ((bg_color_rgba[3] as f32) * alpha_mul.clamp(0.0, 1.0)) as u8,
+    );
+    let accent_col = Color32::from_rgba_unmultiplied(
+        accent_color_rgba[0],
+        accent_color_rgba[1],
+        accent_color_rgba[2],
+        ((accent_color_rgba[3] as f32) * alpha_mul.clamp(0.0, 1.0)) as u8,
+    );
+    let text_col = Color32::from_rgba_unmultiplied(
+        color_rgba[0],
+        color_rgba[1],
+        color_rgba[2],
+        ((color_rgba[3] as f32) * final_alpha) as u8,
+    );
+
+    // Scale font proportionally to canvas height so preview and fullscreen projector match
+    let h_scale = (rect.height() / 56.0).clamp(0.45, 2.2);
+    let pulse_scale = if effect == TextAnimationEffect::PulseGlow {
+        1.0 + 0.04 * ((time_sec * speed_factor * 3.0).sin() as f32)
+    } else {
+        1.0
+    };
+    let effective_font_px = (font_size * h_scale * pulse_scale).clamp(10.0, 84.0);
+
+    // 1. Draw TV Banner Background & Left Badge (if any), and compute `text_area_rect`
+    let mut text_area_rect = rect;
+    let badge_clean = badge_text.trim();
+
+    match banner_style {
+        TvBannerStyle::PlainText => {}
+        TvBannerStyle::SolidBanner => {
+            clipped.rect_filled(rect, CornerRadius::same(4), bg_col);
+            let top_line = Rect::from_min_max(
+                rect.min,
+                Pos2::new(rect.max.x, (rect.min.y + 2.5).min(rect.max.y)),
+            );
+            clipped.rect_filled(top_line, CornerRadius::ZERO, accent_col);
+            text_area_rect = rect.shrink2(Vec2::new(10.0, 2.0));
+        }
+        TvBannerStyle::BreakingNewsTv => {
+            clipped.rect_filled(rect, CornerRadius::ZERO, bg_col);
+            let top_line = Rect::from_min_max(
+                rect.min,
+                Pos2::new(rect.max.x, (rect.min.y + 3.0).min(rect.max.y)),
+            );
+            clipped.rect_filled(top_line, CornerRadius::ZERO, accent_col);
+
+            if !badge_clean.is_empty() {
+                let badge_font = FontId::proportional((effective_font_px * 0.78).clamp(10.0, 32.0));
+                let badge_label = format!("{} {}", icons::PLAYER_RECORD, badge_clean);
+                let badge_galley =
+                    clipped.layout_no_wrap(badge_label.clone(), badge_font.clone(), Color32::WHITE);
+                let badge_w = (badge_galley.size().x + 22.0).min(rect.width() * 0.45);
+                let badge_rect = Rect::from_min_max(
+                    rect.min,
+                    Pos2::new(rect.min.x + badge_w, rect.max.y),
+                );
+                clipped.rect_filled(badge_rect, CornerRadius::ZERO, accent_col);
+                let b_pos = Pos2::new(
+                    badge_rect.center().x - badge_galley.size().x * 0.5,
+                    badge_rect.center().y - badge_galley.size().y * 0.5,
+                );
+                clipped.galley(b_pos, badge_galley, Color32::WHITE);
+
+                text_area_rect = Rect::from_min_max(
+                    Pos2::new(badge_rect.max.x + 8.0, rect.min.y + 3.0),
+                    Pos2::new(rect.max.x - 6.0, rect.max.y - 2.0),
+                );
+            } else {
+                text_area_rect = rect.shrink2(Vec2::new(10.0, 3.0));
+            }
+        }
+        TvBannerStyle::LowerThirdCard => {
+            clipped.rect_filled(rect, CornerRadius::same(6), bg_col);
+            let left_bar = Rect::from_min_max(
+                rect.min,
+                Pos2::new((rect.min.x + 6.0).min(rect.max.x), rect.max.y),
+            );
+            clipped.rect_filled(
+                left_bar,
+                CornerRadius {
+                    nw: 6,
+                    ne: 0,
+                    sw: 6,
+                    se: 0,
+                },
+                accent_col,
+            );
+
+            if !badge_clean.is_empty() {
+                let badge_font = FontId::proportional((effective_font_px * 0.62).clamp(9.0, 22.0));
+                let badge_galley =
+                    clipped.layout_no_wrap(badge_clean.to_string(), badge_font, Color32::WHITE);
+                let pill_w = badge_galley.size().x + 12.0;
+                let pill_h = (badge_galley.size().y + 4.0).min(rect.height() * 0.42);
+                let pill_rect = Rect::from_min_size(
+                    Pos2::new(rect.min.x + 14.0, rect.min.y + 5.0),
+                    Vec2::new(pill_w, pill_h),
+                );
+                clipped.rect_filled(pill_rect, CornerRadius::same(4), accent_col);
+                clipped.galley(
+                    Pos2::new(
+                        pill_rect.center().x - badge_galley.size().x * 0.5,
+                        pill_rect.center().y - badge_galley.size().y * 0.5,
+                    ),
+                    badge_galley,
+                    Color32::WHITE,
+                );
+                text_area_rect = Rect::from_min_max(
+                    Pos2::new(rect.min.x + 14.0, pill_rect.max.y + 2.0),
+                    Pos2::new(rect.max.x - 10.0, rect.max.y - 4.0),
+                );
+            } else {
+                text_area_rect = Rect::from_min_max(
+                    Pos2::new(rect.min.x + 14.0, rect.min.y + 4.0),
+                    Pos2::new(rect.max.x - 10.0, rect.max.y - 4.0),
+                );
+            }
+        }
+        TvBannerStyle::HeadlineStrap => {
+            clipped.rect_filled(rect, CornerRadius::same(4), bg_col);
+            let top_stripe = Rect::from_min_max(
+                rect.min,
+                Pos2::new(rect.max.x, (rect.min.y + 3.0).min(rect.max.y)),
+            );
+            let bot_stripe = Rect::from_min_max(
+                Pos2::new(rect.min.x, (rect.max.y - 3.0).max(rect.min.y)),
+                rect.max,
+            );
+            clipped.rect_filled(top_stripe, CornerRadius::ZERO, accent_col);
+            clipped.rect_filled(bot_stripe, CornerRadius::ZERO, accent_col);
+
+            if !badge_clean.is_empty() {
+                let badge_font = FontId::proportional((effective_font_px * 0.72).clamp(10.0, 28.0));
+                let badge_galley =
+                    clipped.layout_no_wrap(badge_clean.to_string(), badge_font, Color32::WHITE);
+                let b_w = (badge_galley.size().x + 18.0).min(rect.width() * 0.38);
+                let b_rect = Rect::from_min_max(
+                    Pos2::new(rect.min.x, rect.min.y + 3.0),
+                    Pos2::new(rect.min.x + b_w, rect.max.y - 3.0),
+                );
+                clipped.rect_filled(b_rect, CornerRadius::ZERO, accent_col);
+                clipped.galley(
+                    Pos2::new(
+                        b_rect.center().x - badge_galley.size().x * 0.5,
+                        b_rect.center().y - badge_galley.size().y * 0.5,
+                    ),
+                    badge_galley,
+                    Color32::WHITE,
+                );
+                text_area_rect = Rect::from_min_max(
+                    Pos2::new(b_rect.max.x + 10.0, rect.min.y + 4.0),
+                    Pos2::new(rect.max.x - 10.0, rect.max.y - 4.0),
+                );
+            } else {
+                text_area_rect = rect.shrink2(Vec2::new(12.0, 4.0));
+            }
+        }
+        TvBannerStyle::CornerBugLive => {
+            clipped.rect_filled(rect, CornerRadius::same(8), bg_col);
+            clipped.rect_stroke(
+                rect,
+                CornerRadius::same(8),
+                Stroke::new(1.2_f32, accent_col),
+                egui::StrokeKind::Inside,
+            );
+            if !badge_clean.is_empty() {
+                let badge_font = FontId::proportional((effective_font_px * 0.78).clamp(10.0, 26.0));
+                let lbl = format!("{} {}", icons::PLAYER_RECORD, badge_clean);
+                let badge_galley = clipped.layout_no_wrap(lbl, badge_font, Color32::WHITE);
+                let b_w = (badge_galley.size().x + 14.0).min(rect.width() * 0.50);
+                let b_rect = Rect::from_min_max(
+                    rect.min,
+                    Pos2::new(rect.min.x + b_w, rect.max.y),
+                );
+                clipped.rect_filled(
+                    b_rect,
+                    CornerRadius {
+                        nw: 8,
+                        ne: 0,
+                        sw: 8,
+                        se: 0,
+                    },
+                    accent_col,
+                );
+                clipped.galley(
+                    Pos2::new(
+                        b_rect.center().x - badge_galley.size().x * 0.5,
+                        b_rect.center().y - badge_galley.size().y * 0.5,
+                    ),
+                    badge_galley,
+                    Color32::WHITE,
+                );
+                text_area_rect = Rect::from_min_max(
+                    Pos2::new(b_rect.max.x + 6.0, rect.min.y + 2.0),
+                    Pos2::new(rect.max.x - 6.0, rect.max.y - 2.0),
+                );
+            } else {
+                text_area_rect = rect.shrink2(Vec2::new(8.0, 2.0));
+            }
+        }
+    }
+
+    if text_area_rect.width() < 4.0 || text_area_rect.height() < 4.0 {
+        return;
+    }
+
+    let text_painter = painter.with_clip_rect(text_area_rect);
+    let font_id = FontId::proportional(effective_font_px);
+
+    // 2. Render text with selected animation effect inside `text_area_rect`
+    match effect {
+        TextAnimationEffect::ScrollLeft => {
+            let single_line = text.replace('\n', "   •   ");
+            let measure_galley =
+                text_painter.layout_no_wrap(single_line.clone(), font_id.clone(), text_col);
+            let text_w = measure_galley.size().x.max(20.0);
+            let text_h = measure_galley.size().y;
+            let y_pos = text_area_rect.center().y - text_h * 0.5;
+            let gap = loop_gap_px.clamp(20.0, 400.0);
+            let spd = scroll_speed.clamp(10.0, 500.0) as f64;
+
+            if loop_animation {
+                let cycle = (text_w + gap) as f64;
+                let offset = ((time_sec * spd) % cycle) as f32;
+                let mut x = text_area_rect.min.x - offset;
+                while x < text_area_rect.max.x + gap {
+                    paint_text_with_optional_shadow(
+                        &text_painter,
+                        Pos2::new(x, y_pos),
+                        &single_line,
+                        font_id.clone(),
+                        text_col,
+                        text_shadow,
+                        final_alpha,
+                    );
+                    x += text_w + gap;
+                }
+            } else {
+                let total_dist = (text_area_rect.width() + text_w) as f64;
+                let traveled = (time_sec * spd).min(total_dist) as f32;
+                let x = text_area_rect.max.x - traveled;
+                paint_text_with_optional_shadow(
+                    &text_painter,
+                    Pos2::new(x, y_pos),
+                    &single_line,
+                    font_id,
+                    text_col,
+                    text_shadow,
+                    final_alpha,
+                );
+            }
+        }
+        TextAnimationEffect::ScrollRight => {
+            let single_line = text.replace('\n', "   •   ");
+            let measure_galley =
+                text_painter.layout_no_wrap(single_line.clone(), font_id.clone(), text_col);
+            let text_w = measure_galley.size().x.max(20.0);
+            let text_h = measure_galley.size().y;
+            let y_pos = text_area_rect.center().y - text_h * 0.5;
+            let gap = loop_gap_px.clamp(20.0, 400.0);
+            let spd = scroll_speed.clamp(10.0, 500.0) as f64;
+
+            if loop_animation {
+                let cycle = (text_w + gap) as f64;
+                let offset = ((time_sec * spd) % cycle) as f32;
+                let mut x = text_area_rect.min.x - (text_w + gap) + offset;
+                while x < text_area_rect.max.x + gap {
+                    paint_text_with_optional_shadow(
+                        &text_painter,
+                        Pos2::new(x, y_pos),
+                        &single_line,
+                        font_id.clone(),
+                        text_col,
+                        text_shadow,
+                        final_alpha,
+                    );
+                    x += text_w + gap;
+                }
+            } else {
+                let total_dist = (text_area_rect.width() + text_w) as f64;
+                let traveled = (time_sec * spd).min(total_dist) as f32;
+                let x = text_area_rect.min.x - text_w + traveled;
+                paint_text_with_optional_shadow(
+                    &text_painter,
+                    Pos2::new(x, y_pos),
+                    &single_line,
+                    font_id,
+                    text_col,
+                    text_shadow,
+                    final_alpha,
+                );
+            }
+        }
+        TextAnimationEffect::ScrollUp => {
+            let measure_galley =
+                text_painter.layout_no_wrap(text.to_string(), font_id.clone(), text_col);
+            let text_w = measure_galley.size().x;
+            let text_h = measure_galley.size().y.max(20.0);
+            let x_pos = (text_area_rect.center().x - text_w * 0.5).max(text_area_rect.min.x + 4.0);
+            let gap = loop_gap_px.clamp(20.0, 400.0);
+            let spd = scroll_speed.clamp(10.0, 500.0) as f64;
+
+            if loop_animation {
+                let cycle = (text_h + gap) as f64;
+                let offset = ((time_sec * spd) % cycle) as f32;
+                let mut y = text_area_rect.min.y - offset;
+                while y < text_area_rect.max.y + gap {
+                    paint_text_with_optional_shadow(
+                        &text_painter,
+                        Pos2::new(x_pos, y),
+                        text,
+                        font_id.clone(),
+                        text_col,
+                        text_shadow,
+                        final_alpha,
+                    );
+                    y += text_h + gap;
+                }
+            } else {
+                let total_dist = (text_area_rect.height() + text_h) as f64;
+                let traveled = (time_sec * spd).min(total_dist) as f32;
+                let y = text_area_rect.max.y - traveled;
+                paint_text_with_optional_shadow(
+                    &text_painter,
+                    Pos2::new(x_pos, y),
+                    text,
+                    font_id,
+                    text_col,
+                    text_shadow,
+                    final_alpha,
+                );
+            }
+        }
+        TextAnimationEffect::BounceHorizontal => {
+            let measure_galley =
+                text_painter.layout_no_wrap(text.to_string(), font_id.clone(), text_col);
+            let text_w = measure_galley.size().x;
+            let text_h = measure_galley.size().y;
+            let y_pos = text_area_rect.center().y - text_h * 0.5;
+            let free_w = (text_area_rect.width() - text_w).max(24.0);
+            let phase = ((time_sec * speed_factor * 1.4).sin() * 0.5 + 0.5) as f32;
+            let x_pos = text_area_rect.min.x + free_w * phase;
+            paint_text_with_optional_shadow(
+                &text_painter,
+                Pos2::new(x_pos, y_pos),
+                text,
+                font_id,
+                text_col,
+                text_shadow,
+                final_alpha,
+            );
+        }
+        TextAnimationEffect::Typewriter => {
+            let chars: Vec<char> = text.chars().collect();
+            let total_chars = chars.len().max(1);
+            let chars_per_sec = (scroll_speed.clamp(15.0, 360.0) / 8.0) as f64;
+            let hold_chars = 10usize;
+            let cycle_len = total_chars + hold_chars;
+            let step = if loop_animation {
+                ((time_sec * chars_per_sec) as usize) % cycle_len
+            } else {
+                ((time_sec * chars_per_sec) as usize).min(total_chars)
+            };
+            let visible_count = step.min(total_chars);
+            let cursor = if ((time_sec * 3.0) as u64).is_multiple_of(2) {
+                "|"
+            } else {
+                " "
+            };
+            let sub: String = chars.into_iter().take(visible_count).collect();
+            let typed_str = format!("{}{}", sub, cursor);
+
+            let measure_galley =
+                text_painter.layout_no_wrap(typed_str.clone(), font_id.clone(), text_col);
+            let y_pos = text_area_rect.center().y - measure_galley.size().y * 0.5;
+            let x_pos = if banner_style == TvBannerStyle::PlainText {
+                (text_area_rect.center().x - measure_galley.size().x * 0.5)
+                    .max(text_area_rect.min.x)
+            } else {
+                text_area_rect.min.x + 4.0
+            };
+            paint_text_with_optional_shadow(
+                &text_painter,
+                Pos2::new(x_pos, y_pos),
+                &typed_str,
+                font_id,
+                text_col,
+                text_shadow,
+                final_alpha,
+            );
+        }
+        TextAnimationEffect::Static
+        | TextAnimationEffect::PulseGlow
+        | TextAnimationEffect::FadeInOut => {
+            let measure_galley =
+                text_painter.layout_no_wrap(text.to_string(), font_id.clone(), text_col);
+            let y_pos = text_area_rect.center().y - measure_galley.size().y * 0.5;
+            let x_pos = match banner_style {
+                TvBannerStyle::LowerThirdCard | TvBannerStyle::HeadlineStrap => {
+                    text_area_rect.min.x + 2.0
+                }
+                _ => (text_area_rect.center().x - measure_galley.size().x * 0.5)
+                    .max(text_area_rect.min.x + 2.0),
+            };
+            paint_text_with_optional_shadow(
+                &text_painter,
+                Pos2::new(x_pos, y_pos),
+                text,
+                font_id,
+                text_col,
+                text_shadow,
+                final_alpha,
+            );
+        }
     }
 }
