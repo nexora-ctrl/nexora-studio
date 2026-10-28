@@ -18,19 +18,27 @@ pub fn render_top_bar(ctx: &egui::Context, app: &mut NexoraApp) {
         )
         .show(ctx, |ui| {
             ui.horizontal_centered(|ui| {
-                // Brand mark & Title
-                let brand_badge = egui::Frame::new()
-                    .fill(p.accent_primary)
-                    .corner_radius(CornerRadius::same(4))
-                    .inner_margin(egui::Margin::symmetric(6, 2));
-                brand_badge.show(ui, |ui| {
-                    ui.label(
-                        RichText::new("NX")
-                            .strong()
-                            .size(11.5)
-                            .color(Color32::WHITE),
+                // Brand Icon (`assets/icons/icon.ico`) & Title
+                if let Some(ref icon_tex) = app.brand_icon_texture {
+                    ui.add(
+                        egui::Image::from_texture(icon_tex)
+                            .fit_to_exact_size(egui::Vec2::new(20.0, 20.0))
+                            .corner_radius(CornerRadius::same(4)),
                     );
-                });
+                } else {
+                    let brand_badge = egui::Frame::new()
+                        .fill(p.accent_primary)
+                        .corner_radius(CornerRadius::same(4))
+                        .inner_margin(egui::Margin::symmetric(6, 2));
+                    brand_badge.show(ui, |ui| {
+                        ui.label(
+                            RichText::new("NX")
+                                .strong()
+                                .size(11.5)
+                                .color(Color32::WHITE),
+                        );
+                    });
+                }
 
                 ui.label(
                     RichText::new("NEXORA Studio")
@@ -43,6 +51,41 @@ pub fn render_top_bar(ctx: &egui::Context, app: &mut NexoraApp) {
                         .size(11.0)
                         .color(p.text_muted),
                 );
+
+                ui.separator();
+
+                // Undo / Redo Quick Buttons
+                let can_undo = app.can_undo();
+                let undo_steps = app.undo_count();
+                if ui
+                    .add_enabled(
+                        can_undo,
+                        egui::Button::new(RichText::new(format!("{} Undo", icons::UNDO)).size(11.5)),
+                    )
+                    .on_hover_text(format!(
+                        "Undo last change (Ctrl+Z) — {} step(s) available",
+                        undo_steps
+                    ))
+                    .clicked()
+                {
+                    app.undo();
+                }
+
+                let can_redo = app.can_redo();
+                let redo_steps = app.redo_count();
+                if ui
+                    .add_enabled(
+                        can_redo,
+                        egui::Button::new(RichText::new(format!("{} Redo", icons::REDO)).size(11.5)),
+                    )
+                    .on_hover_text(format!(
+                        "Redo change (Ctrl+Y / Ctrl+Shift+Z) — {} step(s) available",
+                        redo_steps
+                    ))
+                    .clicked()
+                {
+                    app.redo();
+                }
 
                 ui.separator();
 

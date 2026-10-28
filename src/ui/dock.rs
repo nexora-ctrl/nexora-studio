@@ -168,6 +168,39 @@ fn paint_and_split_dock_card(
     }
 }
 
+fn paint_status_pill(
+    ui: &mut egui::Ui,
+    text: &str,
+    bg_fill: Color32,
+    border_col: Color32,
+    text_col: Color32,
+    tooltip: &str,
+) {
+    let font_id = egui::FontId::proportional(10.0);
+    let galley = ui
+        .painter()
+        .layout_no_wrap(text.to_string(), font_id, text_col);
+    let pad = Vec2::new(6.5, 2.5);
+    let desired = Vec2::new(galley.size().x + pad.x * 2.0, (galley.size().y + pad.y * 2.0).max(18.0));
+    let (rect, resp) = ui.allocate_exact_size(desired, Sense::hover());
+    ui.painter()
+        .rect_filled(rect, CornerRadius::same(5), bg_fill);
+    ui.painter().rect_stroke(
+        rect,
+        CornerRadius::same(5),
+        Stroke::new(1.0_f32, border_col),
+        egui::StrokeKind::Inside,
+    );
+    let text_pos = Pos2::new(
+        rect.center().x - galley.size().x * 0.5,
+        rect.center().y - galley.size().y * 0.5,
+    );
+    ui.painter().galley(text_pos, galley, text_col);
+    if !tooltip.is_empty() {
+        resp.on_hover_text(tooltip);
+    }
+}
+
 fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
     let p = ThemePalette::for_mode(app.settings.theme);
     let regions = paint_and_split_dock_card(ui, &p, size);
@@ -190,6 +223,33 @@ fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
             {
                 app.settings.panels.show_scenes = false;
             }
+            ui.add_space(4.0);
+            paint_status_pill(
+                ui,
+                &format!("{} LIVE", icons::PLAYER_RECORD),
+                Color32::from_rgba_unmultiplied(
+                    p.accent_program.r(),
+                    p.accent_program.g(),
+                    p.accent_program.b(),
+                    36,
+                ),
+                p.accent_program,
+                p.accent_program,
+                "Red = Scene currently LIVE on Program output",
+            );
+            paint_status_pill(
+                ui,
+                &format!("{} PREVIEW", icons::EYE),
+                Color32::from_rgba_unmultiplied(
+                    p.accent_preview.r(),
+                    p.accent_preview.g(),
+                    p.accent_preview.b(),
+                    36,
+                ),
+                p.accent_preview,
+                p.accent_preview,
+                "Teal = Scene currently edited in Preview",
+            );
         });
     });
 
@@ -200,43 +260,315 @@ fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 let mut select_preview = None;
+                let mut transition_scene_to_live = None;
+                let mut rename_scene_target = None;
+                let mut duplicate_scene_target = None;
+                let mut delete_scene_target = None;
+
                 let preview_id = app.studio.preview_scene_id;
                 let program_id = app.studio.program_scene_id;
+                let total_scenes = app.studio.scenes.len();
+                let row_w = (body_size.x - 4.0).max(150.0);
+
+                ui.spacing_mut().item_spacing.y = 5.0;
 
                 for (idx, scene) in app.studio.scenes.iter().enumerate() {
                     let is_prv = scene.id == preview_id;
                     let is_pgm = scene.id == program_id;
+                    let src_count = scene.sources.len();
+                    let active_src_count = scene.sources.iter().filter(|s| s.visible).count();
 
-                    ui.horizontal(|ui| {
-                        if is_prv {
-                            ui.label(
-                                RichText::new("PRV")
-                                    .small()
-                                    .strong()
-                                    .color(p.accent_preview),
+                    let row_h = 38.0;
+                    let (row_rect, row_resp) =
+                        ui.allocate_exact_size(Vec2::new(row_w, row_h), Sense::click());
+
+                    let hovered = row_resp.hovered();
+
+                    // Card Fill & Border based on LIVE / PREVIEW / STANDBY state
+                    let (card_fill, border_stroke) = match (is_pgm, is_prv) {
+                        (true, true) => (
+                            Color32::from_rgba_unmultiplied(
+                                p.accent_program.r(),
+                                p.accent_program.g(),
+                                p.accent_program.b(),
+                                if hovered { 38 } else { 26 },
+                            ),
+                            Stroke::new(1.5_f32, p.accent_program),
+                        ),
+                        (true, false) => (
+                            Color32::from_rgba_unmultiplied(
+                                p.accent_program.r(),
+                                p.accent_program.g(),
+                                p.accent_program.b(),
+                                if hovered { 32 } else { 20 },
+                            ),
+                            Stroke::new(1.4_f32, p.accent_program),
+                        ),
+                        (false, true) => (
+                            Color32::from_rgba_unmultiplied(
+                                p.accent_preview.r(),
+                                p.accent_preview.g(),
+                                p.accent_preview.b(),
+                                if hovered { 36 } else { 24 },
+                            ),
+                            Stroke::new(1.4_f32, p.accent_preview),
+                        ),
+                        (false, false) => (
+                            if hovered {
+                                p.bg_elevated
+                            } else {
+                                Color32::from_rgba_unmultiplied(
+                                    p.bg_elevated.r(),
+                                    p.bg_elevated.g(),
+                                    p.bg_elevated.b(),
+                                    140,
+                                )
+                            },
+                            Stroke::new(1.0_f32, p.border_subtle),
+                        ),
+                    };
+
+                    ui.painter()
+                        .rect_filled(row_rect, CornerRadius::same(6), card_fill);
+
+                    // Left Status Accent Bar (4.5px wide)
+                    let strip_rect = Rect::from_min_max(
+                        row_rect.min,
+                        Pos2::new(row_rect.min.x + 5.0, row_rect.max.y),
+                    );
+                    match (is_pgm, is_prv) {
+                        (true, true) => {
+                            let mid_y = row_rect.center().y;
+                            let top_half = Rect::from_min_max(
+                                strip_rect.min,
+                                Pos2::new(strip_rect.max.x, mid_y),
+                            );
+                            let bot_half = Rect::from_min_max(
+                                Pos2::new(strip_rect.min.x, mid_y),
+                                strip_rect.max,
+                            );
+                            ui.painter().rect_filled(
+                                top_half,
+                                CornerRadius {
+                                    nw: 6,
+                                    ne: 0,
+                                    sw: 0,
+                                    se: 0,
+                                },
+                                p.accent_preview,
+                            );
+                            ui.painter().rect_filled(
+                                bot_half,
+                                CornerRadius {
+                                    nw: 0,
+                                    ne: 0,
+                                    sw: 6,
+                                    se: 0,
+                                },
+                                p.accent_program,
                             );
                         }
+                        (true, false) => {
+                            ui.painter().rect_filled(
+                                strip_rect,
+                                CornerRadius {
+                                    nw: 6,
+                                    ne: 0,
+                                    sw: 6,
+                                    se: 0,
+                                },
+                                p.accent_program,
+                            );
+                        }
+                        (false, true) => {
+                            ui.painter().rect_filled(
+                                strip_rect,
+                                CornerRadius {
+                                    nw: 6,
+                                    ne: 0,
+                                    sw: 6,
+                                    se: 0,
+                                },
+                                p.accent_preview,
+                            );
+                        }
+                        (false, false) => {
+                            ui.painter().rect_filled(
+                                strip_rect,
+                                CornerRadius {
+                                    nw: 6,
+                                    ne: 0,
+                                    sw: 6,
+                                    se: 0,
+                                },
+                                p.border_subtle,
+                            );
+                        }
+                    }
+
+                    ui.painter().rect_stroke(
+                        row_rect,
+                        CornerRadius::same(6),
+                        border_stroke,
+                        egui::StrokeKind::Inside,
+                    );
+
+                    // Content inside the Scene Card
+                    let inner_rect = Rect::from_min_max(
+                        Pos2::new(row_rect.min.x + 11.0, row_rect.min.y + 3.0),
+                        Pos2::new(row_rect.max.x - 7.0, row_rect.max.y - 3.0),
+                    );
+                    let mut row_ui = ui.new_child(
+                        egui::UiBuilder::new()
+                            .max_rect(inner_rect)
+                            .layout(Layout::left_to_right(Align::Center)),
+                    );
+
+                    // Scene Icon + Name + Layer Count subtitle
+                    let icon_col = if is_pgm {
+                        p.accent_program
+                    } else if is_prv {
+                        p.accent_preview
+                    } else {
+                        p.text_secondary
+                    };
+                    row_ui.label(
+                        RichText::new(icons::LAYOUT_COLUMNS)
+                            .size(14.0)
+                            .color(icon_col),
+                    );
+
+                    row_ui.vertical(|ui| {
+                        ui.spacing_mut().item_spacing.y = 0.0;
+                        ui.label(
+                            RichText::new(truncate_str(&scene.name, 18))
+                                .strong()
+                                .size(12.0)
+                                .color(p.text_primary),
+                        );
+                        let state_desc = match (is_pgm, is_prv) {
+                            (true, true) => format!("Live & Preview • {}/{} layers", active_src_count, src_count),
+                            (true, false) => format!("On Air (Live) • {}/{} layers", active_src_count, src_count),
+                            (false, true) => format!("Editing in Preview • {}/{} layers", active_src_count, src_count),
+                            (false, false) => format!("Standby • {}/{} layers", active_src_count, src_count),
+                        };
+                        ui.label(
+                            RichText::new(state_desc)
+                                .size(9.5)
+                                .color(p.text_secondary),
+                        );
+                    });
+
+                    // Right-side visual status badges
+                    row_ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.spacing_mut().item_spacing.x = 4.0;
                         if is_pgm {
-                            ui.label(
-                                RichText::new("PGM")
-                                    .small()
-                                    .strong()
-                                    .color(p.accent_program),
+                            paint_status_pill(
+                                ui,
+                                &format!("{} LIVE", icons::PLAYER_RECORD),
+                                p.accent_program,
+                                p.accent_program,
+                                Color32::WHITE,
+                                "This scene is currently LIVE on Program output",
                             );
                         }
-                        if ui
-                            .selectable_label(is_prv, &scene.name)
-                            .on_hover_text(scene.top_display_label(idx + 1))
-                            .clicked()
-                        {
-                            select_preview = Some(scene.id);
+                        if is_prv {
+                            paint_status_pill(
+                                ui,
+                                &format!("{} PREVIEW", icons::EYE),
+                                Color32::from_rgba_unmultiplied(
+                                    p.accent_preview.r(),
+                                    p.accent_preview.g(),
+                                    p.accent_preview.b(),
+                                    45,
+                                ),
+                                p.accent_preview,
+                                p.accent_preview,
+                                "This scene is currently open in Preview editor",
+                            );
+                        }
+                        if !is_pgm && !is_prv {
+                            paint_status_pill(
+                                ui,
+                                "STANDBY",
+                                Color32::TRANSPARENT,
+                                p.border_subtle,
+                                p.text_secondary,
+                                "Click to open in Preview • Double-click to Transition to LIVE",
+                            );
                         }
                     });
+
+                    let scene_id = scene.id;
+                    let scene_name_for_menu = scene.name.clone();
+                    if row_resp.double_clicked() {
+                        transition_scene_to_live = Some(scene_id);
+                    } else if row_resp.clicked() {
+                        select_preview = Some(scene_id);
+                    }
+
+                    row_resp.context_menu(|ui| {
+                        ui.set_min_width(190.0);
+                        if ui
+                            .button(format!("{} Transition to LIVE (Program)", icons::ARROW_RIGHT))
+                            .clicked()
+                        {
+                            transition_scene_to_live = Some(scene_id);
+                            ui.close_menu();
+                        }
+                        ui.separator();
+                        if ui
+                            .button(format!("{} Rename Scene...", icons::EDIT))
+                            .clicked()
+                        {
+                            rename_scene_target = Some((scene_id, scene_name_for_menu));
+                            ui.close_menu();
+                        }
+                        if ui
+                            .button(format!("{} Duplicate Scene", icons::COPY))
+                            .clicked()
+                        {
+                            duplicate_scene_target = Some(scene_id);
+                            ui.close_menu();
+                        }
+                        if total_scenes > 1
+                            && ui
+                                .button(
+                                    RichText::new(format!("{} Delete Scene", icons::TRASH))
+                                        .color(p.rec_red),
+                                )
+                                .clicked()
+                        {
+                            delete_scene_target = Some(scene_id);
+                            ui.close_menu();
+                        }
+                    });
+
+                    row_resp.on_hover_text(format!(
+                        "{}\n• Click: Open in Preview\n• Double-Click: Transition to LIVE (Program)\n• Right-Click: Scene Options",
+                        scene.top_display_label(idx + 1)
+                    ));
                 }
 
-                if let Some(id) = select_preview {
+                if let Some(id) = transition_scene_to_live {
+                    app.studio.preview_scene_id = id;
+                    app.studio.transition_preview_to_program();
+                } else if let Some(id) = select_preview {
                     app.studio.preview_scene_id = id;
                     app.studio.sync_if_linked();
+                }
+
+                if let Some((id, current_name)) = rename_scene_target {
+                    app.studio.preview_scene_id = id;
+                    app.rename_scene_buffer = current_name;
+                    app.show_rename_scene_dialog = true;
+                }
+                if let Some(id) = duplicate_scene_target {
+                    app.studio.preview_scene_id = id;
+                    app.studio.duplicate_preview_scene();
+                }
+                if let Some(id) = delete_scene_target {
+                    app.studio.delete_scene(id);
                 }
             });
     });
@@ -307,10 +639,20 @@ fn color_tag_tint(tag: SourceColorTag) -> Option<Color32> {
 
 #[derive(Debug, Clone, Copy)]
 enum SourceContextAction {
+    AddApplicationAudio,
+    AddAudioInput,
+    AddAudioOutput,
+    AddBrowser,
+    AddColor,
     AddDisplay,
-    AddWindow,
-    AddCamera,
+    AddGameCapture,
     AddImage,
+    AddImageSlideShow,
+    AddMedia,
+    AddSceneSource,
+    AddTextGdiPlus,
+    AddCamera,
+    AddWindow,
     MoveUp(Uuid),
     MoveDown(Uuid),
     MoveTop(Uuid),
@@ -330,37 +672,72 @@ enum SourceContextAction {
 }
 
 fn populate_add_source_menu(ui: &mut egui::Ui, action_out: &mut Option<SourceContextAction>) {
-    ui.set_min_width(225.0);
-    if ui
-        .button(format!("{}  Display Capture", icons::DEVICE_DESKTOP))
-        .clicked()
-    {
-        *action_out = Some(SourceContextAction::AddDisplay);
-        ui.close_menu();
-    }
-    if ui
-        .button(format!("{}  Window Capture", icons::APP_WINDOW))
-        .clicked()
-    {
-        *action_out = Some(SourceContextAction::AddWindow);
-        ui.close_menu();
-    }
-    if ui
-        .button(format!(
-            "{}  Video Capture Device (Camera)",
-            icons::CAMERA
-        ))
-        .clicked()
-    {
-        *action_out = Some(SourceContextAction::AddCamera);
-        ui.close_menu();
-    }
-    if ui
-        .button(format!("{}  Image Source", icons::PHOTO))
-        .clicked()
-    {
-        *action_out = Some(SourceContextAction::AddImage);
-        ui.close_menu();
+    ui.set_min_width(245.0);
+    ui.label(RichText::new("Add Source").small().strong());
+    ui.separator();
+
+    let entries: &[(&str, &str, SourceContextAction)] = &[
+        (
+            icons::VOLUME,
+            "Application Audio Capture (BETA)",
+            SourceContextAction::AddApplicationAudio,
+        ),
+        (
+            icons::MICROPHONE,
+            "Audio Input Capture",
+            SourceContextAction::AddAudioInput,
+        ),
+        (
+            icons::VOLUME,
+            "Audio Output Capture",
+            SourceContextAction::AddAudioOutput,
+        ),
+        (icons::WORLD, "Browser", SourceContextAction::AddBrowser),
+        (icons::BRUSH, "Color", SourceContextAction::AddColor),
+        (
+            icons::DEVICE_DESKTOP,
+            "Display Capture",
+            SourceContextAction::AddDisplay,
+        ),
+        (
+            icons::DEVICE_GAMEPAD,
+            "Game Capture",
+            SourceContextAction::AddGameCapture,
+        ),
+        (icons::PHOTO, "Image", SourceContextAction::AddImage),
+        (
+            icons::PRESENTATION,
+            "Image Slide Show",
+            SourceContextAction::AddImageSlideShow,
+        ),
+        (
+            icons::PLAYER_PLAY,
+            "Media (Video / MP3 / Audio)",
+            SourceContextAction::AddMedia,
+        ),
+        (icons::LIST, "Scene", SourceContextAction::AddSceneSource),
+        (
+            icons::LETTER_CASE,
+            "Text (GDI+)",
+            SourceContextAction::AddTextGdiPlus,
+        ),
+        (
+            icons::CAMERA,
+            "Video Capture Device",
+            SourceContextAction::AddCamera,
+        ),
+        (
+            icons::APP_WINDOW,
+            "Window Capture",
+            SourceContextAction::AddWindow,
+        ),
+    ];
+
+    for (icon, label, act) in entries {
+        if ui.button(format!("{}  {}", icon, label)).clicked() {
+            *action_out = Some(*act);
+            ui.close_menu();
+        }
     }
 }
 
@@ -641,12 +1018,46 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                                     src.visible = !src.visible;
                                     vis_changed = true;
                                 }
+
+                                if let SourceKind::MediaSource {
+                                    muted, is_playing, ..
+                                } = &mut src.kind
+                                {
+                                    let snd_icon = if *muted {
+                                        icons::VOLUME_OFF
+                                    } else {
+                                        icons::VOLUME
+                                    };
+                                    if ui
+                                        .small_button(snd_icon)
+                                        .on_hover_text("Mute / Unmute Media Playback Audio")
+                                        .clicked()
+                                    {
+                                        *muted = !*muted;
+                                        vis_changed = true;
+                                    }
+
+                                    let play_icon = if *is_playing {
+                                        icons::PLAYER_PAUSE
+                                    } else {
+                                        icons::PLAYER_PLAY
+                                    };
+                                    if ui
+                                        .small_button(play_icon)
+                                        .on_hover_text("Pause / Play Media")
+                                        .clicked()
+                                    {
+                                        *is_playing = !*is_playing;
+                                        vis_changed = true;
+                                    }
+                                }
                             });
                         });
                     });
                 }
                 scene.selected_source_id = new_selected;
                 if vis_changed {
+                    app.studio.sync_media_transport_to_program();
                     app.studio.sync_if_linked();
                 }
 
@@ -822,10 +1233,185 @@ fn execute_source_context_action(app: &mut NexoraApp, action: SourceContextActio
         }
         SourceContextAction::AddImage => {
             let item = SourceItem::new(
-                "Image Source",
+                "Image",
                 SourceKind::ImageSource {
-                    file_path: "assets/watermark_overlay.png".to_string(),
-                    opacity: 0.90,
+                    file_path: String::new(),
+                    opacity: 1.0,
+                },
+            );
+            app.studio.preview_scene_mut().add_source(item);
+            app.studio.sync_if_linked();
+            app.show_source_properties_dialog = true;
+        }
+        SourceContextAction::AddMedia => {
+            let item = SourceItem::new(
+                "Media Source",
+                SourceKind::MediaSource {
+                    is_local_file: true,
+                    file_path: String::new(),
+                    loop_playback: true,
+                    restart_on_activate: true,
+                    use_hardware_decoding: true,
+                    hide_when_ended: false,
+                    close_when_inactive: false,
+                    speed_percent: 100,
+                    volume: 1.0,
+                    muted: false,
+                    is_playing: true,
+                    color_range: crate::studio::source::MediaColorRange::Auto,
+                    restart_nonce: 0,
+                },
+            );
+            app.studio.preview_scene_mut().add_source(item);
+            app.studio.sync_if_linked();
+            app.show_source_properties_dialog = true;
+        }
+        SourceContextAction::AddGameCapture => {
+            app.capture_catalog.refresh_from_system();
+            let (hwnd, title, exe) = if let Some(w) = app.capture_catalog.windows.first() {
+                (w.hwnd, w.title.clone(), w.executable.clone())
+            } else {
+                (
+                    0x0001_0420,
+                    "Fullscreen Game Application".to_string(),
+                    "game.exe".to_string(),
+                )
+            };
+            let item = SourceItem::new(
+                "Game Capture",
+                SourceKind::GameCapture {
+                    mode: "Capture specific window".to_string(),
+                    window_hwnd: hwnd,
+                    window_title: title,
+                    executable_name: exe,
+                    capture_cursor: true,
+                    anti_cheat_hook: true,
+                },
+            );
+            app.studio.preview_scene_mut().add_source(item);
+            app.studio.sync_if_linked();
+            app.show_source_properties_dialog = true;
+        }
+        SourceContextAction::AddApplicationAudio => {
+            app.capture_catalog.refresh_from_system();
+            let (title, exe) = if let Some(w) = app.capture_catalog.windows.first() {
+                (w.title.clone(), w.executable.clone())
+            } else {
+                ("Application Window".to_string(), "app.exe".to_string())
+            };
+            let item = SourceItem::new(
+                "Application Audio Capture",
+                SourceKind::ApplicationAudioCapture {
+                    window_title: title,
+                    executable_name: exe,
+                    volume: 1.0,
+                    muted: false,
+                },
+            );
+            app.studio.preview_scene_mut().add_source(item);
+            app.studio.sync_if_linked();
+            app.show_source_properties_dialog = true;
+        }
+        SourceContextAction::AddAudioInput => {
+            app.audio_mixer.refresh_devices_from_system();
+            let dev = app.audio_mixer.microphone.selected_device.clone();
+            let item = SourceItem::new(
+                "Audio Input Capture",
+                SourceKind::AudioInputCapture {
+                    device_name: dev,
+                    volume: 1.0,
+                    muted: false,
+                },
+            );
+            app.studio.preview_scene_mut().add_source(item);
+            app.studio.sync_if_linked();
+            app.show_source_properties_dialog = true;
+        }
+        SourceContextAction::AddAudioOutput => {
+            app.audio_mixer.refresh_devices_from_system();
+            let dev = app.audio_mixer.desktop_audio.selected_device.clone();
+            let item = SourceItem::new(
+                "Audio Output Capture",
+                SourceKind::AudioOutputCapture {
+                    device_name: dev,
+                    volume: 1.0,
+                    muted: false,
+                },
+            );
+            app.studio.preview_scene_mut().add_source(item);
+            app.studio.sync_if_linked();
+            app.show_source_properties_dialog = true;
+        }
+        SourceContextAction::AddColor => {
+            let mut item = SourceItem::new(
+                "Color Source",
+                SourceKind::ColorSource {
+                    color_rgba: [37, 99, 235, 255],
+                    width: 1920,
+                    height: 1080,
+                },
+            );
+            item.transform.preset_pip_bottom_left();
+            app.studio.preview_scene_mut().add_source(item);
+            app.studio.sync_if_linked();
+            app.show_source_properties_dialog = true;
+        }
+        SourceContextAction::AddTextGdiPlus => {
+            let mut item = SourceItem::new(
+                "Text (GDI+)",
+                SourceKind::TextGdiPlus {
+                    text: "NEXORA Studio Live".to_string(),
+                    font_size: 32.0,
+                    color_rgba: [255, 255, 255, 255],
+                },
+            );
+            item.transform.pos_x = 0.04;
+            item.transform.pos_y = 0.05;
+            item.transform.scale = 0.35;
+            item.transform.scale_y = 0.35;
+            app.studio.preview_scene_mut().add_source(item);
+            app.studio.sync_if_linked();
+            app.show_source_properties_dialog = true;
+        }
+        SourceContextAction::AddBrowser => {
+            let mut item = SourceItem::new(
+                "Browser",
+                SourceKind::BrowserSource {
+                    url: "https://obsproject.com/browser-source".to_string(),
+                    width: 800,
+                    height: 600,
+                    fps: 30,
+                },
+            );
+            item.transform.preset_pip_top_right();
+            app.studio.preview_scene_mut().add_source(item);
+            app.studio.sync_if_linked();
+            app.show_source_properties_dialog = true;
+        }
+        SourceContextAction::AddImageSlideShow => {
+            let item = SourceItem::new(
+                "Image Slide Show",
+                SourceKind::ImageSlideShow {
+                    files: Vec::new(),
+                    slide_time_ms: 8000,
+                    loop_slides: true,
+                },
+            );
+            app.studio.preview_scene_mut().add_source(item);
+            app.studio.sync_if_linked();
+            app.show_source_properties_dialog = true;
+        }
+        SourceContextAction::AddSceneSource => {
+            let first_scene_name = app
+                .studio
+                .scenes
+                .first()
+                .map(|s| s.name.clone())
+                .unwrap_or_else(|| "Scene 1".to_string());
+            let item = SourceItem::new(
+                "Scene",
+                SourceKind::SceneSource {
+                    scene_name: first_scene_name,
                 },
             );
             app.studio.preview_scene_mut().add_source(item);
@@ -984,24 +1570,172 @@ fn render_audio_mixer_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) 
     });
 
     regions.with_body(ui, |ui, body_size| {
-        let strip_w = (body_size.x - 4.0).max(120.0);
-        render_audio_channel_strip(
-            ui,
-            &mut app.audio_mixer.desktop_audio,
-            &p,
-            "desk_bus",
-            strip_w,
-        );
-        ui.add_space(3.0);
-        ui.separator();
-        ui.add_space(2.0);
-        render_audio_channel_strip(
-            ui,
-            &mut app.audio_mixer.microphone,
-            &p,
-            "mic_bus",
-            strip_w,
-        );
+        egui::ScrollArea::vertical()
+            .id_salt("audio_mixer_scroll")
+            .max_height(body_size.y)
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                let strip_w = (body_size.x - 10.0).max(120.0);
+                render_audio_channel_strip(
+                    ui,
+                    &mut app.audio_mixer.desktop_audio,
+                    &p,
+                    "desk_bus",
+                    strip_w,
+                );
+                ui.add_space(3.0);
+                ui.separator();
+                ui.add_space(2.0);
+                render_audio_channel_strip(
+                    ui,
+                    &mut app.audio_mixer.microphone,
+                    &p,
+                    "mic_bus",
+                    strip_w,
+                );
+
+                // Also show direct Audio Playback controls for any Media Source in Program or Preview
+                let mut media_changed = false;
+                let program_media_ids: std::collections::HashSet<uuid::Uuid> = app
+                    .studio
+                    .program_scene()
+                    .sources
+                    .iter()
+                    .filter(|s| s.visible && matches!(s.kind, SourceKind::MediaSource { .. }))
+                    .map(|s| s.id)
+                    .collect();
+
+                let preview_id = app.studio.preview_scene_id;
+                let program_id = app.studio.program_scene_id;
+                let mut shown_ids = std::collections::HashSet::new();
+
+                for scene in &mut app.studio.scenes {
+                    if scene.id != program_id && scene.id != preview_id {
+                        continue;
+                    }
+                    for src in &mut scene.sources {
+                        if !shown_ids.insert(src.id) {
+                            continue;
+                        }
+                        let src_name = src.name.clone();
+                        let is_live_on_pgm = program_media_ids.contains(&src.id);
+                        if let SourceKind::MediaSource {
+                            volume,
+                            muted,
+                            is_playing,
+                            restart_nonce,
+                            ..
+                        } = &mut src.kind
+                        {
+                            ui.add_space(3.0);
+                            ui.separator();
+                            ui.add_space(2.0);
+                            ui.allocate_ui_with_layout(
+                                Vec2::new(strip_w, 22.0),
+                                Layout::left_to_right(Align::Center),
+                                |ui| {
+                                    let mute_label = if *muted {
+                                        format!("{} MUTE", icons::VOLUME_OFF)
+                                    } else {
+                                        format!("{} ON", icons::VOLUME)
+                                    };
+                                    let mute_btn = egui::Button::new(
+                                        RichText::new(mute_label)
+                                            .small()
+                                            .strong()
+                                            .color(if *muted { p.rec_red } else { p.text_primary }),
+                                    )
+                                    .min_size(Vec2::new(54.0, 20.0));
+                                    if ui
+                                        .add(mute_btn)
+                                        .on_hover_text("Mute / Unmute Media Source playback sound")
+                                        .clicked()
+                                    {
+                                        *muted = !*muted;
+                                        media_changed = true;
+                                    }
+
+                                    let play_icon = if *is_playing {
+                                        icons::PLAYER_PAUSE
+                                    } else {
+                                        icons::PLAYER_PLAY
+                                    };
+                                    if ui
+                                        .small_button(play_icon)
+                                        .on_hover_text("Pause / Play Media")
+                                        .clicked()
+                                    {
+                                        *is_playing = !*is_playing;
+                                        media_changed = true;
+                                    }
+                                    if ui
+                                        .small_button(icons::REFRESH)
+                                        .on_hover_text("Restart Media from 00:00")
+                                        .clicked()
+                                    {
+                                        *is_playing = true;
+                                        *restart_nonce = restart_nonce.wrapping_add(1);
+                                        media_changed = true;
+                                    }
+
+                                    let status_tag = if is_live_on_pgm { "PGM" } else { "PRV" };
+                                    let status_col = if is_live_on_pgm {
+                                        p.accent_program
+                                    } else {
+                                        p.accent_preview
+                                    };
+                                    ui.label(
+                                        RichText::new(status_tag)
+                                            .size(9.5)
+                                            .strong()
+                                            .color(status_col),
+                                    )
+                                    .on_hover_text(if is_live_on_pgm {
+                                        "Live on Program — Sound is active"
+                                    } else {
+                                        "Standby in Preview — Sound will play when transitioned to Program"
+                                    });
+
+                                    ui.label(
+                                        RichText::new(truncate_str(&src_name, 12))
+                                            .strong()
+                                            .size(11.0),
+                                    );
+
+                                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                        let pct = (*volume * 100.0).round() as i32;
+                                        ui.label(
+                                            RichText::new(format!("{:>3}%", pct))
+                                                .size(10.5)
+                                                .monospace()
+                                                .color(p.text_secondary),
+                                        );
+                                        let rem_w = (ui.available_width() - 6.0).clamp(42.0, 120.0);
+                                        ui.scope(|ui| {
+                                            ui.spacing_mut().slider_width = rem_w;
+                                            if ui
+                                                .add_enabled(
+                                                    !*muted,
+                                                    egui::Slider::new(volume, 0.0..=1.0)
+                                                        .show_value(false)
+                                                        .trailing_fill(true),
+                                                )
+                                                .changed()
+                                            {
+                                                media_changed = true;
+                                            }
+                                        });
+                                    });
+                                },
+                            );
+                        }
+                    }
+                }
+                if media_changed {
+                    app.studio.sync_media_transport_to_program();
+                    app.studio.sync_if_linked();
+                }
+            });
     });
 
     regions.with_footer(ui, |ui| {

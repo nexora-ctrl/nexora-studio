@@ -5,6 +5,106 @@ use std::sync::Arc;
 /// Also accompanied in `assets/icons/` by `tabler-sprite.svg` and `tabler-icons-codepoints.json`
 /// for offline reference and future expansion.
 const TABLER_ICONS_TTF: &[u8] = include_bytes!("../../assets/icons/tabler-icons.ttf");
+const APP_ICON_ICO: &[u8] = include_bytes!("../../assets/icons/icon.ico");
+
+/// Decodes a 32-bit BGRA DIB entry from the embedded `assets/icons/icon.ico`
+pub fn decode_embedded_ico_rgba(preferred_width: u32) -> Option<(u32, u32, Vec<u8>)> {
+    let bytes = APP_ICON_ICO;
+    if bytes.len() < 22 {
+        return None;
+    }
+    let count = u16::from_le_bytes([bytes[4], bytes[5]]) as usize;
+    if count == 0 || bytes.len() < 6 + count * 16 {
+        return None;
+    }
+
+    let mut chosen_idx = 0usize;
+    let mut best_diff = u32::MAX;
+
+    for i in 0..count {
+        let off = 6 + i * 16;
+        let w = if bytes[off] == 0 {
+            256u32
+        } else {
+            bytes[off] as u32
+        };
+        let diff = w.abs_diff(preferred_width);
+        if diff < best_diff {
+            best_diff = diff;
+            chosen_idx = i;
+        }
+    }
+
+    let off = 6 + chosen_idx * 16;
+    let width = if bytes[off] == 0 {
+        256usize
+    } else {
+        bytes[off] as usize
+    };
+    let height = if bytes[off + 1] == 0 {
+        256usize
+    } else {
+        bytes[off + 1] as usize
+    };
+    let size = u32::from_le_bytes([
+        bytes[off + 8],
+        bytes[off + 9],
+        bytes[off + 10],
+        bytes[off + 11],
+    ]) as usize;
+    let data_off = u32::from_le_bytes([
+        bytes[off + 12],
+        bytes[off + 13],
+        bytes[off + 14],
+        bytes[off + 15],
+    ]) as usize;
+
+    if data_off + size > bytes.len() || size < 40 {
+        return None;
+    }
+
+    let header_size = u32::from_le_bytes([
+        bytes[data_off],
+        bytes[data_off + 1],
+        bytes[data_off + 2],
+        bytes[data_off + 3],
+    ]) as usize;
+    let pixel_off = data_off + header_size;
+    let pixel_bytes = width * height * 4;
+    if pixel_off + pixel_bytes > bytes.len() {
+        return None;
+    }
+
+    let src = &bytes[pixel_off..pixel_off + pixel_bytes];
+    let mut rgba = vec![0u8; pixel_bytes];
+
+    // ICO DIB pixels are stored bottom-up in BGRA order
+    for y in 0..height {
+        let src_row = (height - 1 - y) * width * 4;
+        let dst_row = y * width * 4;
+        for x in 0..width {
+            let s = src_row + x * 4;
+            let d = dst_row + x * 4;
+            rgba[d] = src[s + 2];     // R
+            rgba[d + 1] = src[s + 1]; // G
+            rgba[d + 2] = src[s];     // B
+            rgba[d + 3] = src[s + 3]; // A
+        }
+    }
+
+    Some((width as u32, height as u32, rgba))
+}
+
+/// Loads `assets/icons/icon.ico` into `egui::IconData` for the native window and taskbar icon
+pub fn load_app_window_icon() -> Option<Arc<egui::IconData>> {
+    let (width, height, rgba) = decode_embedded_ico_rgba(64)
+        .or_else(|| decode_embedded_ico_rgba(256))?;
+    Some(Arc::new(egui::IconData {
+        rgba,
+        width,
+        height,
+    }))
+}
 
 /// Registers the offline Tabler Icons font as a fallback for both Proportional and Monospace text in `egui`.
 pub fn install_tabler_icons(ctx: &egui::Context) {
@@ -118,4 +218,25 @@ pub const MAXIMIZE: &str = "\u{eaea}";
 pub const MINIMIZE: &str = "\u{eaf1}";
 /// `ti-movie` — Recordings Media Library
 pub const MOVIE: &str = "\u{eafa}";
+
+/// `ti-world` — Browser Source
+pub const WORLD: &str = "\u{eb54}";
+/// `ti-brush` — Color Source
+pub const BRUSH: &str = "\u{ebb8}";
+/// `ti-device-gamepad` — Game Capture
+pub const DEVICE_GAMEPAD: &str = "\u{eb63}";
+/// `ti-presentation` — Image Slide Show
+pub const PRESENTATION: &str = "\u{eb70}";
+/// `ti-list` — Scene Source
+pub const LIST: &str = "\u{eb6b}";
+/// `ti-letter-case` — Text (GDI+) Source
+pub const LETTER_CASE: &str = "\u{eea5}";
+/// `ti-music` — Audio / MP3 Media
+pub const MUSIC: &str = "\u{eafc}";
+/// `ti-arrow-back-up` — Undo Action
+pub const UNDO: &str = "\u{eb77}";
+/// `ti-arrow-forward-up` — Redo Action
+pub const REDO: &str = "\u{eb78}";
+
+
 

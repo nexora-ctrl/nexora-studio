@@ -1,6 +1,6 @@
 use crate::app::NexoraApp;
-use crate::settings::{BitratePreset, ThemeMode, VideoPreset};
-use crate::studio::source::{SourceColorTag, SourceKind};
+use crate::settings::{BitratePreset, MediaDecodeScale, ThemeMode, VideoPreset};
+use crate::studio::source::{MediaColorRange, SourceColorTag, SourceKind};
 use crate::ui::icons;
 use crate::ui::theme::{apply_studio_theme, ThemePalette};
 use egui::{RichText, Stroke, Vec2};
@@ -128,12 +128,19 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
     // 1. Settings Modal Dialog
     if app.show_settings_dialog {
         let mut open = app.show_settings_dialog;
+        let gpus = app.capture_catalog.gpus.clone();
         egui::Window::new(format!("{} NEXORA Studio Settings", icons::SETTINGS))
+            .id(egui::Id::new("nexora_settings_modal_win"))
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
-            .default_width(430.0)
+            .default_width(485.0)
+            .max_width(485.0)
             .show(ctx, |ui| {
+                const SETTINGS_FIELD_W: f32 = 290.0;
+                ui.set_width(465.0);
+                ui.set_max_width(465.0);
+
                 ui.heading("Appearance & Workspace");
                 ui.horizontal(|ui| {
                     ui.label("UI Theme:");
@@ -162,16 +169,74 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                 });
 
                 ui.separator();
-                ui.heading("Video Output Configuration");
+                ui.heading("Hardware GPU / VGA & Video Output");
 
                 egui::Grid::new("settings_video_grid")
                     .num_columns(2)
                     .spacing([12.0, 8.0])
                     .show(ui, |ui| {
+                        ui.label("Hardware GPU / VGA:");
+                        let current_gpu_idx = app.settings.preferred_gpu_index.unwrap_or(0);
+                        let selected_gpu_text = gpus
+                            .iter()
+                            .find(|g| g.index == current_gpu_idx)
+                            .map(|g| g.display_label())
+                            .unwrap_or_else(|| {
+                                if !app.settings.preferred_gpu_name.is_empty() {
+                                    app.settings.preferred_gpu_name.clone()
+                                } else {
+                                    "GPU 0: Default System VGA".to_string()
+                                }
+                            });
+
+                        egui::ComboBox::from_id_salt("settings_gpu_adapter_combo")
+                            .selected_text(selected_gpu_text.clone())
+                            .width(SETTINGS_FIELD_W)
+                            .truncate()
+                            .show_ui(ui, |ui| {
+                                for gpu in &gpus {
+                                    let is_sel =
+                                        app.settings.preferred_gpu_index == Some(gpu.index);
+                                    if ui
+                                        .selectable_label(is_sel, gpu.display_label())
+                                        .clicked()
+                                    {
+                                        app.settings.preferred_gpu_index = Some(gpu.index);
+                                        app.settings.preferred_gpu_name = gpu.name.clone();
+                                        let _ = app.settings.save();
+                                    }
+                                }
+                            })
+                            .response
+                            .on_hover_text(selected_gpu_text);
+                        ui.end_row();
+
+                        ui.label("Media Video Decode:");
+                        egui::ComboBox::from_id_salt("settings_media_decode_scale_combo")
+                            .selected_text(app.settings.media_decode_scale.label())
+                            .width(SETTINGS_FIELD_W)
+                            .truncate()
+                            .show_ui(ui, |ui| {
+                                for scale in MediaDecodeScale::all() {
+                                    if ui
+                                        .selectable_value(
+                                            &mut app.settings.media_decode_scale,
+                                            *scale,
+                                            scale.label(),
+                                        )
+                                        .changed()
+                                    {
+                                        let _ = app.settings.save();
+                                    }
+                                }
+                            });
+                        ui.end_row();
+
                         ui.label("Resolution & FPS:");
                         egui::ComboBox::from_id_salt("preset_combo")
                             .selected_text(app.settings.video_preset.label())
-                            .width(230.0)
+                            .width(SETTINGS_FIELD_W)
+                            .truncate()
                             .show_ui(ui, |ui| {
                                 for preset in VideoPreset::all() {
                                     if ui
@@ -191,7 +256,8 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                         ui.label("Video Bitrate:");
                         egui::ComboBox::from_id_salt("bitrate_combo")
                             .selected_text(app.settings.bitrate_preset.label())
-                            .width(230.0)
+                            .width(SETTINGS_FIELD_W)
+                            .truncate()
                             .show_ui(ui, |ui| {
                                 for br in BitratePreset::all() {
                                     if ui
@@ -215,7 +281,13 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                         ui.label("Output Directory:");
                         let mut path_str =
                             app.settings.output_directory.to_string_lossy().to_string();
-                        if ui.text_edit_singleline(&mut path_str).changed() {
+                        if ui
+                            .add(
+                                egui::TextEdit::singleline(&mut path_str)
+                                    .desired_width(SETTINGS_FIELD_W - 8.0),
+                            )
+                            .changed()
+                        {
                             app.settings.output_directory = PathBuf::from(path_str);
                             let _ = app.settings.save();
                         }
@@ -223,21 +295,25 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                     });
 
                 ui.separator();
-                ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new(format!(
-                            "Platform: {}",
-                            crate::platform::target_os_summary()
-                        ))
-                        .small(),
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("Save & Close").clicked() {
-                            let _ = app.settings.save();
-                            app.show_settings_dialog = false;
-                        }
-                    });
-                });
+                ui.allocate_ui_with_layout(
+                    Vec2::new(465.0, 26.0),
+                    egui::Layout::left_to_right(egui::Align::Center),
+                    |ui| {
+                        ui.label(
+                            RichText::new(format!(
+                                "Platform: {}",
+                                crate::platform::target_os_summary()
+                            ))
+                            .small(),
+                        );
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("Save & Close").clicked() {
+                                let _ = app.settings.save();
+                                app.show_settings_dialog = false;
+                            }
+                        });
+                    },
+                );
             });
 
         if !open {
@@ -320,6 +396,10 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
         let displays = app.capture_catalog.displays.clone();
         let windows = app.capture_catalog.windows.clone();
         let cameras = app.capture_catalog.cameras.clone();
+        let gpus = app.capture_catalog.gpus.clone();
+        let mut selected_gpu_idx = app.settings.preferred_gpu_index.unwrap_or(0);
+        let mut selected_decode_scale = app.settings.media_decode_scale;
+        let mut gpu_or_scale_changed = false;
 
         let title = if let Some(src) = app.studio.preview_scene().selected_source() {
             format!("Properties for '{}'", src.name)
@@ -328,18 +408,29 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
         };
 
         egui::Window::new(title)
+            .id(egui::Id::new("nexora_source_properties_modal_win"))
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
-            .default_width(440.0)
+            .default_width(495.0)
+            .max_width(495.0)
             .show(ctx, |ui| {
+                const PROP_FIELD_W: f32 = 280.0;
+                ui.set_width(475.0);
+                ui.set_max_width(475.0);
+
                 if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
                     egui::Grid::new("source_props_grid")
                         .num_columns(2)
                         .spacing([12.0, 8.0])
                         .show(ui, |ui| {
                             ui.label("Source Name:");
-                            any_changed |= ui.text_edit_singleline(&mut src.name).changed();
+                            any_changed |= ui
+                                .add(
+                                    egui::TextEdit::singleline(&mut src.name)
+                                        .desired_width(PROP_FIELD_W - 8.0),
+                                )
+                                .changed();
                             ui.end_row();
 
                             ui.label("Source Type:");
@@ -365,7 +456,8 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                             ui.label("Color Label:");
                             egui::ComboBox::from_id_salt("prop_color_combo")
                                 .selected_text(src.color_tag.label())
-                                .width(240.0)
+                                .width(PROP_FIELD_W)
+                                .truncate()
                                 .show_ui(ui, |ui| {
                                     for tag in SourceColorTag::all() {
                                         any_changed |= ui
@@ -392,7 +484,8 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                             "{} ({}×{})",
                                             monitor_name, resolution.0, resolution.1
                                         ))
-                                        .width(260.0)
+                                        .width(PROP_FIELD_W)
+                                        .truncate()
                                         .show_ui(ui, |ui| {
                                             for d in &displays {
                                                 if ui
@@ -432,7 +525,8 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                             "[{}] {}",
                                             executable_name, window_title
                                         ))
-                                        .width(260.0)
+                                        .width(PROP_FIELD_W)
+                                        .truncate()
                                         .show_ui(ui, |ui| {
                                             for w in &windows {
                                                 if ui
@@ -474,7 +568,8 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                     };
                                     egui::ComboBox::from_id_salt("prop_cam_combo")
                                         .selected_text(current_display)
-                                        .width(260.0)
+                                        .width(PROP_FIELD_W)
+                                        .truncate()
                                         .show_ui(ui, |ui| {
                                             for cam in &cameras {
                                                 let status_tag = if cam.is_online { "🟢 Ready" } else { "⚪ Disconnected" };
@@ -502,7 +597,8 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                             "{}×{}",
                                             resolution.0, resolution.1
                                         ))
-                                        .width(250.0)
+                                        .width(PROP_FIELD_W)
+                                        .truncate()
                                         .show_ui(ui, |ui| {
                                             for (res_pair, res_label) in res_options {
                                                 if ui
@@ -519,9 +615,234 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                         });
                                     ui.end_row();
                                 }
+                                SourceKind::MediaSource {
+                                    is_local_file,
+                                    file_path,
+                                    loop_playback,
+                                    restart_on_activate,
+                                    use_hardware_decoding,
+                                    hide_when_ended,
+                                    close_when_inactive,
+                                    speed_percent,
+                                    volume,
+                                    muted,
+                                    is_playing,
+                                    color_range,
+                                    restart_nonce,
+                                } => {
+                                    ui.label("Source Mode:");
+                                    any_changed |=
+                                        ui.checkbox(is_local_file, "Local File").changed();
+                                    ui.end_row();
+
+                                    ui.label(if *is_local_file {
+                                        "Media File (Video / MP3):"
+                                    } else {
+                                        "Input URL / Path:"
+                                    });
+                                    ui.horizontal(|ui| {
+                                        any_changed |= ui
+                                            .add(
+                                                egui::TextEdit::singleline(file_path)
+                                                    .desired_width(198.0)
+                                                    .hint_text("Select .mp4, .mkv, .mp3, .wav..."),
+                                            )
+                                            .changed();
+                                        if ui
+                                            .button(format!("{} Browse...", icons::FOLDER_OPEN))
+                                            .on_hover_text(
+                                                "Browse local Video (.mp4, .mkv, .mov, .avi) or Audio (.mp3, .wav, .flac, .m4a) file",
+                                            )
+                                            .clicked()
+                                        {
+                                            if let Some(picked) =
+                                                crate::platform::pick_media_file_dialog()
+                                            {
+                                                *file_path =
+                                                    picked.to_string_lossy().to_string();
+                                                *is_playing = true;
+                                                *restart_nonce = restart_nonce.wrapping_add(1);
+                                                any_changed = true;
+                                            }
+                                        }
+                                    });
+                                    ui.end_row();
+
+                                    ui.label("Hardware GPU / VGA:");
+                                    let gpu_label = gpus
+                                        .iter()
+                                        .find(|g| g.index == selected_gpu_idx)
+                                        .map(|g| g.display_label())
+                                        .unwrap_or_else(|| "GPU 0: Default System VGA".to_string());
+                                    egui::ComboBox::from_id_salt("prop_media_gpu_combo")
+                                        .selected_text(gpu_label.clone())
+                                        .width(PROP_FIELD_W)
+                                        .truncate()
+                                        .show_ui(ui, |ui| {
+                                            for gpu in &gpus {
+                                                if ui
+                                                    .selectable_label(
+                                                        selected_gpu_idx == gpu.index,
+                                                        gpu.display_label(),
+                                                    )
+                                                    .clicked()
+                                                {
+                                                    selected_gpu_idx = gpu.index;
+                                                    gpu_or_scale_changed = true;
+                                                }
+                                            }
+                                        })
+                                        .response
+                                        .on_hover_text(gpu_label);
+                                    ui.end_row();
+
+                                    ui.label("Video Decode Performance:");
+                                    egui::ComboBox::from_id_salt("prop_media_decode_scale_combo")
+                                        .selected_text(selected_decode_scale.label())
+                                        .width(PROP_FIELD_W)
+                                        .truncate()
+                                        .show_ui(ui, |ui| {
+                                            for scale in MediaDecodeScale::all() {
+                                                if ui
+                                                    .selectable_value(
+                                                        &mut selected_decode_scale,
+                                                        *scale,
+                                                        scale.label(),
+                                                    )
+                                                    .changed()
+                                                {
+                                                    gpu_or_scale_changed = true;
+                                                }
+                                            }
+                                        });
+                                    ui.end_row();
+
+                                    ui.label("Playback Options:");
+                                    ui.vertical(|ui| {
+                                        any_changed |=
+                                            ui.checkbox(loop_playback, "Loop").changed();
+                                        any_changed |= ui
+                                            .checkbox(
+                                                restart_on_activate,
+                                                "Restart playback when source becomes active",
+                                            )
+                                            .changed();
+                                        any_changed |= ui
+                                            .checkbox(
+                                                use_hardware_decoding,
+                                                "Use hardware decoding when available (DXGI / D3D11)",
+                                            )
+                                            .changed();
+                                        any_changed |= ui
+                                            .checkbox(
+                                                hide_when_ended,
+                                                "Show nothing when playback ends",
+                                            )
+                                            .changed();
+                                        any_changed |= ui
+                                            .checkbox(
+                                                close_when_inactive,
+                                                "Close file when inactive",
+                                            )
+                                            .changed();
+                                    });
+                                    ui.end_row();
+
+                                    ui.label("Playback Speed:");
+                                    ui.horizontal(|ui| {
+                                        any_changed |= ui
+                                            .add(
+                                                egui::Slider::new(speed_percent, 10..=200)
+                                                    .suffix("%"),
+                                            )
+                                            .changed();
+                                        if *speed_percent != 100
+                                            && ui.small_button("100%").clicked()
+                                        {
+                                            *speed_percent = 100;
+                                            any_changed = true;
+                                        }
+                                    });
+                                    ui.end_row();
+
+                                    ui.label("Audio Gain / Volume:");
+                                    ui.horizontal(|ui| {
+                                        any_changed |= ui
+                                            .add_enabled(
+                                                !*muted,
+                                                egui::Slider::new(volume, 0.0..=1.0)
+                                                    .fixed_decimals(2),
+                                            )
+                                            .changed();
+                                        any_changed |= ui.checkbox(muted, "Mute").changed();
+                                    });
+                                    ui.end_row();
+
+                                    ui.label("YUV Color Range:");
+                                    egui::ComboBox::from_id_salt("media_color_range_combo")
+                                        .selected_text(color_range.label())
+                                        .width(PROP_FIELD_W)
+                                        .truncate()
+                                        .show_ui(ui, |ui| {
+                                            for cr in MediaColorRange::all() {
+                                                any_changed |= ui
+                                                    .selectable_value(
+                                                        color_range,
+                                                        *cr,
+                                                        cr.label(),
+                                                    )
+                                                    .changed();
+                                            }
+                                        });
+                                    ui.end_row();
+
+                                    ui.label("Transport Controls:");
+                                    ui.horizontal(|ui| {
+                                        let play_label = if *is_playing {
+                                            format!("{} Pause", icons::PLAYER_PAUSE)
+                                        } else {
+                                            format!("{} Play", icons::PLAYER_PLAY)
+                                        };
+                                        if ui.button(play_label).clicked() {
+                                            *is_playing = !*is_playing;
+                                            any_changed = true;
+                                        }
+                                        if ui
+                                            .button(format!("{} Restart", icons::REFRESH))
+                                            .on_hover_text("Seek media back to 00:00 and play")
+                                            .clicked()
+                                        {
+                                            *is_playing = true;
+                                            *restart_nonce = restart_nonce.wrapping_add(1);
+                                            any_changed = true;
+                                        }
+                                    });
+                                    ui.end_row();
+                                }
                                 SourceKind::ImageSource { file_path, opacity } => {
-                                    ui.label("Image File Path:");
-                                    any_changed |= ui.text_edit_singleline(file_path).changed();
+                                    ui.label("Image File:");
+                                    ui.horizontal(|ui| {
+                                        any_changed |= ui
+                                            .add(
+                                                egui::TextEdit::singleline(file_path)
+                                                    .desired_width(198.0)
+                                                    .hint_text("Select .png, .jpg, .webp..."),
+                                            )
+                                            .changed();
+                                        if ui
+                                            .button(format!("{} Browse...", icons::FOLDER_OPEN))
+                                            .on_hover_text("Browse local image file (.png, .jpg, .bmp, .webp)")
+                                            .clicked()
+                                        {
+                                            if let Some(picked) =
+                                                crate::platform::pick_image_file_dialog()
+                                            {
+                                                *file_path =
+                                                    picked.to_string_lossy().to_string();
+                                                any_changed = true;
+                                            }
+                                        }
+                                    });
                                     ui.end_row();
 
                                     ui.label("Opacity:");
@@ -531,6 +852,245 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                 .fixed_decimals(2),
                                         )
                                         .changed();
+                                    ui.end_row();
+                                }
+                                SourceKind::GameCapture {
+                                    mode,
+                                    window_hwnd,
+                                    window_title,
+                                    executable_name,
+                                    capture_cursor,
+                                    anti_cheat_hook,
+                                } => {
+                                    ui.label("Capture Mode:");
+                                    egui::ComboBox::from_id_salt("game_mode_combo")
+                                        .selected_text(mode.as_str())
+                                        .width(PROP_FIELD_W)
+                                        .truncate()
+                                        .show_ui(ui, |ui| {
+                                            for m in [
+                                                "Capture any fullscreen application",
+                                                "Capture specific window",
+                                                "Capture foreground window with hotkey",
+                                            ] {
+                                                any_changed |= ui
+                                                    .selectable_value(mode, m.to_string(), m)
+                                                    .changed();
+                                            }
+                                        });
+                                    ui.end_row();
+
+                                    ui.label("Game Window:");
+                                    egui::ComboBox::from_id_salt("prop_game_win_combo")
+                                        .selected_text(format!(
+                                            "[{}] {}",
+                                            executable_name, window_title
+                                        ))
+                                        .width(PROP_FIELD_W)
+                                        .truncate()
+                                        .show_ui(ui, |ui| {
+                                            for w in &windows {
+                                                if ui
+                                                    .selectable_label(
+                                                        *window_hwnd == w.hwnd,
+                                                        format!("[{}] {}", w.executable, w.title),
+                                                    )
+                                                    .clicked()
+                                                {
+                                                    *window_hwnd = w.hwnd;
+                                                    *window_title = w.title.clone();
+                                                    *executable_name = w.executable.clone();
+                                                    any_changed = true;
+                                                }
+                                            }
+                                        });
+                                    ui.end_row();
+
+                                    ui.label("Options:");
+                                    ui.vertical(|ui| {
+                                        any_changed |= ui
+                                            .checkbox(capture_cursor, "Capture Cursor")
+                                            .changed();
+                                        any_changed |= ui
+                                            .checkbox(
+                                                anti_cheat_hook,
+                                                "Use anti-cheat compatibility hook",
+                                            )
+                                            .changed();
+                                    });
+                                    ui.end_row();
+                                }
+                                SourceKind::ApplicationAudioCapture {
+                                    window_title,
+                                    executable_name,
+                                    volume,
+                                    muted,
+                                } => {
+                                    ui.label("Window:");
+                                    egui::ComboBox::from_id_salt("prop_app_audio_combo")
+                                        .selected_text(format!(
+                                            "[{}] {}",
+                                            executable_name, window_title
+                                        ))
+                                        .width(PROP_FIELD_W)
+                                        .truncate()
+                                        .show_ui(ui, |ui| {
+                                            for w in &windows {
+                                                if ui
+                                                    .selectable_label(
+                                                        *executable_name == w.executable,
+                                                        format!("[{}] {}", w.executable, w.title),
+                                                    )
+                                                    .clicked()
+                                                {
+                                                    *window_title = w.title.clone();
+                                                    *executable_name = w.executable.clone();
+                                                    any_changed = true;
+                                                }
+                                            }
+                                        });
+                                    ui.end_row();
+
+                                    ui.label("Volume:");
+                                    ui.horizontal(|ui| {
+                                        any_changed |=
+                                            ui.add(egui::Slider::new(volume, 0.0..=1.0)).changed();
+                                        any_changed |= ui.checkbox(muted, "Mute").changed();
+                                    });
+                                    ui.end_row();
+                                }
+                                SourceKind::AudioInputCapture {
+                                    device_name,
+                                    volume,
+                                    muted,
+                                }
+                                | SourceKind::AudioOutputCapture {
+                                    device_name,
+                                    volume,
+                                    muted,
+                                } => {
+                                    ui.label("Audio Device:");
+                                    any_changed |= ui.text_edit_singleline(device_name).changed();
+                                    ui.end_row();
+
+                                    ui.label("Volume:");
+                                    ui.horizontal(|ui| {
+                                        any_changed |=
+                                            ui.add(egui::Slider::new(volume, 0.0..=1.0)).changed();
+                                        any_changed |= ui.checkbox(muted, "Mute").changed();
+                                    });
+                                    ui.end_row();
+                                }
+                                SourceKind::ColorSource {
+                                    color_rgba,
+                                    width,
+                                    height,
+                                } => {
+                                    ui.label("Color:");
+                                    any_changed |= ui
+                                        .color_edit_button_srgba_unmultiplied(color_rgba)
+                                        .changed();
+                                    ui.end_row();
+
+                                    ui.label("Dimensions:");
+                                    ui.horizontal(|ui| {
+                                        any_changed |= ui
+                                            .add(egui::DragValue::new(width).range(64..=3840))
+                                            .changed();
+                                        ui.label("×");
+                                        any_changed |= ui
+                                            .add(egui::DragValue::new(height).range(64..=2160))
+                                            .changed();
+                                    });
+                                    ui.end_row();
+                                }
+                                SourceKind::TextGdiPlus {
+                                    text,
+                                    font_size,
+                                    color_rgba,
+                                } => {
+                                    ui.label("Text:");
+                                    any_changed |= ui.text_edit_multiline(text).changed();
+                                    ui.end_row();
+
+                                    ui.label("Font Size & Color:");
+                                    ui.horizontal(|ui| {
+                                        any_changed |= ui
+                                            .add(egui::Slider::new(font_size, 12.0..=96.0))
+                                            .changed();
+                                        any_changed |= ui
+                                            .color_edit_button_srgba_unmultiplied(color_rgba)
+                                            .changed();
+                                    });
+                                    ui.end_row();
+                                }
+                                SourceKind::BrowserSource {
+                                    url,
+                                    width,
+                                    height,
+                                    fps,
+                                } => {
+                                    ui.label("URL:");
+                                    any_changed |= ui.text_edit_singleline(url).changed();
+                                    ui.end_row();
+
+                                    ui.label("Dimensions / FPS:");
+                                    ui.horizontal(|ui| {
+                                        any_changed |= ui
+                                            .add(egui::DragValue::new(width).range(120..=3840))
+                                            .changed();
+                                        ui.label("×");
+                                        any_changed |= ui
+                                            .add(egui::DragValue::new(height).range(120..=2160))
+                                            .changed();
+                                        ui.label("@");
+                                        any_changed |=
+                                            ui.add(egui::DragValue::new(fps).range(15..=60)).changed();
+                                        ui.label("FPS");
+                                    });
+                                    ui.end_row();
+                                }
+                                SourceKind::ImageSlideShow {
+                                    files,
+                                    slide_time_ms,
+                                    loop_slides,
+                                } => {
+                                    ui.label("Slide Images:");
+                                    ui.horizontal(|ui| {
+                                        ui.label(format!("{} file(s)", files.len()));
+                                        if ui
+                                            .button(format!("{} Add Image...", icons::PLUS))
+                                            .clicked()
+                                        {
+                                            if let Some(picked) =
+                                                crate::platform::pick_image_file_dialog()
+                                            {
+                                                files.push(picked.to_string_lossy().to_string());
+                                                any_changed = true;
+                                            }
+                                        }
+                                        if !files.is_empty() && ui.small_button("Clear").clicked() {
+                                            files.clear();
+                                            any_changed = true;
+                                        }
+                                    });
+                                    ui.end_row();
+
+                                    ui.label("Slide Timing (ms):");
+                                    ui.horizontal(|ui| {
+                                        any_changed |= ui
+                                            .add(
+                                                egui::Slider::new(slide_time_ms, 1000..=30000)
+                                                    .suffix(" ms"),
+                                            )
+                                            .changed();
+                                        any_changed |= ui.checkbox(loop_slides, "Loop").changed();
+                                    });
+                                    ui.end_row();
+                                }
+                                SourceKind::SceneSource { scene_name } => {
+                                    ui.label("Target Scene:");
+                                    any_changed |= ui.text_edit_singleline(scene_name).changed();
                                     ui.end_row();
                                 }
                             }
@@ -565,21 +1125,74 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                         ui.label("Scale:");
                         any_changed |= ui
                             .add(
-                                egui::Slider::new(&mut src.transform.scale, 0.15..=1.25)
+                                egui::Slider::new(&mut src.transform.scale, 0.10..=1.50)
                                     .fixed_decimals(2),
                             )
                             .changed();
-                        any_changed |= ui.checkbox(&mut src.locked, "Lock Position").changed();
+                        any_changed |= ui
+                            .checkbox(&mut src.transform.lock_aspect, "Lock Aspect")
+                            .changed();
+                        any_changed |= ui.checkbox(&mut src.locked, "Lock Layer").changed();
                     });
 
                     ui.separator();
                     ui.horizontal(|ui| {
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(
+                            RichText::new("Crop Margins (or Hold ALT + Drag edges in Preview)")
+                                .strong(),
+                        );
+                        if src.transform.has_crop() && ui.small_button("Reset Crop").clicked() {
+                            src.transform.reset_crop();
+                            any_changed = true;
+                        }
+                    });
+                    egui::Grid::new("source_crop_grid")
+                        .num_columns(4)
+                        .spacing([8.0, 6.0])
+                        .show(ui, |ui| {
+                            ui.label("Left:");
+                            any_changed |= ui
+                                .add(
+                                    egui::Slider::new(&mut src.transform.crop_left, 0.0..=0.80)
+                                        .fixed_decimals(2),
+                                )
+                                .changed();
+                            ui.label("Right:");
+                            any_changed |= ui
+                                .add(
+                                    egui::Slider::new(&mut src.transform.crop_right, 0.0..=0.80)
+                                        .fixed_decimals(2),
+                                )
+                                .changed();
+                            ui.end_row();
+
+                            ui.label("Top:");
+                            any_changed |= ui
+                                .add(
+                                    egui::Slider::new(&mut src.transform.crop_top, 0.0..=0.80)
+                                        .fixed_decimals(2),
+                                )
+                                .changed();
+                            ui.label("Bottom:");
+                            any_changed |= ui
+                                .add(
+                                    egui::Slider::new(&mut src.transform.crop_bottom, 0.0..=0.80)
+                                        .fixed_decimals(2),
+                                )
+                                .changed();
+                            ui.end_row();
+                        });
+
+                    ui.separator();
+                    ui.allocate_ui_with_layout(
+                        Vec2::new(460.0, 26.0),
+                        egui::Layout::right_to_left(egui::Align::Center),
+                        |ui| {
                             if ui.button("OK").clicked() {
                                 close_clicked = true;
                             }
-                        });
-                    });
+                        },
+                    );
                 } else {
                     ui.label("No source is currently selected.");
                     if ui.button("Close").clicked() {
@@ -588,10 +1201,19 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                 }
             });
 
+        if gpu_or_scale_changed {
+            app.settings.preferred_gpu_index = Some(selected_gpu_idx);
+            if let Some(g) = gpus.iter().find(|g| g.index == selected_gpu_idx) {
+                app.settings.preferred_gpu_name = g.name.clone();
+            }
+            app.settings.media_decode_scale = selected_decode_scale;
+            any_changed = true;
+        }
         if refresh_catalog {
             app.capture_catalog.refresh_from_system();
         }
         if any_changed {
+            app.studio.sync_media_transport_to_program();
             app.studio.sync_if_linked();
             app.save_all_state();
         }
@@ -648,107 +1270,232 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
         }
     }
 
-    // 6. Dedicated Fullscreen / Windowed Program Projector
+    // 6. Dedicated Native OS Fullscreen / Windowed Projector (Multi-Monitor OBS Style)
     if app.show_projector_window {
-        let mut p_open = app.show_projector_window;
-        let proj_title = if app.projector_target_label.is_empty() {
-            "Program Projector".to_string()
+        let target = app.projector_target.clone().unwrap_or(crate::app::ProjectorTarget {
+            is_program: true,
+            is_fullscreen: false,
+            label: app.projector_target_label.clone(),
+            left: 120,
+            top: 120,
+            width: 960,
+            height: 540,
+            snap_frames_remaining: 0,
+        });
+
+        let esc_in_main = ctx.input(|i| i.key_pressed(egui::Key::Escape));
+        let esc_global = crate::platform::is_escape_pressed_global();
+        if esc_in_main || esc_global {
+            app.show_projector_window = false;
+            app.projector_target = None;
+            return;
+        }
+
+        let win_title = if target.is_fullscreen {
+            "NEXORA Studio Projector".to_string()
         } else {
-            format!("Program Projector — {}", app.projector_target_label)
+            let role_str = if target.is_program { "Program" } else { "Preview" };
+            format!("NEXORA Studio — {} Projector ({})", role_str, target.label)
         };
 
-        egui::Window::new(proj_title)
-            .open(&mut p_open)
-            .default_size(Vec2::new(800.0, 450.0))
-            .min_size(Vec2::new(320.0, 180.0))
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("● PROGRAM PROJECTOR OUTPUT").strong().color(egui::Color32::from_rgb(239, 68, 68)));
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("Close Projector").clicked() {
-                            app.show_projector_window = false;
+        let viewport_id = if target.is_fullscreen {
+            egui::ViewportId::from_hash_of(("nexora_projector_fs", target.left, target.top, target.width, target.height))
+        } else {
+            egui::ViewportId::from_hash_of("nexora_projector_windowed")
+        };
+
+        let mut builder = egui::ViewportBuilder::default()
+            .with_title(&win_title)
+            .with_position([target.left as f32, target.top as f32])
+            .with_inner_size([target.width.max(320) as f32, target.height.max(180) as f32]);
+
+        if target.is_fullscreen {
+            builder = builder
+                .with_decorations(false)
+                .with_always_on_top()
+                .with_resizable(false);
+        } else {
+            builder = builder
+                .with_decorations(true)
+                .with_min_inner_size([320.0, 180.0])
+                .with_resizable(true);
+        }
+
+        let mut should_close = false;
+        let scene_to_render = if target.is_program {
+            app.studio.program_scene().clone()
+        } else {
+            app.studio.preview_scene().clone()
+        };
+
+        ctx.show_viewport_immediate(viewport_id, builder, |vp_ctx, _class| {
+            let vp_close_or_esc = vp_ctx.input(|i| {
+                i.viewport().close_requested() || i.key_pressed(egui::Key::Escape)
+            });
+            if vp_close_or_esc || crate::platform::is_escape_pressed_global() {
+                should_close = true;
+            }
+
+            if target.is_fullscreen {
+                if let Some(proj) = app.projector_target.as_mut() {
+                    if proj.snap_frames_remaining > 0 {
+                        let bring_front = proj.snap_frames_remaining >= 5;
+                        let snapped = crate::platform::snap_window_to_monitor_rect(
+                            &win_title,
+                            proj.left,
+                            proj.top,
+                            proj.width as i32,
+                            proj.height as i32,
+                            bring_front,
+                        );
+                        if snapped {
+                            proj.snap_frames_remaining = proj.snap_frames_remaining.saturating_sub(1);
+                        }
+                    }
+                }
+            }
+
+            egui::CentralPanel::default()
+                .frame(
+                    egui::Frame::new()
+                        .fill(egui::Color32::BLACK)
+                        .inner_margin(egui::Margin::ZERO),
+                )
+                .show(vp_ctx, |ui| {
+                    let full_rect = ui.max_rect();
+                    let response = ui.allocate_rect(full_rect, egui::Sense::click());
+                    let painter = ui.painter_at(full_rect);
+                    painter.rect_filled(full_rect, egui::CornerRadius::ZERO, egui::Color32::BLACK);
+
+                    let avail = full_rect.size();
+                    let aspect = 16.0 / 9.0;
+                    let (w, h) = if avail.x / avail.y.max(1.0) > aspect {
+                        (avail.y * aspect, avail.y)
+                    } else {
+                        (avail.x, avail.x / aspect)
+                    };
+                    let rect = egui::Rect::from_center_size(full_rect.center(), Vec2::new(w, h));
+                    let egui_ctx = ui.ctx().clone();
+                    let proj_painter = painter.with_clip_rect(rect);
+
+                    for src in &scene_to_render.sources {
+                        if !src.visible {
+                            continue;
+                        }
+                        let (vis_x, vis_y, vis_w, vis_h) = src.transform.visible_norm_rect();
+                        let src_w = rect.width() * vis_w;
+                        let src_h = rect.height() * vis_h;
+                        let src_min = egui::Pos2::new(
+                            rect.min.x + rect.width() * vis_x,
+                            rect.min.y + rect.height() * vis_y,
+                        );
+                        let layer_rect = egui::Rect::from_min_size(src_min, Vec2::new(src_w, src_h));
+                        if layer_rect.intersect(rect).width() <= 2.0
+                            || layer_rect.intersect(rect).height() <= 2.0
+                        {
+                            continue;
+                        }
+
+                        if let SourceKind::ColorSource { color_rgba, .. } = &src.kind {
+                            proj_painter.rect_filled(
+                                layer_rect,
+                                egui::CornerRadius::ZERO,
+                                egui::Color32::from_rgba_unmultiplied(
+                                    color_rgba[0],
+                                    color_rgba[1],
+                                    color_rgba[2],
+                                    color_rgba[3],
+                                ),
+                            );
+                            continue;
+                        }
+                        if let SourceKind::TextGdiPlus { text, font_size, .. } = &src.kind {
+                            let scaled_font = (*font_size as f32 * (rect.height() / 1080.0)).clamp(10.0, 96.0);
+                            proj_painter.text(
+                                layer_rect.left_top() + Vec2::new(6.0, 4.0),
+                                egui::Align2::LEFT_TOP,
+                                text,
+                                egui::FontId::proportional(scaled_font),
+                                egui::Color32::WHITE,
+                            );
+                            continue;
+                        }
+
+                        let live_tex = match &src.kind {
+                            SourceKind::DisplayCapture {
+                                monitor_id,
+                                capture_cursor,
+                                ..
+                            } => {
+                                let resolved_id = app
+                                    .capture_catalog
+                                    .find_display(monitor_id)
+                                    .map(|d| d.id.as_str())
+                                    .unwrap_or(monitor_id.as_str());
+                                let key = format!("DISP:{}:{}", resolved_id, capture_cursor);
+                                app.capture_engine.get_or_update_texture(&egui_ctx, &key)
+                            }
+                            SourceKind::WindowCapture {
+                                window_hwnd,
+                                capture_cursor,
+                                ..
+                            }
+                            | SourceKind::GameCapture {
+                                window_hwnd,
+                                capture_cursor,
+                                ..
+                            } => {
+                                let key = format!("WIN:{}:{}", window_hwnd, capture_cursor);
+                                app.capture_engine.get_or_update_texture(&egui_ctx, &key)
+                            }
+                            SourceKind::WebcamDevice {
+                                device_id,
+                                resolution,
+                                ..
+                            } => {
+                                let key = format!("CAM:{}:{}x{}", device_id, resolution.0, resolution.1);
+                                app.capture_engine.get_or_update_texture(&egui_ctx, &key)
+                            }
+                            SourceKind::MediaSource { file_path, .. } => {
+                                let key = format!("MEDIA:{}", file_path);
+                                app.capture_engine.get_or_update_texture(&egui_ctx, &key)
+                            }
+                            SourceKind::ImageSource { file_path, .. } => {
+                                let key = format!("IMG:{}", file_path);
+                                app.capture_engine.get_or_update_texture(&egui_ctx, &key)
+                            }
+                            _ => None,
+                        };
+
+                        if let Some(tex) = live_tex {
+                            let (u0, v0, u1, v1) = src.transform.uv_bounds();
+                            proj_painter.image(
+                                tex.id(),
+                                layer_rect,
+                                egui::Rect::from_min_max(
+                                    egui::Pos2::new(u0, v0),
+                                    egui::Pos2::new(u1, v1),
+                                ),
+                                egui::Color32::WHITE,
+                            );
+                        }
+                    }
+
+                    response.context_menu(|ui| {
+                        ui.set_min_width(180.0);
+                        if ui.button("Close Projector (Esc)").clicked() {
+                            should_close = true;
+                            ui.close_menu();
                         }
                     });
                 });
-                ui.separator();
 
-                let avail = ui.available_size();
-                let aspect = 16.0 / 9.0;
-                let (w, h) = if avail.x / avail.y > aspect {
-                    (avail.y * aspect, avail.y)
-                } else {
-                    (avail.x, avail.x / aspect)
-                };
-                let (rect, _) = ui.allocate_exact_size(Vec2::new(w, h), egui::Sense::hover());
-                let painter = ui.painter_at(rect);
-                painter.rect_filled(rect, egui::CornerRadius::ZERO, egui::Color32::BLACK);
+            vp_ctx.request_repaint_after(std::time::Duration::from_millis(33));
+        });
 
-                // Draw program scene layers inside projector
-                let program_scene = app.studio.program_scene().clone();
-                let egui_ctx = ui.ctx().clone();
-                for src in &program_scene.sources {
-                    if !src.visible {
-                        continue;
-                    }
-                    let src_w = rect.width() * src.transform.scale;
-                    let src_h = rect.height() * src.transform.scale;
-                    let src_min = egui::Pos2::new(
-                        rect.min.x + rect.width() * src.transform.pos_x,
-                        rect.min.y + rect.height() * src.transform.pos_y,
-                    );
-                    let layer_rect = egui::Rect::from_min_size(src_min, Vec2::new(src_w, src_h)).intersect(rect);
-                    if layer_rect.width() <= 2.0 || layer_rect.height() <= 2.0 {
-                        continue;
-                    }
-
-                    let live_tex = match &src.kind {
-                        SourceKind::DisplayCapture {
-                            monitor_id,
-                            capture_cursor,
-                            ..
-                        } => {
-                            let resolved_id = app
-                                .capture_catalog
-                                .find_display(monitor_id)
-                                .map(|d| d.id.as_str())
-                                .unwrap_or(monitor_id.as_str());
-                            let key = format!("DISP:{}:{}", resolved_id, capture_cursor);
-                            app.capture_engine.get_or_update_texture(&egui_ctx, &key)
-                        }
-                        SourceKind::WindowCapture {
-                            window_hwnd,
-                            capture_cursor,
-                            ..
-                        } => {
-                            let key = format!("WIN:{}:{}", window_hwnd, capture_cursor);
-                            app.capture_engine.get_or_update_texture(&egui_ctx, &key)
-                        }
-                        SourceKind::WebcamDevice {
-                            device_id,
-                            resolution,
-                            ..
-                        } => {
-                            let key = format!("CAM:{}:{}x{}", device_id, resolution.0, resolution.1);
-                            app.capture_engine.get_or_update_texture(&egui_ctx, &key)
-                        }
-                        _ => None,
-                    };
-
-                    if let Some(tex) = live_tex {
-                        painter.image(
-                            tex.id(),
-                            layer_rect,
-                            egui::Rect::from_min_max(egui::Pos2::ZERO, egui::Pos2::new(1.0, 1.0)),
-                            egui::Color32::WHITE,
-                        );
-                    } else {
-                        painter.rect_filled(layer_rect, egui::CornerRadius::same(2), egui::Color32::from_rgb(22, 34, 52));
-                    }
-                }
-            });
-
-        if !p_open {
+        if should_close {
             app.show_projector_window = false;
+            app.projector_target = None;
         }
     }
 }

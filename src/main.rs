@@ -33,6 +33,10 @@ fn main() -> eframe::Result<()> {
         .with_min_inner_size([1024.0, 620.0])
         .with_maximized(initial_settings.window_maximized);
 
+    if let Some(app_icon) = ui::icons::load_app_window_icon() {
+        viewport = viewport.with_icon(app_icon);
+    }
+
     if let Some((pos_x, pos_y)) = initial_settings.window_pos {
         if pos_x > -3000.0 && pos_x < 6000.0 && pos_y > -3000.0 && pos_y < 4000.0 {
             viewport = viewport.with_position([pos_x, pos_y]);
@@ -122,6 +126,13 @@ mod tests {
         assert_eq!(restored.dock_height, 280.0);
         assert_eq!(restored.active_layout_name, "Setup Presentasi");
         assert_eq!(restored.saved_layout_presets.len(), 1);
+    }
+
+    #[test]
+    fn app_icon_ico_decodes_properly() {
+        let icon = crate::ui::icons::load_app_window_icon().expect("decode icon.ico");
+        assert!(icon.width >= 32 && icon.height >= 32);
+        assert_eq!(icon.rgba.len(), (icon.width * icon.height * 4) as usize);
     }
 }
 

@@ -23,6 +23,43 @@ pub enum QuickScreenTemplate {
     FullScreenOnly,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PreviewDragMode {
+    #[default]
+    None,
+    Move,
+    ResizeTopLeft,
+    ResizeTopRight,
+    ResizeBottomLeft,
+    ResizeBottomRight,
+    ResizeTop,
+    ResizeBottom,
+    ResizeLeft,
+    ResizeRight,
+    CropTop,
+    CropBottom,
+    CropLeft,
+    CropRight,
+}
+
+#[derive(Clone)]
+pub struct UndoSnapshot {
+    pub studio: StudioState,
+    pub audio_mixer: AudioMixerState,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProjectorTarget {
+    pub is_program: bool,
+    pub is_fullscreen: bool,
+    pub label: String,
+    pub left: i32,
+    pub top: i32,
+    pub width: u32,
+    pub height: u32,
+    pub snap_frames_remaining: u8,
+}
+
 pub struct NexoraApp {
     pub settings: AppSettings,
     pub studio: StudioState,
@@ -43,7 +80,18 @@ pub struct NexoraApp {
     pub save_layout_name_buffer: String,
     pub show_projector_window: bool,
     pub projector_target_label: String,
+    pub projector_target: Option<ProjectorTarget>,
     pub screenshot_notify: Option<(String, std::time::Instant)>,
+    pub preview_drag_mode: PreviewDragMode,
+    pub preview_crop_mode: bool,
+    pub media_audio_engine: crate::platform::MediaAudioEngine,
+    pub brand_icon_texture: Option<egui::TextureHandle>,
+    undo_stack: Vec<UndoSnapshot>,
+    redo_stack: Vec<UndoSnapshot>,
+    committed_snapshot: UndoSnapshot,
+    committed_hash: u64,
+    last_live_hash: u64,
+    last_change_time: f64,
     last_autosave_hash: u64,
     last_autosave_check: f64,
 }
@@ -79,6 +127,36 @@ impl NexoraApp {
         Self::reconcile_sources_with_catalog(&mut studio, &capture_catalog, !loaded_from_disk);
         audio_mixer.refresh_devices_from_system();
 
+        // Reconcile selected GPU / VGA adapter with detected system GPUs
+        if !capture_catalog.gpus.is_empty() {
+            if !settings.preferred_gpu_name.is_empty() {
+                if let Some(matched) = capture_catalog
+                    .gpus
+                    .iter()
+                    .find(|g| g.name.eq_ignore_ascii_case(&settings.preferred_gpu_name))
+                {
+                    settings.preferred_gpu_index = Some(matched.index);
+                    settings.preferred_gpu_name = matched.name.clone();
+                }
+            }
+            let idx_valid = settings
+                .preferred_gpu_index
+                .map(|idx| capture_catalog.gpus.iter().any(|g| g.index == idx))
+                .unwrap_or(false);
+            if !idx_valid {
+                if let Some(first_gpu) = capture_catalog.gpus.first() {
+                    settings.preferred_gpu_index = Some(first_gpu.index);
+                    settings.preferred_gpu_name = first_gpu.name.clone();
+                }
+            } else if settings.preferred_gpu_name.is_empty() {
+                if let Some(idx) = settings.preferred_gpu_index {
+                    if let Some(g) = capture_catalog.gpus.iter().find(|g| g.index == idx) {
+                        settings.preferred_gpu_name = g.name.clone();
+                    }
+                }
+            }
+        }
+
         // Ensure Default Studio Layout preset exists if user has no presets yet
         if settings.saved_layout_presets.is_empty() {
             settings.saved_layout_presets.push(ScreenLayoutPreset {
@@ -95,6 +173,22 @@ impl NexoraApp {
                 audio_mixer: audio_mixer.clone(),
             });
         }
+
+        let brand_icon_texture =
+            crate::ui::icons::decode_embedded_ico_rgba(48).map(|(w, h, rgba)| {
+                let color_image =
+                    egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba);
+                cc.egui_ctx.load_texture(
+                    "nexora_brand_icon_ico",
+                    color_image,
+                    egui::TextureOptions::LINEAR,
+                )
+            });
+
+        let initial_snapshot = UndoSnapshot {
+            studio: studio.clone(),
+            audio_mixer: audio_mixer.clone(),
+        };
 
         let mut app = Self {
             settings,
@@ -116,7 +210,18 @@ impl NexoraApp {
             save_layout_name_buffer: String::new(),
             show_projector_window: false,
             projector_target_label: String::new(),
+            projector_target: None,
             screenshot_notify: None,
+            preview_drag_mode: PreviewDragMode::None,
+            preview_crop_mode: false,
+            media_audio_engine: crate::platform::MediaAudioEngine::default(),
+            brand_icon_texture,
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
+            committed_snapshot: initial_snapshot,
+            committed_hash: 0,
+            last_live_hash: 0,
+            last_change_time: 0.0,
             last_autosave_hash: 0,
             last_autosave_check: 0.0,
         };
@@ -127,6 +232,9 @@ impl NexoraApp {
         } else {
             app.save_all_state();
         }
+        let u_hash = app.compute_undoable_hash();
+        app.committed_hash = u_hash;
+        app.last_live_hash = u_hash;
         app.last_autosave_hash = app.compute_state_hash();
         app
     }
@@ -248,9 +356,17 @@ impl NexoraApp {
         }
     }
 
-    pub fn sync_active_capture_requests(&self) {
+    pub fn sync_active_capture_requests(&mut self) {
         let mut set = HashSet::new();
-        for scene in [self.studio.preview_scene(), self.studio.program_scene()] {
+        let mut audio_specs = Vec::new();
+        let mut seen_audio_keys = HashSet::new();
+
+        // Collect active video/image capture targets from both Preview and Program,
+        // but ONLY output Media Source audio when the source is active & visible in PROGRAM!
+        for (is_program_scene, scene) in [
+            (true, self.studio.program_scene()),
+            (false, self.studio.preview_scene()),
+        ] {
             for src in &scene.sources {
                 if !src.visible {
                     continue;
@@ -276,6 +392,11 @@ impl NexoraApp {
                         window_hwnd,
                         capture_cursor,
                         ..
+                    }
+                    | SourceKind::GameCapture {
+                        window_hwnd,
+                        capture_cursor,
+                        ..
                     } => {
                         if *window_hwnd != 0 {
                             set.insert(CaptureRequestTarget::Window {
@@ -294,12 +415,60 @@ impl NexoraApp {
                             resolution: *resolution,
                         });
                     }
+                    SourceKind::MediaSource {
+                        file_path,
+                        loop_playback,
+                        use_hardware_decoding,
+                        is_playing,
+                        volume,
+                        muted,
+                        restart_nonce,
+                        ..
+                    } => {
+                        if !file_path.trim().is_empty() {
+                            if !SourceKind::is_audio_only_media(file_path) {
+                                let (max_w, max_h) = self.settings.media_decode_scale.max_dimensions();
+                                set.insert(CaptureRequestTarget::MediaFile {
+                                    file_path: file_path.clone(),
+                                    loop_playback: *loop_playback,
+                                    is_playing: *is_playing,
+                                    use_hardware_decoding: *use_hardware_decoding,
+                                    gpu_index: self.settings.preferred_gpu_index.unwrap_or(0),
+                                    max_decode_width: max_w,
+                                    max_decode_height: max_h,
+                                    restart_nonce: *restart_nonce,
+                                });
+                            }
+                            if is_program_scene {
+                                let id_key = format!("nx_med_{}", src.id.simple());
+                                if seen_audio_keys.insert(id_key.clone()) {
+                                    audio_specs.push(crate::platform::ActiveMediaAudioSpec {
+                                        id_key,
+                                        file_path: file_path.clone(),
+                                        loop_playback: *loop_playback,
+                                        is_playing: *is_playing,
+                                        volume: *volume,
+                                        muted: *muted,
+                                        restart_nonce: *restart_nonce,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    SourceKind::ImageSource { file_path, .. } => {
+                        if !file_path.trim().is_empty() {
+                            set.insert(CaptureRequestTarget::ImageFile {
+                                file_path: file_path.clone(),
+                            });
+                        }
+                    }
                     _ => {}
                 }
             }
         }
         self.capture_engine
             .set_active_requests(set.into_iter().collect());
+        self.media_audio_engine.sync_active_media(&audio_specs);
     }
 
     pub fn new_project(&mut self) {
@@ -560,6 +729,93 @@ impl NexoraApp {
         self.recording.last_message = "Applied Screen & Camera Layout template (Auto-saved)".to_string();
     }
 
+    fn compute_undoable_hash(&self) -> u64 {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        if let Ok(s) = serde_json::to_string(&self.studio) {
+            s.hash(&mut hasher);
+        }
+        if let Ok(s) = serde_json::to_string(&self.audio_mixer) {
+            s.hash(&mut hasher);
+        }
+        hasher.finish()
+    }
+
+    pub fn can_undo(&self) -> bool {
+        !self.undo_stack.is_empty() || self.compute_undoable_hash() != self.committed_hash
+    }
+
+    pub fn can_redo(&self) -> bool {
+        !self.redo_stack.is_empty()
+    }
+
+    pub fn undo_count(&self) -> usize {
+        self.undo_stack.len()
+            + usize::from(self.compute_undoable_hash() != self.committed_hash)
+    }
+
+    pub fn redo_count(&self) -> usize {
+        self.redo_stack.len()
+    }
+
+    /// Reverts the last change made to Scenes, Sources, Transform/Crop, or Audio Mixer (`Ctrl+Z`)
+    pub fn undo(&mut self) {
+        let cur_hash = self.compute_undoable_hash();
+        let current_snap = UndoSnapshot {
+            studio: self.studio.clone(),
+            audio_mixer: self.audio_mixer.clone(),
+        };
+
+        if cur_hash != self.committed_hash {
+            // Revert uncommitted change directly back to `committed_snapshot`
+            self.redo_stack.push(current_snap);
+            self.studio = self.committed_snapshot.studio.clone();
+            self.audio_mixer = self.committed_snapshot.audio_mixer.clone();
+            self.audio_mixer.refresh_devices_from_system();
+            let h = self.compute_undoable_hash();
+            self.committed_hash = h;
+            self.last_live_hash = h;
+            self.recording.last_message =
+                format!("Undo applied ({} step(s) remaining)", self.undo_stack.len());
+            return;
+        }
+
+        if let Some(prev) = self.undo_stack.pop() {
+            self.redo_stack.push(current_snap);
+            self.studio = prev.studio.clone();
+            self.audio_mixer = prev.audio_mixer.clone();
+            self.audio_mixer.refresh_devices_from_system();
+            self.committed_snapshot = prev;
+            let h = self.compute_undoable_hash();
+            self.committed_hash = h;
+            self.last_live_hash = h;
+            self.recording.last_message =
+                format!("Undo applied ({} step(s) remaining)", self.undo_stack.len());
+        }
+    }
+
+    /// Re-applies an undone change (`Ctrl+Y` or `Ctrl+Shift+Z`)
+    pub fn redo(&mut self) {
+        if let Some(next) = self.redo_stack.pop() {
+            let current_snap = UndoSnapshot {
+                studio: self.studio.clone(),
+                audio_mixer: self.audio_mixer.clone(),
+            };
+            if self.undo_stack.len() >= 50 {
+                self.undo_stack.remove(0);
+            }
+            self.undo_stack.push(current_snap);
+            self.studio = next.studio.clone();
+            self.audio_mixer = next.audio_mixer.clone();
+            self.audio_mixer.refresh_devices_from_system();
+            self.committed_snapshot = next;
+            let h = self.compute_undoable_hash();
+            self.committed_hash = h;
+            self.last_live_hash = h;
+            self.recording.last_message =
+                format!("Redo applied ({} step(s) remaining)", self.redo_stack.len());
+        }
+    }
+
     fn compute_state_hash(&self) -> u64 {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         if let Ok(s) = serde_json::to_string(&self.settings) {
@@ -581,7 +837,7 @@ impl eframe::App for NexoraApp {
         self.audio_mixer.tick_meters(time_sec);
         self.sync_active_capture_requests();
 
-        // Track window size, position, Maximized state, and Ctrl+S shortcut
+        // Track window size, position, Maximized state, and keyboard shortcuts (Ctrl+S, Ctrl+Z, Ctrl+Y)
         ctx.input(|i| {
             let vp = i.viewport();
             if let Some(max) = vp.maximized {
@@ -604,13 +860,24 @@ impl eframe::App for NexoraApp {
             }
         });
 
-        let ctrl_s_pressed = ctx.input(|i| i.modifiers.ctrl && i.key_pressed(egui::Key::S));
-        if ctrl_s_pressed {
+        let (ctrl_s, ctrl_z, ctrl_y) = ctx.input(|i| {
+            let s = i.modifiers.ctrl && !i.modifiers.shift && i.key_pressed(egui::Key::S);
+            let z = i.modifiers.ctrl && !i.modifiers.shift && i.key_pressed(egui::Key::Z);
+            let y = (i.modifiers.ctrl && i.key_pressed(egui::Key::Y))
+                || (i.modifiers.ctrl && i.modifiers.shift && i.key_pressed(egui::Key::Z));
+            (s, z, y)
+        });
+        if ctrl_s {
             let active_name = self.settings.active_layout_name.clone();
             self.save_layout_preset(&active_name);
         }
+        if ctrl_z {
+            self.undo();
+        } else if ctrl_y {
+            self.redo();
+        }
 
-        // 1. Top Bar (Brand, Menus, Studio Mode switch, Live Status Pill, Theme Toggle, Settings)
+        // 1. Top Bar (Brand, Menus, Undo/Redo, Studio Mode switch, Live Status Pill, Theme Toggle, Settings)
         crate::ui::top_bar::render_top_bar(ctx, self);
 
         // 2. Bottom Status Bar (Capture, Video Preset, Audio Status, Session Telemetry)
@@ -637,7 +904,30 @@ impl eframe::App for NexoraApp {
         // 6. Floating Modal Dialogs (Settings, Rename Scene, Save Screen & Layout Preset)
         crate::ui::dialogs::render_dialogs(ctx, self);
 
-        // 7. Automatic background persistence whenever any layout, screen, audio, or setting changes
+        // 7. Automatic Undo History Commit (settled after mouse release) & Background Auto-Save
+        let live_u_hash = self.compute_undoable_hash();
+        if live_u_hash != self.last_live_hash {
+            self.last_live_hash = live_u_hash;
+            self.last_change_time = time_sec;
+        }
+        let pointer_down = ctx.input(|i| i.pointer.any_down());
+        if !pointer_down
+            && self.preview_drag_mode == PreviewDragMode::None
+            && live_u_hash != self.committed_hash
+            && (time_sec - self.last_change_time) >= 0.25
+        {
+            if self.undo_stack.len() >= 50 {
+                self.undo_stack.remove(0);
+            }
+            self.undo_stack.push(self.committed_snapshot.clone());
+            self.redo_stack.clear();
+            self.committed_snapshot = UndoSnapshot {
+                studio: self.studio.clone(),
+                audio_mixer: self.audio_mixer.clone(),
+            };
+            self.committed_hash = live_u_hash;
+        }
+
         if time_sec - self.last_autosave_check >= 1.5 {
             self.last_autosave_check = time_sec;
             let current_hash = self.compute_state_hash();
@@ -651,6 +941,7 @@ impl eframe::App for NexoraApp {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.media_audio_engine.shutdown_all();
         // Update the active layout preset with the final state and save all settings & project files
         let active_name = self.settings.active_layout_name.clone();
         self.save_layout_preset(&active_name);

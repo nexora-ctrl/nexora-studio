@@ -30,11 +30,26 @@ pub struct CameraDeviceInfo {
     pub is_online: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GpuAdapterInfo {
+    pub index: u32,
+    pub name: String,
+    pub vram_mb: u64,
+    pub vendor_id: u32,
+}
+
+impl GpuAdapterInfo {
+    pub fn display_label(&self) -> String {
+        format!("GPU {}: {} ({} MB VRAM)", self.index, self.name, self.vram_mb)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct CaptureCatalog {
     pub displays: Vec<DisplayInfo>,
     pub windows: Vec<WindowTargetInfo>,
     pub cameras: Vec<CameraDeviceInfo>,
+    pub gpus: Vec<GpuAdapterInfo>,
     pub status_label: String,
 }
 
@@ -44,6 +59,7 @@ impl Default for CaptureCatalog {
             displays: Vec::new(),
             windows: Vec::new(),
             cameras: Vec::new(),
+            gpus: Vec::new(),
             status_label: "Live Screen, Window & Camera Detection Active".to_string(),
         };
         cat.refresh_from_system();
@@ -67,12 +83,17 @@ impl CaptureCatalog {
             if !real_cameras.is_empty() {
                 self.cameras = real_cameras;
             }
+            let real_gpus = win32_capture::enumerate_gpu_adapters();
+            if !real_gpus.is_empty() {
+                self.gpus = real_gpus;
+            }
             let online_cams = self.cameras.iter().filter(|c| c.is_online).count();
             self.status_label = format!(
-                "Live Capture Active ({} Displays, {} Windows, {} Cameras)",
+                "Live Capture Active ({} Displays, {} Windows, {} Cameras, {} GPUs)",
                 self.displays.len(),
                 self.windows.len(),
-                online_cams
+                online_cams,
+                self.gpus.len()
             );
         }
 
@@ -94,6 +115,15 @@ impl CaptureCatalog {
                 id: "CAM_INTERNAL".to_string(),
                 name: "Integrated Camera (Default)".to_string(),
                 is_online: true,
+            });
+        }
+
+        if self.gpus.is_empty() {
+            self.gpus.push(GpuAdapterInfo {
+                index: 0,
+                name: "Default System Display Adapter (DXGI/D3D11)".to_string(),
+                vram_mb: 2048,
+                vendor_id: 0,
             });
         }
     }
@@ -124,6 +154,19 @@ pub enum CaptureRequestTarget {
         device_id: String,
         resolution: (u32, u32),
     },
+    MediaFile {
+        file_path: String,
+        loop_playback: bool,
+        is_playing: bool,
+        use_hardware_decoding: bool,
+        gpu_index: u32,
+        max_decode_width: usize,
+        max_decode_height: usize,
+        restart_nonce: u64,
+    },
+    ImageFile {
+        file_path: String,
+    },
 }
 
 impl CaptureRequestTarget {
@@ -142,6 +185,8 @@ impl CaptureRequestTarget {
                 device_id,
                 resolution,
             } => format!("CAM:{}:{}x{}", device_id, resolution.0, resolution.1),
+            Self::MediaFile { file_path, .. } => format!("MEDIA:{}", file_path),
+            Self::ImageFile { file_path } => format!("IMG:{}", file_path),
         }
     }
 }
@@ -184,6 +229,14 @@ impl LiveCaptureEngine {
             .name("nexora-capture-worker".to_string())
             .spawn(move || {
                 capture_worker_loop(worker_shared);
+            })
+            .ok();
+
+        let media_shared = Arc::clone(&shared);
+        thread::Builder::new()
+            .name("nexora-media-worker".to_string())
+            .spawn(move || {
+                media_worker_loop(media_shared);
             })
             .ok();
 
@@ -309,6 +362,9 @@ fn capture_worker_loop(shared: Arc<Mutex<SharedCaptureData>>) {
                     device_id,
                     resolution,
                 } => win32_capture::capture_camera_frame(&device_id, resolution.0, resolution.1),
+                CaptureRequestTarget::MediaFile { .. } | CaptureRequestTarget::ImageFile { .. } => {
+                    None
+                }
             };
 
             if let Some((w, h, rgba)) = captured {
@@ -331,6 +387,84 @@ fn capture_worker_loop(shared: Arc<Mutex<SharedCaptureData>>) {
             thread::sleep(frame_budget - elapsed);
         } else {
             thread::sleep(Duration::from_millis(4));
+        }
+    }
+}
+
+fn media_worker_loop(shared: Arc<Mutex<SharedCaptureData>>) {
+    let mut seq_counter: u64 = 1_000_000;
+    loop {
+        let start = Instant::now();
+        let (running, requests) = {
+            match shared.lock() {
+                Ok(guard) => (guard.running, guard.active_requests.clone()),
+                Err(_) => break,
+            }
+        };
+        if !running {
+            break;
+        }
+
+        let has_media_or_img = requests.iter().any(|r| {
+            matches!(
+                r,
+                CaptureRequestTarget::MediaFile { .. } | CaptureRequestTarget::ImageFile { .. }
+            )
+        });
+        if !has_media_or_img {
+            thread::sleep(Duration::from_millis(40));
+            continue;
+        }
+
+        #[cfg(target_os = "windows")]
+        for req in requests {
+            let key = req.cache_key();
+            let captured = match req {
+                CaptureRequestTarget::MediaFile {
+                    file_path,
+                    loop_playback,
+                    is_playing,
+                    use_hardware_decoding,
+                    gpu_index,
+                    max_decode_width,
+                    max_decode_height,
+                    restart_nonce,
+                } => win32_capture::capture_media_file_frame(
+                    &file_path,
+                    loop_playback,
+                    is_playing,
+                    use_hardware_decoding,
+                    gpu_index,
+                    max_decode_width,
+                    max_decode_height,
+                    restart_nonce,
+                ),
+                CaptureRequestTarget::ImageFile { file_path } => {
+                    win32_capture::capture_image_file_frame(&file_path)
+                }
+                _ => None,
+            };
+
+            if let Some((w, h, rgba)) = captured {
+                seq_counter = seq_counter.wrapping_add(1);
+                let frame = CapturedFrame {
+                    width: w,
+                    height: h,
+                    rgba: Arc::from(rgba),
+                    seq: seq_counter,
+                };
+                if let Ok(mut guard) = shared.lock() {
+                    guard.latest_frames.insert(key, frame);
+                }
+            }
+        }
+
+        let elapsed = start.elapsed();
+        let budget = Duration::from_millis(16);
+        if elapsed < budget {
+            thread::sleep(budget - elapsed);
+        } else {
+            thread::sleep(Duration::from_millis(2));
         }
     }
 }
@@ -1170,14 +1304,735 @@ mod win32_capture {
         }
     }
 
+    #[repr(C)]
+    struct DXGI_ADAPTER_DESC1 {
+        description: [u16; 128],
+        vendor_id: u32,
+        device_id: u32,
+        sub_sys_id: u32,
+        revision: u32,
+        dedicated_video_memory: usize,
+        dedicated_system_memory: usize,
+        shared_system_memory: usize,
+        adapter_luid_low: u32,
+        adapter_luid_high: i32,
+        flags: u32,
+    }
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn LoadLibraryA(lp_lib_file_name: *const u8) -> *mut c_void;
+        fn GetProcAddress(h_module: *mut c_void, lp_proc_name: *const u8) -> *const c_void;
+    }
+
+    unsafe fn call_create_dxgi_factory1(
+        riid: *const windows::core::GUID,
+        pp_factory: *mut *mut c_void,
+    ) -> i32 {
+        let h_mod = LoadLibraryA(b"dxgi.dll\0".as_ptr());
+        if h_mod.is_null() {
+            return -1;
+        }
+        let proc = GetProcAddress(h_mod, b"CreateDXGIFactory1\0".as_ptr());
+        if proc.is_null() {
+            return -1;
+        }
+        let func: extern "system" fn(*const windows::core::GUID, *mut *mut c_void) -> i32 =
+            std::mem::transmute(proc);
+        func(riid, pp_factory)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    unsafe fn call_d3d11_create_device(
+        p_adapter: *mut c_void,
+        driver_type: u32,
+        software: isize,
+        flags: u32,
+        p_feature_levels: *const u32,
+        feature_levels: u32,
+        sdk_version: u32,
+        pp_device: *mut Option<windows::core::IUnknown>,
+        p_feature_level: *mut u32,
+        pp_immediate_context: *mut Option<windows::core::IUnknown>,
+    ) -> i32 {
+        let h_mod = LoadLibraryA(b"d3d11.dll\0".as_ptr());
+        if h_mod.is_null() {
+            return -1;
+        }
+        let proc = GetProcAddress(h_mod, b"D3D11CreateDevice\0".as_ptr());
+        if proc.is_null() {
+            return -1;
+        }
+        type D3D11CreateDeviceFn = extern "system" fn(
+            *mut c_void,
+            u32,
+            isize,
+            u32,
+            *const u32,
+            u32,
+            u32,
+            *mut Option<windows::core::IUnknown>,
+            *mut u32,
+            *mut Option<windows::core::IUnknown>,
+        ) -> i32;
+        let func: D3D11CreateDeviceFn = std::mem::transmute(proc);
+        func(
+            p_adapter,
+            driver_type,
+            software,
+            flags,
+            p_feature_levels,
+            feature_levels,
+            sdk_version,
+            pp_device,
+            p_feature_level,
+            pp_immediate_context,
+        )
+    }
+
+    /// Enumerates real physical GPUs / VGA Display Adapters via DXGI (`IDXGIFactory1::EnumAdapters1`)
+    pub fn enumerate_gpu_adapters() -> Vec<super::GpuAdapterInfo> {
+        let mut gpus = Vec::new();
+        let mut fallback_gpus = Vec::new();
+        unsafe {
+            let iid_factory1 =
+                windows::core::GUID::from_u128(0x770aae78_f26f_4dba_a829_253c83d1b387);
+            let mut factory_ptr: *mut c_void = std::ptr::null_mut();
+            if call_create_dxgi_factory1(&iid_factory1, &mut factory_ptr) < 0
+                || factory_ptr.is_null()
+            {
+                return gpus;
+            }
+
+            let factory_vtable = *(factory_ptr as *const *const usize);
+            let enum_adapters1: extern "system" fn(*mut c_void, u32, *mut *mut c_void) -> i32 =
+                std::mem::transmute(*factory_vtable.add(12));
+            let factory_release: extern "system" fn(*mut c_void) -> u32 =
+                std::mem::transmute(*factory_vtable.add(2));
+
+            for idx in 0..16u32 {
+                let mut adapter_ptr: *mut c_void = std::ptr::null_mut();
+                if enum_adapters1(factory_ptr, idx, &mut adapter_ptr) < 0 || adapter_ptr.is_null() {
+                    break;
+                }
+
+                let adapter_vtable = *(adapter_ptr as *const *const usize);
+                let get_desc1: extern "system" fn(*mut c_void, *mut DXGI_ADAPTER_DESC1) -> i32 =
+                    std::mem::transmute(*adapter_vtable.add(10));
+                let adapter_release: extern "system" fn(*mut c_void) -> u32 =
+                    std::mem::transmute(*adapter_vtable.add(2));
+
+                let mut desc: DXGI_ADAPTER_DESC1 = std::mem::zeroed();
+                if get_desc1(adapter_ptr, &mut desc) >= 0 {
+                    let end = desc
+                        .description
+                        .iter()
+                        .position(|&c| c == 0)
+                        .unwrap_or(desc.description.len());
+                    let name = String::from_utf16_lossy(&desc.description[..end])
+                        .trim()
+                        .to_string();
+                    let is_software = (desc.flags & 2) != 0
+                        || name.eq_ignore_ascii_case("Microsoft Basic Render Driver");
+
+                    let vram_bytes = if desc.dedicated_video_memory >= 64 * 1024 * 1024 {
+                        desc.dedicated_video_memory
+                    } else {
+                        desc.dedicated_video_memory + desc.shared_system_memory / 2
+                    };
+                    let vram_mb = ((vram_bytes as u64) / (1024 * 1024)).max(256);
+
+                    if !name.is_empty() {
+                        let info = super::GpuAdapterInfo {
+                            index: idx,
+                            name,
+                            vram_mb,
+                            vendor_id: desc.vendor_id,
+                        };
+                        if is_software {
+                            fallback_gpus.push(info);
+                        } else {
+                            gpus.push(info);
+                        }
+                    }
+                }
+                let _ = adapter_release(adapter_ptr);
+            }
+
+            let _ = factory_release(factory_ptr);
+        }
+
+        if gpus.is_empty() {
+            fallback_gpus
+        } else {
+            gpus
+        }
+    }
+
+    pub struct ActiveGpuContext {
+        pub gpu_index: u32,
+        pub _d3d_device: windows::core::IUnknown,
+        pub _dxgi_manager: windows::Win32::Media::MediaFoundation::IMFDXGIDeviceManager,
+    }
+
+    impl ActiveGpuContext {
+        pub fn create(gpu_index: u32) -> Option<Self> {
+            use windows::Win32::Media::MediaFoundation::*;
+            unsafe {
+                let iid_factory1 =
+                    windows::core::GUID::from_u128(0x770aae78_f26f_4dba_a829_253c83d1b387);
+                let mut factory_ptr: *mut c_void = std::ptr::null_mut();
+                if call_create_dxgi_factory1(&iid_factory1, &mut factory_ptr) < 0
+                    || factory_ptr.is_null()
+                {
+                    return None;
+                }
+
+                let factory_vtable = *(factory_ptr as *const *const usize);
+                let enum_adapters1: extern "system" fn(*mut c_void, u32, *mut *mut c_void) -> i32 =
+                    std::mem::transmute(*factory_vtable.add(12));
+                let factory_release: extern "system" fn(*mut c_void) -> u32 =
+                    std::mem::transmute(*factory_vtable.add(2));
+
+                let mut adapter_ptr: *mut c_void = std::ptr::null_mut();
+                if enum_adapters1(factory_ptr, gpu_index, &mut adapter_ptr) < 0
+                    || adapter_ptr.is_null()
+                {
+                    let _ = enum_adapters1(factory_ptr, 0, &mut adapter_ptr);
+                }
+
+                let mut d3d_device: Option<windows::core::IUnknown> = None;
+                let mut d3d_ctx: Option<windows::core::IUnknown> = None;
+                let mut feature_level = 0u32;
+
+                // D3D11_CREATE_DEVICE_VIDEO_SUPPORT (0x800) | D3D11_CREATE_DEVICE_BGRA_SUPPORT (0x20)
+                let driver_type = if adapter_ptr.is_null() { 1 } else { 0 };
+                let mut hr = call_d3d11_create_device(
+                    adapter_ptr,
+                    driver_type,
+                    0,
+                    0x800 | 0x20,
+                    std::ptr::null(),
+                    0,
+                    7,
+                    &mut d3d_device,
+                    &mut feature_level,
+                    &mut d3d_ctx,
+                );
+                if hr < 0 || d3d_device.is_none() {
+                    hr = call_d3d11_create_device(
+                        adapter_ptr,
+                        driver_type,
+                        0,
+                        0x20,
+                        std::ptr::null(),
+                        0,
+                        7,
+                        &mut d3d_device,
+                        &mut feature_level,
+                        &mut d3d_ctx,
+                    );
+                }
+
+                if !adapter_ptr.is_null() {
+                    let adapter_vtable = *(adapter_ptr as *const *const usize);
+                    let adapter_release: extern "system" fn(*mut c_void) -> u32 =
+                        std::mem::transmute(*adapter_vtable.add(2));
+                    let _ = adapter_release(adapter_ptr);
+                }
+                let _ = factory_release(factory_ptr);
+
+                if hr < 0 {
+                    return None;
+                }
+                let dev = d3d_device?;
+
+                let mut reset_token = 0u32;
+                let mut dxgi_mgr: Option<IMFDXGIDeviceManager> = None;
+                MFCreateDXGIDeviceManager(&mut reset_token, &mut dxgi_mgr).ok()?;
+                let mgr = dxgi_mgr?;
+                let _ = mgr.ResetDevice(&dev, reset_token);
+
+                Some(Self {
+                    gpu_index,
+                    _d3d_device: dev,
+                    _dxgi_manager: mgr,
+                })
+            }
+        }
+    }
+
+    pub fn nv12_to_rgba_scaled(
+        nv12: &[u8],
+        src_w: usize,
+        src_h: usize,
+        dst_w: usize,
+        dst_h: usize,
+        rgba: &mut [u8],
+    ) {
+        let frame_size = src_w * src_h;
+        if nv12.len() < frame_size * 3 / 2 || rgba.len() < dst_w * dst_h * 4 {
+            return;
+        }
+        // Handle hardware decoders that pad 1080 height to 1088 macroblock lines
+        let aligned_h = (src_h + 15) & !15;
+        let uv_plane_offset = if nv12.len() >= src_w * aligned_h * 3 / 2
+            && nv12.len() != frame_size * 3 / 2
+        {
+            src_w * aligned_h
+        } else {
+            frame_size
+        };
+
+        let y_plane = &nv12[0..uv_plane_offset.min(nv12.len())];
+        let uv_plane = &nv12[uv_plane_offset.min(nv12.len())..];
+
+        for dy in 0..dst_h {
+            let sy = (dy * src_h) / dst_h;
+            let y_offset = sy * src_w;
+            let uv_offset = (sy / 2) * src_w;
+            let out_offset = dy * dst_w * 4;
+
+            for dx in 0..dst_w {
+                let sx = (dx * src_w) / dst_w;
+                let y_val = y_plane.get(y_offset + sx).copied().unwrap_or(16) as i32;
+                let uv_idx = uv_offset + (sx & !1);
+                let u_val = uv_plane.get(uv_idx).copied().unwrap_or(128) as i32 - 128;
+                let v_val = uv_plane.get(uv_idx + 1).copied().unwrap_or(128) as i32 - 128;
+
+                let c = (y_val - 16).max(0) * 1192;
+                let r = ((c + 1634 * v_val) >> 10).clamp(0, 255) as u8;
+                let g = ((c - 400 * u_val - 833 * v_val) >> 10).clamp(0, 255) as u8;
+                let b = ((c + 2066 * u_val) >> 10).clamp(0, 255) as u8;
+
+                let idx = out_offset + dx * 4;
+                rgba[idx] = r;
+                rgba[idx + 1] = g;
+                rgba[idx + 2] = b;
+                rgba[idx + 3] = 255;
+            }
+        }
+    }
+
+    pub fn yuy2_to_rgba_scaled(
+        yuy2: &[u8],
+        src_w: usize,
+        src_h: usize,
+        dst_w: usize,
+        dst_h: usize,
+        rgba: &mut [u8],
+    ) {
+        if yuy2.len() < src_w * src_h * 2 || rgba.len() < dst_w * dst_h * 4 {
+            return;
+        }
+        for dy in 0..dst_h {
+            let sy = (dy * src_h) / dst_h;
+            let in_offset = sy * src_w * 2;
+            let out_offset = dy * dst_w * 4;
+
+            for dx in 0..dst_w {
+                let sx = (dx * src_w) / dst_w;
+                let pair_base = in_offset + (sx & !1) * 2;
+                let y_val = yuy2
+                    .get(pair_base + (sx & 1) * 2)
+                    .copied()
+                    .unwrap_or(16) as i32;
+                let u_val = yuy2.get(pair_base + 1).copied().unwrap_or(128) as i32 - 128;
+                let v_val = yuy2.get(pair_base + 3).copied().unwrap_or(128) as i32 - 128;
+
+                let c = (y_val - 16).max(0) * 1192;
+                let r = ((c + 1634 * v_val) >> 10).clamp(0, 255) as u8;
+                let g = ((c - 400 * u_val - 833 * v_val) >> 10).clamp(0, 255) as u8;
+                let b = ((c + 2066 * u_val) >> 10).clamp(0, 255) as u8;
+
+                let idx = out_offset + dx * 4;
+                rgba[idx] = r;
+                rgba[idx + 1] = g;
+                rgba[idx + 2] = b;
+                rgba[idx + 3] = 255;
+            }
+        }
+    }
+
+    pub struct MfMediaFileSession {
+        pub restart_nonce: u64,
+        pub use_hardware_decoding: bool,
+        pub gpu_index: u32,
+        reader: windows::Win32::Media::MediaFoundation::IMFSourceReader,
+        width: usize,
+        height: usize,
+        is_nv12: bool,
+        is_yuy2: bool,
+        ended: bool,
+        frame_interval: std::time::Duration,
+        last_frame_instant: Option<std::time::Instant>,
+    }
+
+    impl MfMediaFileSession {
+        pub fn open(
+            file_path: &str,
+            restart_nonce: u64,
+            use_hardware_decoding: bool,
+            gpu_index: u32,
+        ) -> Option<Self> {
+            use windows::Win32::Media::MediaFoundation::*;
+            use windows::Win32::System::Com::*;
+            use windows::core::PCWSTR;
+
+            if file_path.trim().is_empty() || !std::path::Path::new(file_path).exists() {
+                return None;
+            }
+
+            unsafe {
+                let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+                let _ = MFStartup(MF_VERSION, MFSTARTUP_NOSOCKET);
+
+                let wide_path: Vec<u16> =
+                    file_path.encode_utf16().chain(std::iter::once(0)).collect();
+
+                let mut attrs_opt: Option<IMFAttributes> = None;
+                let _ = MFCreateAttributes(&mut attrs_opt, 4);
+                if let Some(ref attrs) = attrs_opt {
+                    let _ = attrs.SetUINT32(
+                        &MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS,
+                        u32::from(use_hardware_decoding),
+                    );
+                    let _ = attrs.SetUINT32(&MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, 1);
+                    let _ = attrs.SetUINT32(&MF_LOW_LATENCY, 1);
+                }
+
+                let reader = match MFCreateSourceReaderFromURL(
+                    PCWSTR(wide_path.as_ptr()),
+                    attrs_opt.as_ref(),
+                ) {
+                    Ok(r) => r,
+                    Err(_) => MFCreateSourceReaderFromURL(PCWSTR(wide_path.as_ptr()), None).ok()?,
+                };
+
+                let mut is_nv12 = false;
+                let mut is_yuy2 = false;
+
+                if let Ok(mt) = MFCreateMediaType() {
+                    let _ = mt.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video);
+                    let _ = mt.SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_NV12);
+                    if reader
+                        .SetCurrentMediaType(
+                            MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32,
+                            None,
+                            &mt,
+                        )
+                        .is_ok()
+                    {
+                        is_nv12 = true;
+                    } else {
+                        let _ = mt.SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_YUY2);
+                        if reader
+                            .SetCurrentMediaType(
+                                MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32,
+                                None,
+                                &mt,
+                            )
+                            .is_ok()
+                        {
+                            is_yuy2 = true;
+                        } else {
+                            let _ = mt.SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_RGB32);
+                            let _ = reader.SetCurrentMediaType(
+                                MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32,
+                                None,
+                                &mt,
+                            );
+                        }
+                    }
+                }
+
+                let mut width = 640usize;
+                let mut height = 360usize;
+                let mut frame_interval = std::time::Duration::from_millis(33);
+
+                if let Ok(cur_mt) =
+                    reader.GetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32)
+                {
+                    if let Ok(packed) = cur_mt.GetUINT64(&MF_MT_FRAME_SIZE) {
+                        let w = (packed >> 32) as usize;
+                        let h = (packed & 0xFFFF_FFFF) as usize;
+                        if w > 0 && h > 0 {
+                            width = w;
+                            height = h;
+                        }
+                    }
+                    if let Ok(rate_packed) = cur_mt.GetUINT64(&MF_MT_FRAME_RATE) {
+                        let num = (rate_packed >> 32) as u64;
+                        let den = (rate_packed & 0xFFFF_FFFF) as u64;
+                        if num > 0 && den > 0 {
+                            let fps = (num as f64 / den as f64).clamp(15.0, 36.0);
+                            frame_interval =
+                                std::time::Duration::from_secs_f64(1.0 / fps);
+                        }
+                    }
+                }
+
+                Some(Self {
+                    restart_nonce,
+                    use_hardware_decoding,
+                    gpu_index,
+                    reader,
+                    width,
+                    height,
+                    is_nv12,
+                    is_yuy2,
+                    ended: false,
+                    frame_interval,
+                    last_frame_instant: None,
+                })
+            }
+        }
+
+        pub fn seek_to_start(&mut self) -> bool {
+            use windows::Win32::System::Com::StructuredStorage::PROPVARIANT;
+            unsafe {
+                let mut prop: PROPVARIANT = std::mem::zeroed();
+                // VT_I8 = 20, value = 0 (100-ns units -> 00:00.000)
+                *(&mut prop as *mut _ as *mut u16) = 20u16;
+                if self
+                    .reader
+                    .SetCurrentPosition(&windows::core::GUID::zeroed(), &prop)
+                    .is_ok()
+                {
+                    self.ended = false;
+                    self.last_frame_instant = None;
+                    return true;
+                }
+                false
+            }
+        }
+
+        pub fn read_next_frame(
+            &mut self,
+            max_out_w: usize,
+            max_out_h: usize,
+        ) -> Option<(usize, usize, Vec<u8>)> {
+            use windows::Win32::Media::MediaFoundation::*;
+            if self.ended {
+                return None;
+            }
+            if let Some(last_t) = self.last_frame_instant {
+                if last_t.elapsed() < self.frame_interval {
+                    return None;
+                }
+            }
+
+            unsafe {
+                let mut flags = 0u32;
+                let mut sample: Option<IMFSample> = None;
+                if self
+                    .reader
+                    .ReadSample(
+                        MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32,
+                        0,
+                        None,
+                        Some(&mut flags),
+                        None,
+                        Some(&mut sample),
+                    )
+                    .is_ok()
+                {
+                    if (flags & (MF_SOURCE_READERF_ENDOFSTREAM.0 as u32)) != 0 {
+                        self.ended = true;
+                        return None;
+                    }
+                    if (flags & (MF_SOURCE_READERF_CURRENTMEDIATYPECHANGED.0 as u32)) != 0 {
+                        if let Ok(cur_mt) = self
+                            .reader
+                            .GetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32)
+                        {
+                            if let Ok(packed) = cur_mt.GetUINT64(&MF_MT_FRAME_SIZE) {
+                                let w = (packed >> 32) as usize;
+                                let h = (packed & 0xFFFF_FFFF) as usize;
+                                if w > 0 && h > 0 {
+                                    self.width = w;
+                                    self.height = h;
+                                }
+                            }
+                        }
+                    }
+                    if let Some(s) = sample {
+                        if let Ok(buf) = s.ConvertToContiguousBuffer() {
+                            let mut ptr: *mut u8 = std::ptr::null_mut();
+                            let mut len = 0u32;
+                            if buf.Lock(&mut ptr, None, Some(&mut len)).is_ok() {
+                                let slice = std::slice::from_raw_parts(ptr, len as usize);
+                                let dst_w = self.width.min(max_out_w.max(320));
+                                let dst_h = self.height.min(max_out_h.max(180));
+                                let mut rgba = vec![0u8; dst_w * dst_h * 4];
+
+                                if self.is_nv12
+                                    && slice.len() >= self.width * self.height * 3 / 2
+                                {
+                                    nv12_to_rgba_scaled(
+                                        slice,
+                                        self.width,
+                                        self.height,
+                                        dst_w,
+                                        dst_h,
+                                        &mut rgba,
+                                    );
+                                } else if self.is_yuy2
+                                    && slice.len() >= self.width * self.height * 2
+                                {
+                                    yuy2_to_rgba_scaled(
+                                        slice,
+                                        self.width,
+                                        self.height,
+                                        dst_w,
+                                        dst_h,
+                                        &mut rgba,
+                                    );
+                                } else if slice.len() >= self.width * self.height * 4 {
+                                    for dy in 0..dst_h {
+                                        let sy = (dy * self.height) / dst_h;
+                                        let in_row = sy * self.width * 4;
+                                        let out_row = dy * dst_w * 4;
+                                        for dx in 0..dst_w {
+                                            let sx = (dx * self.width) / dst_w;
+                                            let in_idx = in_row + sx * 4;
+                                            let out_idx = out_row + dx * 4;
+                                            rgba[out_idx] = slice[in_idx + 2];
+                                            rgba[out_idx + 1] = slice[in_idx + 1];
+                                            rgba[out_idx + 2] = slice[in_idx];
+                                            rgba[out_idx + 3] = 255;
+                                        }
+                                    }
+                                }
+                                let _ = buf.Unlock();
+                                self.last_frame_instant = Some(std::time::Instant::now());
+                                return Some((dst_w, dst_h, rgba));
+                            }
+                        }
+                    }
+                }
+                None
+            }
+        }
+    }
+
     thread_local! {
         static CAMERA_SESSION: std::cell::RefCell<Option<MfCameraSession>> = const { std::cell::RefCell::new(None) };
+        static ACTIVE_GPU_CONTEXT: std::cell::RefCell<Option<ActiveGpuContext>> = const { std::cell::RefCell::new(None) };
+        static MEDIA_SESSIONS: std::cell::RefCell<std::collections::HashMap<String, MfMediaFileSession>> = std::cell::RefCell::new(std::collections::HashMap::new());
+        static IMAGE_CACHE: std::cell::RefCell<std::collections::HashSet<String>> = std::cell::RefCell::new(std::collections::HashSet::new());
     }
 
     pub fn release_camera_session() {
         CAMERA_SESSION.with(|cell| {
             *cell.borrow_mut() = None;
         });
+    }
+
+    pub fn capture_media_file_frame(
+        file_path: &str,
+        loop_playback: bool,
+        is_playing: bool,
+        use_hardware_decoding: bool,
+        gpu_index: u32,
+        max_decode_width: usize,
+        max_decode_height: usize,
+        restart_nonce: u64,
+    ) -> Option<(usize, usize, Vec<u8>)> {
+        if file_path.trim().is_empty()
+            || crate::studio::source::SourceKind::is_audio_only_media(file_path)
+        {
+            return None;
+        }
+        if !is_playing {
+            return None;
+        }
+
+        if use_hardware_decoding {
+            ACTIVE_GPU_CONTEXT.with(|gpu_cell| {
+                let mut opt = gpu_cell.borrow_mut();
+                if opt.as_ref().map(|g| g.gpu_index != gpu_index).unwrap_or(true) {
+                    *opt = ActiveGpuContext::create(gpu_index);
+                }
+            });
+        }
+
+        MEDIA_SESSIONS.with(|cell| {
+            let mut map = cell.borrow_mut();
+            let needs_reopen = match map.get_mut(file_path) {
+                None => true,
+                Some(s) => {
+                    if s.restart_nonce != restart_nonce {
+                        s.restart_nonce = restart_nonce;
+                        !s.seek_to_start()
+                    } else if s.use_hardware_decoding != use_hardware_decoding
+                        || s.gpu_index != gpu_index
+                    {
+                        true
+                    } else if s.ended && loop_playback {
+                        !s.seek_to_start()
+                    } else {
+                        false
+                    }
+                }
+            };
+            if needs_reopen {
+                if let Some(new_sess) = MfMediaFileSession::open(
+                    file_path,
+                    restart_nonce,
+                    use_hardware_decoding,
+                    gpu_index,
+                ) {
+                    map.insert(file_path.to_string(), new_sess);
+                } else {
+                    map.remove(file_path);
+                    return None;
+                }
+            }
+
+            if let Some(sess) = map.get_mut(file_path) {
+                let frame = sess.read_next_frame(max_decode_width, max_decode_height);
+                if frame.is_none() && sess.ended && loop_playback {
+                    if sess.seek_to_start() {
+                        return sess.read_next_frame(max_decode_width, max_decode_height);
+                    } else if let Some(mut reopened) = MfMediaFileSession::open(
+                        file_path,
+                        restart_nonce,
+                        use_hardware_decoding,
+                        gpu_index,
+                    ) {
+                        let looped_frame =
+                            reopened.read_next_frame(max_decode_width, max_decode_height);
+                        *sess = reopened;
+                        return looped_frame;
+                    }
+                }
+                frame
+            } else {
+                None
+            }
+        })
+    }
+
+    pub fn capture_image_file_frame(file_path: &str) -> Option<(usize, usize, Vec<u8>)> {
+        if file_path.trim().is_empty() || !std::path::Path::new(file_path).exists() {
+            return None;
+        }
+        let already_loaded = IMAGE_CACHE.with(|c| c.borrow().contains(file_path));
+        if already_loaded {
+            return None; // Already uploaded to GPU texture!
+        }
+        if let Ok(img) = image::open(file_path) {
+            let rgba_img = img.to_rgba8();
+            let (w, h) = rgba_img.dimensions();
+            if w > 0 && h > 0 {
+                IMAGE_CACHE.with(|c| {
+                    c.borrow_mut().insert(file_path.to_string());
+                });
+                return Some((w as usize, h as usize, rgba_img.into_raw()));
+            }
+        }
+        None
     }
 
     /// Captures a live webcam video frame

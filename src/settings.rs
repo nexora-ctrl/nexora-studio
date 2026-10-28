@@ -139,6 +139,40 @@ impl Default for PanelVisibility {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum MediaDecodeScale {
+    #[default]
+    Performance540p,
+    Balanced720p,
+    Native1080p,
+}
+
+impl MediaDecodeScale {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Performance540p => "960×540 (Ultra Smooth — Low GPU/CPU)",
+            Self::Balanced720p => "1280×720 (HD Balanced)",
+            Self::Native1080p => "1920×1080 (Full Native Resolution)",
+        }
+    }
+
+    pub fn max_dimensions(&self) -> (usize, usize) {
+        match self {
+            Self::Performance540p => (960, 540),
+            Self::Balanced720p => (1280, 720),
+            Self::Native1080p => (1920, 1080),
+        }
+    }
+
+    pub fn all() -> &'static [MediaDecodeScale] {
+        &[
+            Self::Performance540p,
+            Self::Balanced720p,
+            Self::Native1080p,
+        ]
+    }
+}
+
 /// A saved Screen & Layout configuration profile including scenes, sources,
 /// screen/camera transforms, audio mixer devices & levels, and UI dock layout.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -175,6 +209,9 @@ pub struct AppSettings {
     pub library_drawer_width: f32,
     pub active_layout_name: String,
     pub saved_layout_presets: Vec<ScreenLayoutPreset>,
+    pub preferred_gpu_index: Option<u32>,
+    pub preferred_gpu_name: String,
+    pub media_decode_scale: MediaDecodeScale,
 }
 
 impl Default for AppSettings {
@@ -197,6 +234,9 @@ impl Default for AppSettings {
             library_drawer_width: 275.0,
             active_layout_name: "Default Studio Layout".to_string(),
             saved_layout_presets: Vec::new(),
+            preferred_gpu_index: Some(0),
+            preferred_gpu_name: String::new(),
+            media_decode_scale: MediaDecodeScale::Performance540p,
         }
     }
 }
