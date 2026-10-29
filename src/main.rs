@@ -234,14 +234,16 @@ mod tests {
     fn test_font_rubik_and_exo_installation() {
         let ctx = egui::Context::default();
         crate::ui::icons::install_tabler_icons(&ctx);
-        let rubik_light = crate::ui::icons::font_rubik_light(11.5);
-        let rubik_reg = crate::ui::icons::font_rubik(12.0);
-        let rubik_med = crate::ui::icons::font_rubik_medium(12.0);
-        let rubik_semi = crate::ui::icons::font_rubik_semibold(14.0);
-        assert_eq!(rubik_light.size, 11.5);
-        assert_eq!(rubik_reg.size, 12.0);
-        assert_eq!(rubik_med.size, 12.0);
-        assert_eq!(rubik_semi.size, 14.0);
+        let _ = ctx.run(Default::default(), |_| {});
+        // Verify submenu arrow '\u{23f5}' is resolved cleanly without fallback '?'
+        let galley = ctx.fonts(|f| {
+            f.layout_no_wrap(
+                "\u{23f5}".to_owned(),
+                egui::FontId::new(12.0, crate::ui::icons::rubik_light_family()),
+                egui::Color32::WHITE,
+            )
+        });
+        assert_eq!(galley.rect.width(), 11.0);
     }
 }
 

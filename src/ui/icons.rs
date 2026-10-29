@@ -140,6 +140,13 @@ pub fn install_tabler_icons(ctx: &egui::Context) {
         Arc::new(FontData::from_static(EXO_MEDIUM_TTF)),
     );
 
+    let default_fallbacks = vec![
+        "tabler-icons".to_owned(),
+        "emoji-icon-font".to_owned(),
+        "NotoEmoji-Regular".to_owned(),
+        "Ubuntu-Light".to_owned(),
+    ];
+
     // Make Rubik Light (slender, modern, non-bloated) the primary font across the entire UI
     if let Some(family) = fonts.families.get_mut(&FontFamily::Proportional) {
         family.insert(0, RUBIK_LIGHT_NAME.to_owned());
@@ -150,26 +157,32 @@ pub fn install_tabler_icons(ctx: &egui::Context) {
         family.push("tabler-icons".to_owned());
     }
 
-    // Specific named families for fine-grained typography weight control
+    // Specific named families with complete fallbacks (tabler-icons, emoji-icon-font, NotoEmoji, Ubuntu-Light)
+    let make_family_list = |primary: &str| -> Vec<String> {
+        let mut list = vec![primary.to_owned()];
+        list.extend(default_fallbacks.clone());
+        list
+    };
+
     fonts.families.insert(
         FontFamily::Name(RUBIK_LIGHT_NAME.into()),
-        vec![RUBIK_LIGHT_NAME.to_owned(), "tabler-icons".to_owned()],
+        make_family_list(RUBIK_LIGHT_NAME),
     );
     fonts.families.insert(
         FontFamily::Name(RUBIK_REGULAR_NAME.into()),
-        vec![RUBIK_REGULAR_NAME.to_owned(), "tabler-icons".to_owned()],
+        make_family_list(RUBIK_REGULAR_NAME),
     );
     fonts.families.insert(
         FontFamily::Name(RUBIK_MEDIUM_NAME.into()),
-        vec![RUBIK_MEDIUM_NAME.to_owned(), "tabler-icons".to_owned()],
+        make_family_list(RUBIK_MEDIUM_NAME),
     );
     fonts.families.insert(
         FontFamily::Name(RUBIK_SEMIBOLD_NAME.into()),
-        vec![RUBIK_SEMIBOLD_NAME.to_owned(), "tabler-icons".to_owned()],
+        make_family_list(RUBIK_SEMIBOLD_NAME),
     );
     fonts.families.insert(
         FontFamily::Name(BRAND_FONT_NAME.into()),
-        vec![BRAND_FONT_NAME.to_owned(), RUBIK_LIGHT_NAME.to_owned(), "tabler-icons".to_owned()],
+        make_family_list(BRAND_FONT_NAME),
     );
 
     ctx.set_fonts(fonts);
