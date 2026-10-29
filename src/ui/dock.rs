@@ -7,7 +7,7 @@ use crate::studio::source::{
 };
 use crate::ui::icons;
 use crate::ui::theme::ThemePalette;
-use egui::{Align, Color32, CornerRadius, Layout, Pos2, Rect, RichText, Sense, Stroke, Vec2};
+use egui::{Align, Align2, Color32, CornerRadius, FontId, Layout, Pos2, Rect, RichText, Sense, Stroke, Vec2};
 use uuid::Uuid;
 
 pub fn render_bottom_studio_dock(ctx: &egui::Context, app: &mut NexoraApp) {
@@ -331,6 +331,54 @@ fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
             {
                 app.settings.panels.show_scenes = false;
             }
+            ui.add_space(3.0);
+
+            // Toggle Tampilan List vs Grid
+            let is_grid = app.settings.scenes_view_mode == crate::settings::ScenesViewMode::Grid;
+            let (grid_bg, grid_fg) = if is_grid {
+                (p.accent_preview.gamma_multiply(0.35), p.accent_preview)
+            } else {
+                (Color32::TRANSPARENT, p.text_muted)
+            };
+            if ui
+                .add(
+                    egui::Button::new(RichText::new(icons::LAYOUT_GRID).size(13.0).color(grid_fg))
+                        .fill(grid_bg)
+                        .stroke(if is_grid {
+                            Stroke::new(1.0_f32, p.accent_preview)
+                        } else {
+                            Stroke::NONE
+                        })
+                        .min_size(Vec2::new(22.0, 20.0)),
+                )
+                .on_hover_text("Tampilan Grid (dengan Thumbnail Source)")
+                .clicked()
+            {
+                app.settings.scenes_view_mode = crate::settings::ScenesViewMode::Grid;
+            }
+
+            let (list_bg, list_fg) = if !is_grid {
+                (p.accent_preview.gamma_multiply(0.35), p.accent_preview)
+            } else {
+                (Color32::TRANSPARENT, p.text_muted)
+            };
+            if ui
+                .add(
+                    egui::Button::new(RichText::new(icons::LIST).size(13.0).color(list_fg))
+                        .fill(list_bg)
+                        .stroke(if !is_grid {
+                            Stroke::new(1.0_f32, p.accent_preview)
+                        } else {
+                            Stroke::NONE
+                        })
+                        .min_size(Vec2::new(22.0, 20.0)),
+                )
+                .on_hover_text("Tampilan List (Daftar Baris)")
+                .clicked()
+            {
+                app.settings.scenes_view_mode = crate::settings::ScenesViewMode::List;
+            }
+
             ui.add_space(4.0);
             paint_status_pill(
                 ui,
@@ -377,203 +425,483 @@ fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                 let preview_id = app.studio.preview_scene_id;
                 let program_id = app.studio.program_scene_id;
                 let total_scenes = app.studio.scenes.len();
-                let row_w = (body_size.x - 4.0).max(150.0);
+                let is_grid_mode =
+                    app.settings.scenes_view_mode == crate::settings::ScenesViewMode::Grid;
 
-                ui.spacing_mut().item_spacing.y = 5.0;
-
-                for (idx, scene) in app.studio.scenes.iter().enumerate() {
-                    let is_prv = scene.id == preview_id;
-                    let is_pgm = scene.id == program_id;
-                    let src_count = scene.sources.len();
-                    let active_src_count = scene.sources.iter().filter(|s| s.visible).count();
-
-                    let row_h = 38.0;
-                    let (row_rect, row_resp) =
-                        ui.allocate_exact_size(Vec2::new(row_w, row_h), Sense::click());
-
-                    let hovered = row_resp.hovered();
-
-                    // Card Fill & Border based on LIVE / PREVIEW / STANDBY state
-                    let (card_fill, border_stroke) = match (is_pgm, is_prv) {
-                        (true, true) => (
-                            Color32::from_rgba_unmultiplied(
-                                p.accent_program.r(),
-                                p.accent_program.g(),
-                                p.accent_program.b(),
-                                if hovered { 38 } else { 26 },
-                            ),
-                            Stroke::new(1.5_f32, p.accent_program),
-                        ),
-                        (true, false) => (
-                            Color32::from_rgba_unmultiplied(
-                                p.accent_program.r(),
-                                p.accent_program.g(),
-                                p.accent_program.b(),
-                                if hovered { 32 } else { 20 },
-                            ),
-                            Stroke::new(1.4_f32, p.accent_program),
-                        ),
-                        (false, true) => (
-                            Color32::from_rgba_unmultiplied(
-                                p.accent_preview.r(),
-                                p.accent_preview.g(),
-                                p.accent_preview.b(),
-                                if hovered { 36 } else { 24 },
-                            ),
-                            Stroke::new(1.4_f32, p.accent_preview),
-                        ),
-                        (false, false) => (
-                            if hovered {
-                                p.bg_elevated
-                            } else {
-                                Color32::from_rgba_unmultiplied(
-                                    p.bg_elevated.r(),
-                                    p.bg_elevated.g(),
-                                    p.bg_elevated.b(),
-                                    140,
-                                )
-                            },
-                            Stroke::new(1.0_f32, p.border_subtle),
-                        ),
-                    };
-
-                    ui.painter()
-                        .rect_filled(row_rect, CornerRadius::same(6), card_fill);
-
-                    // Left Status Accent Bar (4.5px wide)
-                    let strip_rect = Rect::from_min_max(
-                        row_rect.min,
-                        Pos2::new(row_rect.min.x + 5.0, row_rect.max.y),
-                    );
-                    match (is_pgm, is_prv) {
-                        (true, true) => {
-                            let mid_y = row_rect.center().y;
-                            let top_half = Rect::from_min_max(
-                                strip_rect.min,
-                                Pos2::new(strip_rect.max.x, mid_y),
-                            );
-                            let bot_half = Rect::from_min_max(
-                                Pos2::new(strip_rect.min.x, mid_y),
-                                strip_rect.max,
-                            );
-                            ui.painter().rect_filled(
-                                top_half,
-                                CornerRadius {
-                                    nw: 6,
-                                    ne: 0,
-                                    sw: 0,
-                                    se: 0,
-                                },
-                                p.accent_preview,
-                            );
-                            ui.painter().rect_filled(
-                                bot_half,
-                                CornerRadius {
-                                    nw: 0,
-                                    ne: 0,
-                                    sw: 6,
-                                    se: 0,
-                                },
-                                p.accent_program,
-                            );
-                        }
-                        (true, false) => {
-                            ui.painter().rect_filled(
-                                strip_rect,
-                                CornerRadius {
-                                    nw: 6,
-                                    ne: 0,
-                                    sw: 6,
-                                    se: 0,
-                                },
-                                p.accent_program,
-                            );
-                        }
-                        (false, true) => {
-                            ui.painter().rect_filled(
-                                strip_rect,
-                                CornerRadius {
-                                    nw: 6,
-                                    ne: 0,
-                                    sw: 6,
-                                    se: 0,
-                                },
-                                p.accent_preview,
-                            );
-                        }
-                        (false, false) => {
-                            ui.painter().rect_filled(
-                                strip_rect,
-                                CornerRadius {
-                                    nw: 6,
-                                    ne: 0,
-                                    sw: 6,
-                                    se: 0,
-                                },
-                                p.border_subtle,
-                            );
-                        }
-                    }
-
-                    ui.painter().rect_stroke(
-                        row_rect,
-                        CornerRadius::same(6),
-                        border_stroke,
-                        egui::StrokeKind::Inside,
-                    );
-
-                    // Content inside the Scene Card
-                    let inner_rect = Rect::from_min_max(
-                        Pos2::new(row_rect.min.x + 11.0, row_rect.min.y + 3.0),
-                        Pos2::new(row_rect.max.x - 7.0, row_rect.max.y - 3.0),
-                    );
-                    let mut row_ui = ui.new_child(
-                        egui::UiBuilder::new()
-                            .max_rect(inner_rect)
-                            .layout(Layout::left_to_right(Align::Center)),
-                    );
-
-                    // Scene Icon + Name + Layer Count subtitle
-                    let icon_col = if is_pgm {
-                        p.accent_program
-                    } else if is_prv {
-                        p.accent_preview
+                if is_grid_mode {
+                    // ========================================================
+                    // GRID VIEW MODE (Kartu Grid dengan Thumbnail Real-Time)
+                    // ========================================================
+                    let avail_w = (body_size.x - 8.0).max(100.0);
+                    let cols = if avail_w < 230.0 {
+                        1
                     } else {
-                        p.text_secondary
+                        ((avail_w + 6.0) / 140.0).floor().max(2.0) as usize
                     };
-                    row_ui.label(
-                        RichText::new(icons::LAYOUT_COLUMNS)
-                            .size(14.0)
-                            .color(icon_col),
-                    );
+                    let gap = 6.0;
+                    let col_w =
+                        ((avail_w - (cols - 1) as f32 * gap) / cols as f32).floor().max(96.0);
+                    let thumb_w = (col_w - 8.0).max(80.0);
+                    let thumb_h = (thumb_w * 9.0 / 16.0).round().max(45.0);
+                    let card_h = thumb_h + 38.0;
 
-                    row_ui.vertical(|ui| {
-                        ui.spacing_mut().item_spacing.y = 0.0;
-                        ui.label(
-                            RichText::new(truncate_str(&scene.name, 18))
-                                .strong()
-                                .size(12.0)
-                                .color(p.text_primary),
-                        );
-                        let state_desc = match (is_pgm, is_prv) {
-                            (true, true) => format!("Live & Preview • {}/{} layers", active_src_count, src_count),
-                            (true, false) => format!("On Air (Live) • {}/{} layers", active_src_count, src_count),
-                            (false, true) => format!("Editing in Preview • {}/{} layers", active_src_count, src_count),
-                            (false, false) => format!("Standby • {}/{} layers", active_src_count, src_count),
+                    let time_sec = ui.input(|i| i.time);
+                    let egui_ctx = ui.ctx().clone();
+
+                    let scenes_snapshot: Vec<_> = app.studio.scenes.clone();
+                    for chunk in scenes_snapshot.chunks(cols) {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = gap;
+                            for scene in chunk {
+                                let is_prv = scene.id == preview_id;
+                                let is_pgm = scene.id == program_id;
+                                let src_count = scene.sources.len();
+
+                                let (card_rect, card_resp) = ui
+                                    .allocate_exact_size(Vec2::new(col_w, card_h), Sense::click());
+                                let hovered = card_resp.hovered();
+
+                                // Theme-aware Card Fill & Stroke
+                                let (card_fill, border_stroke) = match (is_pgm, is_prv) {
+                                    (true, true) => (
+                                        Color32::from_rgba_unmultiplied(
+                                            p.accent_program.r(),
+                                            p.accent_program.g(),
+                                            p.accent_program.b(),
+                                            if hovered { 40 } else { 26 },
+                                        ),
+                                        Stroke::new(1.6_f32, p.accent_program),
+                                    ),
+                                    (true, false) => (
+                                        Color32::from_rgba_unmultiplied(
+                                            p.accent_program.r(),
+                                            p.accent_program.g(),
+                                            p.accent_program.b(),
+                                            if hovered { 35 } else { 20 },
+                                        ),
+                                        Stroke::new(1.5_f32, p.accent_program),
+                                    ),
+                                    (false, true) => (
+                                        Color32::from_rgba_unmultiplied(
+                                            p.accent_preview.r(),
+                                            p.accent_preview.g(),
+                                            p.accent_preview.b(),
+                                            if hovered { 38 } else { 24 },
+                                        ),
+                                        Stroke::new(1.5_f32, p.accent_preview),
+                                    ),
+                                    (false, false) => (
+                                        if hovered {
+                                            p.bg_elevated
+                                        } else {
+                                            Color32::from_rgba_unmultiplied(
+                                                p.bg_elevated.r(),
+                                                p.bg_elevated.g(),
+                                                p.bg_elevated.b(),
+                                                140,
+                                            )
+                                        },
+                                        Stroke::new(1.0_f32, p.border_subtle),
+                                    ),
+                                };
+
+                                ui.painter().rect_filled(
+                                    card_rect,
+                                    CornerRadius::same(6),
+                                    card_fill,
+                                );
+
+                                // 16:9 Thumbnail canvas rect
+                                let thumb_rect = Rect::from_min_size(
+                                    Pos2::new(card_rect.min.x + 4.0, card_rect.min.y + 4.0),
+                                    Vec2::new(thumb_w, thumb_h),
+                                );
+
+                                // Render live source preview of this scene!
+                                crate::ui::workspace::render_scene_thumbnail(
+                                    ui.painter(),
+                                    &egui_ctx,
+                                    app,
+                                    scene,
+                                    thumb_rect,
+                                    time_sec,
+                                );
+
+                                // Scene Name & Status badges in bottom area of card (keeps 16:9 thumbnail 100% clean and unblocked)
+                                let label_y = thumb_rect.max.y + 4.0;
+
+                                // Right-aligned status badges in footer
+                                let mut badge_right_x = card_rect.max.x - 5.0;
+                                if is_pgm {
+                                    let pill_w = 40.0;
+                                    let pill_rect = Rect::from_min_size(
+                                        Pos2::new(badge_right_x - pill_w, label_y + 1.0),
+                                        Vec2::new(pill_w, 13.0),
+                                    );
+                                    ui.painter().rect_filled(
+                                        pill_rect,
+                                        CornerRadius::same(3),
+                                        p.accent_program,
+                                    );
+                                    ui.painter().text(
+                                        pill_rect.center(),
+                                        Align2::CENTER_CENTER,
+                                        format!("{} LIVE", icons::PLAYER_RECORD),
+                                        FontId::proportional(7.5),
+                                        Color32::WHITE,
+                                    );
+                                    badge_right_x -= pill_w + 3.0;
+                                }
+                                if is_prv {
+                                    let pill_w = 36.0;
+                                    let pill_rect = Rect::from_min_size(
+                                        Pos2::new(badge_right_x - pill_w, label_y + 1.0),
+                                        Vec2::new(pill_w, 13.0),
+                                    );
+                                    ui.painter().rect_filled(
+                                        pill_rect,
+                                        CornerRadius::same(3),
+                                        p.accent_preview,
+                                    );
+                                    ui.painter().text(
+                                        pill_rect.center(),
+                                        Align2::CENTER_CENTER,
+                                        format!("{} PRV", icons::EYE),
+                                        FontId::proportional(7.5),
+                                        Color32::WHITE,
+                                    );
+                                }
+
+                                // Left-aligned Scene Title and Layer count
+                                let max_title_chars = if is_pgm && is_prv { 10 } else if is_pgm || is_prv { 13 } else { 18 };
+                                let scene_title = truncate_str(&scene.name, max_title_chars);
+                                ui.painter().text(
+                                    Pos2::new(card_rect.min.x + 6.0, label_y),
+                                    Align2::LEFT_TOP,
+                                    scene_title,
+                                    FontId::proportional(11.0),
+                                    p.text_primary,
+                                );
+
+                                let layer_info = format!("{} layer(s)", src_count);
+                                ui.painter().text(
+                                    Pos2::new(card_rect.min.x + 6.0, label_y + 13.0),
+                                    Align2::LEFT_TOP,
+                                    layer_info,
+                                    FontId::proportional(9.0),
+                                    p.text_secondary,
+                                );
+
+                                // Card border stroke
+                                ui.painter().rect_stroke(
+                                    card_rect,
+                                    CornerRadius::same(6),
+                                    border_stroke,
+                                    egui::StrokeKind::Inside,
+                                );
+
+                                let scene_id = scene.id;
+                                let scene_name_for_menu = scene.name.clone();
+                                if card_resp.double_clicked() {
+                                    transition_scene_to_live = Some(scene_id);
+                                } else if card_resp.clicked() {
+                                    select_preview = Some(scene_id);
+                                }
+
+                                card_resp.context_menu(|ui| {
+                                    ui.set_min_width(190.0);
+                                    if ui
+                                        .button(format!(
+                                            "{} Transition to LIVE (Program)",
+                                            icons::ARROW_RIGHT
+                                        ))
+                                        .clicked()
+                                    {
+                                        transition_scene_to_live = Some(scene_id);
+                                        ui.close_menu();
+                                    }
+                                    ui.separator();
+                                    if ui
+                                        .button(format!("{} Add Scene...", icons::PLUS))
+                                        .clicked()
+                                    {
+                                        add_new_scene_requested = true;
+                                        ui.close_menu();
+                                    }
+                                    if ui
+                                        .button(format!("{} Rename Scene...", icons::EDIT))
+                                        .clicked()
+                                    {
+                                        rename_scene_target =
+                                            Some((scene_id, scene_name_for_menu.clone()));
+                                        ui.close_menu();
+                                    }
+                                    if ui
+                                        .button(format!("{} Duplicate Scene", icons::COPY))
+                                        .clicked()
+                                    {
+                                        duplicate_scene_target = Some(scene_id);
+                                        ui.close_menu();
+                                    }
+                                    if total_scenes > 1
+                                        && ui
+                                            .button(
+                                                RichText::new(format!(
+                                                    "{} Delete Scene",
+                                                    icons::TRASH
+                                                ))
+                                                .color(p.rec_red),
+                                            )
+                                            .clicked()
+                                    {
+                                        delete_scene_target = Some(scene_id);
+                                        ui.close_menu();
+                                    }
+                                });
+
+                                card_resp.on_hover_text(format!(
+                                    "{}\n• Click: Open in Preview\n• Double-Click: Transition to LIVE\n• Right-Click: Scene Options",
+                                    scene.name
+                                ));
+                            }
+                        });
+                        ui.add_space(gap);
+                    }
+                } else {
+                    // ========================================================
+                    // LIST VIEW MODE (Daftar Baris Full-Width Presisi)
+                    // ========================================================
+                    let row_w = (body_size.x - 4.0).max(150.0);
+                    ui.spacing_mut().item_spacing.y = 5.0;
+
+                    for (idx, scene) in app.studio.scenes.iter().enumerate() {
+                        let is_prv = scene.id == preview_id;
+                        let is_pgm = scene.id == program_id;
+                        let src_count = scene.sources.len();
+                        let active_src_count =
+                            scene.sources.iter().filter(|s| s.visible).count();
+
+                        let row_h = 38.0;
+                        let (row_rect, row_resp) =
+                            ui.allocate_exact_size(Vec2::new(row_w, row_h), Sense::click());
+
+                        let hovered = row_resp.hovered();
+
+                        // Card Fill & Border based on LIVE / PREVIEW / STANDBY state
+                        let (card_fill, border_stroke) = match (is_pgm, is_prv) {
+                            (true, true) => (
+                                Color32::from_rgba_unmultiplied(
+                                    p.accent_program.r(),
+                                    p.accent_program.g(),
+                                    p.accent_program.b(),
+                                    if hovered { 38 } else { 26 },
+                                ),
+                                Stroke::new(1.5_f32, p.accent_program),
+                            ),
+                            (true, false) => (
+                                Color32::from_rgba_unmultiplied(
+                                    p.accent_program.r(),
+                                    p.accent_program.g(),
+                                    p.accent_program.b(),
+                                    if hovered { 32 } else { 20 },
+                                ),
+                                Stroke::new(1.4_f32, p.accent_program),
+                            ),
+                            (false, true) => (
+                                Color32::from_rgba_unmultiplied(
+                                    p.accent_preview.r(),
+                                    p.accent_preview.g(),
+                                    p.accent_preview.b(),
+                                    if hovered { 36 } else { 24 },
+                                ),
+                                Stroke::new(1.4_f32, p.accent_preview),
+                            ),
+                            (false, false) => (
+                                if hovered {
+                                    p.bg_elevated
+                                } else {
+                                    Color32::from_rgba_unmultiplied(
+                                        p.bg_elevated.r(),
+                                        p.bg_elevated.g(),
+                                        p.bg_elevated.b(),
+                                        140,
+                                    )
+                                },
+                                Stroke::new(1.0_f32, p.border_subtle),
+                            ),
                         };
-                        ui.label(
-                            RichText::new(state_desc)
-                                .size(9.5)
-                                .color(p.text_secondary),
-                        );
-                    });
 
-                    // Right-side visual status badges
-                    row_ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.spacing_mut().item_spacing.x = 4.0;
+                        ui.painter()
+                            .rect_filled(row_rect, CornerRadius::same(6), card_fill);
+
+                        // Left Status Accent Bar (5px wide)
+                        let strip_rect = Rect::from_min_max(
+                            row_rect.min,
+                            Pos2::new(row_rect.min.x + 5.0, row_rect.max.y),
+                        );
+                        match (is_pgm, is_prv) {
+                            (true, true) => {
+                                let mid_y = row_rect.center().y;
+                                let top_half = Rect::from_min_max(
+                                    strip_rect.min,
+                                    Pos2::new(strip_rect.max.x, mid_y),
+                                );
+                                let bot_half = Rect::from_min_max(
+                                    Pos2::new(strip_rect.min.x, mid_y),
+                                    strip_rect.max,
+                                );
+                                ui.painter().rect_filled(
+                                    top_half,
+                                    CornerRadius {
+                                        nw: 6,
+                                        ne: 0,
+                                        sw: 0,
+                                        se: 0,
+                                    },
+                                    p.accent_preview,
+                                );
+                                ui.painter().rect_filled(
+                                    bot_half,
+                                    CornerRadius {
+                                        nw: 0,
+                                        ne: 0,
+                                        sw: 6,
+                                        se: 0,
+                                    },
+                                    p.accent_program,
+                                );
+                            }
+                            (true, false) => {
+                                ui.painter().rect_filled(
+                                    strip_rect,
+                                    CornerRadius {
+                                        nw: 6,
+                                        ne: 0,
+                                        sw: 6,
+                                        se: 0,
+                                    },
+                                    p.accent_program,
+                                );
+                            }
+                            (false, true) => {
+                                ui.painter().rect_filled(
+                                    strip_rect,
+                                    CornerRadius {
+                                        nw: 6,
+                                        ne: 0,
+                                        sw: 6,
+                                        se: 0,
+                                    },
+                                    p.accent_preview,
+                                );
+                            }
+                            (false, false) => {
+                                ui.painter().rect_filled(
+                                    strip_rect,
+                                    CornerRadius {
+                                        nw: 6,
+                                        ne: 0,
+                                        sw: 6,
+                                        se: 0,
+                                    },
+                                    p.border_subtle,
+                                );
+                            }
+                        }
+
+                        ui.painter().rect_stroke(
+                            row_rect,
+                            CornerRadius::same(6),
+                            border_stroke,
+                            egui::StrokeKind::Inside,
+                        );
+
+                        // Mathematically centered text block & icon
+                        let mid_y = row_rect.center().y;
+
+                        let icon_col = if is_pgm {
+                            p.accent_program
+                        } else if is_prv {
+                            p.accent_preview
+                        } else {
+                            p.text_secondary
+                        };
+
+                        // Draw icon exactly vertically centered on mid_y
+                        let icon_pos = Pos2::new(row_rect.min.x + 13.0, mid_y);
+                        ui.painter().text(
+                            icon_pos,
+                            Align2::LEFT_CENTER,
+                            icons::LAYOUT_COLUMNS,
+                            FontId::proportional(14.0),
+                            icon_col,
+                        );
+
+                        let state_desc = match (is_pgm, is_prv) {
+                            (true, true) => format!(
+                                "Live & Preview • {}/{} layers",
+                                active_src_count, src_count
+                            ),
+                            (true, false) => {
+                                format!("On Air (Live) • {}/{} layers", active_src_count, src_count)
+                            }
+                            (false, true) => format!(
+                                "Editing in Preview • {}/{} layers",
+                                active_src_count, src_count
+                            ),
+                            (false, false) => {
+                                format!("Standby • {}/{} layers", active_src_count, src_count)
+                            }
+                        };
+
+                        let name_text = truncate_str(&scene.name, 18);
+                        let name_galley = ui.painter().layout_no_wrap(
+                            name_text,
+                            FontId::proportional(12.0),
+                            p.text_primary,
+                        );
+                        let desc_galley = ui.painter().layout_no_wrap(
+                            state_desc,
+                            FontId::proportional(9.5),
+                            p.text_secondary,
+                        );
+
+                        // Comfortable vertical spacing between scene title and subtitle
+                        let gap_y = 3.5_f32;
+                        let name_h = name_galley.size().y;
+                        let desc_h = desc_galley.size().y;
+                        let total_text_h = name_h + desc_h + gap_y;
+                        let text_top_y = (mid_y - total_text_h * 0.5).round();
+                        let text_x = row_rect.min.x + 33.0;
+
+                        // Draw clean, regular weight scene name (not bold)
+                        ui.painter().galley(
+                            Pos2::new(text_x, text_top_y),
+                            name_galley,
+                            p.text_primary,
+                        );
+
+                        // Draw subtitle with comfortable breathing room below scene name
+                        ui.painter().galley(
+                            Pos2::new(text_x, text_top_y + name_h + gap_y),
+                            desc_galley,
+                            p.text_secondary,
+                        );
+
+                        // Right-side visual status badges
+                        let badges_rect = Rect::from_min_max(
+                            Pos2::new(text_x + 80.0, row_rect.min.y + 2.0),
+                            Pos2::new(row_rect.max.x - 7.0, row_rect.max.y - 2.0),
+                        );
+                        let mut badges_ui = ui.new_child(
+                            egui::UiBuilder::new()
+                                .max_rect(badges_rect)
+                                .layout(Layout::right_to_left(Align::Center)),
+                        );
+                        badges_ui.spacing_mut().item_spacing.x = 4.0;
                         if is_pgm {
                             paint_status_pill(
-                                ui,
+                                &mut badges_ui,
                                 &format!("{} LIVE", icons::PLAYER_RECORD),
                                 p.accent_program,
                                 p.accent_program,
@@ -583,7 +911,7 @@ fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                         }
                         if is_prv {
                             paint_status_pill(
-                                ui,
+                                &mut badges_ui,
                                 &format!("{} PREVIEW", icons::EYE),
                                 Color32::from_rgba_unmultiplied(
                                     p.accent_preview.r(),
@@ -598,7 +926,7 @@ fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                         }
                         if !is_pgm && !is_prv {
                             paint_status_pill(
-                                ui,
+                                &mut badges_ui,
                                 "STANDBY",
                                 Color32::TRANSPARENT,
                                 p.border_subtle,
@@ -606,64 +934,71 @@ fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                                 "Click to open in Preview • Double-click to Transition to LIVE",
                             );
                         }
-                    });
 
-                    let scene_id = scene.id;
-                    let scene_name_for_menu = scene.name.clone();
-                    if row_resp.double_clicked() {
-                        transition_scene_to_live = Some(scene_id);
-                    } else if row_resp.clicked() {
-                        select_preview = Some(scene_id);
-                    }
-
-                    row_resp.context_menu(|ui| {
-                        ui.set_min_width(190.0);
-                        if ui
-                            .button(format!("{} Transition to LIVE (Program)", icons::ARROW_RIGHT))
-                            .clicked()
-                        {
+                        let scene_id = scene.id;
+                        let scene_name_for_menu = scene.name.clone();
+                        if row_resp.double_clicked() {
                             transition_scene_to_live = Some(scene_id);
-                            ui.close_menu();
+                        } else if row_resp.clicked() {
+                            select_preview = Some(scene_id);
                         }
-                        ui.separator();
-                        if ui
-                            .button(format!("{} Add Scene...", icons::PLUS))
-                            .clicked()
-                        {
-                            add_new_scene_requested = true;
-                            ui.close_menu();
-                        }
-                        if ui
-                            .button(format!("{} Rename Scene...", icons::EDIT))
-                            .clicked()
-                        {
-                            rename_scene_target = Some((scene_id, scene_name_for_menu));
-                            ui.close_menu();
-                        }
-                        if ui
-                            .button(format!("{} Duplicate Scene", icons::COPY))
-                            .clicked()
-                        {
-                            duplicate_scene_target = Some(scene_id);
-                            ui.close_menu();
-                        }
-                        if total_scenes > 1
-                            && ui
-                                .button(
-                                    RichText::new(format!("{} Delete Scene", icons::TRASH))
-                                        .color(p.rec_red),
-                                )
-                                .clicked()
-                        {
-                            delete_scene_target = Some(scene_id);
-                            ui.close_menu();
-                        }
-                    });
 
-                    row_resp.on_hover_text(format!(
-                        "{}\n• Click: Open in Preview\n• Double-Click: Transition to LIVE (Program)\n• Right-Click: Scene Options",
-                        scene.top_display_label(idx + 1)
-                    ));
+                        row_resp.context_menu(|ui| {
+                            ui.set_min_width(190.0);
+                            if ui
+                                .button(format!(
+                                    "{} Transition to LIVE (Program)",
+                                    icons::ARROW_RIGHT
+                                ))
+                                .clicked()
+                            {
+                                transition_scene_to_live = Some(scene_id);
+                                ui.close_menu();
+                            }
+                            ui.separator();
+                            if ui
+                                .button(format!("{} Add Scene...", icons::PLUS))
+                                .clicked()
+                            {
+                                add_new_scene_requested = true;
+                                ui.close_menu();
+                            }
+                            if ui
+                                .button(format!("{} Rename Scene...", icons::EDIT))
+                                .clicked()
+                            {
+                                rename_scene_target =
+                                    Some((scene_id, scene_name_for_menu.clone()));
+                                ui.close_menu();
+                            }
+                            if ui
+                                .button(format!("{} Duplicate Scene", icons::COPY))
+                                .clicked()
+                            {
+                                duplicate_scene_target = Some(scene_id);
+                                ui.close_menu();
+                            }
+                            if total_scenes > 1
+                                && ui
+                                    .button(
+                                        RichText::new(format!(
+                                            "{} Delete Scene",
+                                            icons::TRASH
+                                        ))
+                                        .color(p.rec_red),
+                                    )
+                                    .clicked()
+                            {
+                                delete_scene_target = Some(scene_id);
+                                ui.close_menu();
+                            }
+                        });
+
+                        row_resp.on_hover_text(format!(
+                            "{}\n• Click: Open in Preview\n• Double-Click: Transition to LIVE (Program)\n• Right-Click: Scene Options",
+                            scene.top_display_label(idx + 1)
+                        ));
+                    }
                 }
 
                 if let Some(id) = transition_scene_to_live {

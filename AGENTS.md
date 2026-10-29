@@ -23,7 +23,9 @@ Sebelum melakukan perubahan kode, **baca peta arsitektur lengkap di [`ARCHITECTU
    - Jangan gunakan karakter emoji mentah yang tidak didukung oleh font bawaan; gunakan konstanta dari [`src/ui/icons.rs`](file:///d:/Rust/Nexora%20Studio/src/ui/icons.rs).
 
 3. **Konvensi Konsistensi UI/UX & Arsitektur Studio:**
-   - **Studio Mode & Transisi:** Pertahankan **Studio Mode** (*Preview* di kiri, *Program* di kanan) dengan rasio kanvas `16:9` serta jembatan transisi tengah yang simpel (`TRANSITION ->` dengan pilihan efek **`Cut`** & **`Fade`**).
+   - **Studio Mode & Transisi:**
+     - Pertahankan **Studio Mode** (*Preview* di kiri, *Program* di kanan) dengan rasio kanvas `16:9` serta jembatan transisi tengah yang simpel (`TRANSITION ->` dengan pilihan efek **`Cut`** & **`Fade`**).
+     - **Isolasi Penuh Properti Source Preview & Program:** Perubahan apapun pada properti source (warna, ukuran font, ketebalan border, badge, slide PPT, filter, transform kanvas, dll.) di Preview **TIDAK BOLEH** langsung tercermin ke Program/Output sebelum pengguna mengklik tombol **`TRANSITION ->`**. Fungsi sinkronisasi runtime hanya boleh memperbarui audio/transport playback media live dan tidak boleh menimpa konfigurasi visual snapshot Program.
    - **Urutan Layer `Source` (Z-Order Standar OBS):**
      - Baris **atas** di panel `Source` (`index 0`) = **di depan layar (foreground)**.
      - Baris **bawah** di panel `Source` (`index terakhir`) = **di belakang layar (background)**.
@@ -31,6 +33,8 @@ Sebelum melakukan perubahan kode, **baca peta arsitektur lengkap di [`ARCHITECTU
    - **Seleksi Baris Full-Width (`Scenes` & `Source`):**
      - Setiap item di panel `Scenes` dan `Source` wajib berupa kartu baris penuh (*full-width row card*) sehingga pengguna dapat memilih item dengan mengklik di mana saja pada baris tersebut (tidak harus tepat di atas teks).
      - Kartu `Scenes` wajib menampilkan indikator visual `👁 PREVIEW` (Teal) dan `● LIVE` (Merah).
+     - Panel `Scenes` menyediakan alih mode tampilan List (`icons::LIST`) dan Grid (`icons::LAYOUT_GRID`) lengkap dengan rendering thumbnail 16:9 real-time isi source masing-masing scene (`render_scene_thumbnail`).
+     - Tipografi kartu baris Scenes: Menggunakan bobot font reguler yang nyaman dan bersih (tidak bold/tidak faux-bold), dengan jarak vertikal yang proporsional dan lega (`gap_y = 3.5_f32`) antara nama scene dan baris subtitle layer, tepat sejajar secara matematis di samping ikon.
    - **Konsistensi Form Modal & Padding Tombol:**
      - Kunci lebar jendela modal (`Properties`, `Settings`, `Manage Slide Show Images`) dan seragamkan lebar `ComboBox` (`PROP_FIELD_W = 280.0`, `SETTINGS_FIELD_W = 270.0` dengan `.truncate()`) agar jendela tidak pernah memanjang sendiri ke kanan.
      - Berikan ukuran minimum vertikal (`min_size` tinggi `20px–26px` atau `paint_icon_action_btn`) pada tombol agar ikon dan teks tidak pernah mepet dengan garis batas tombol.
@@ -55,7 +59,7 @@ Sebelum melakukan perubahan kode, **baca peta arsitektur lengkap di [`ARCHITECTU
        - Multi-mode: Waktu Sekarang (Jam Real-Time sinkron waktu Windows), Hitung Maju (Stopwatch), dan Hitung Mundur (Countdown Timer).
        - Efek Visual: `DigitalNeon` (glow frame LED), `TvCornerBadge` (kapsul broadcast TV), `MinimalistClean` (transparan melayang dengan soft shadow), dan `DarkGlassCard` (glassmorphism modern dengan pulsing indicator dot).
        - Kontrol Waktu Interaktif: Start/Pause, Reset, tombol penyesuaian cepat `+1m`/`-1m`/`+10s`/`-10s` (bisa memajukan & memundurkan waktu), serta tombol quick play/pause & reset langsung di kartu row Sources dock.
-       - Tipografi & Skalabilitas: Font type (`Monospace`, `Proportional`, `Serif`), font size slider (`16px..140px`), opsi format (tampilkan jam, titik dua solid `: ` tanpa kedip, format 24 jam), dan penyesuaian warna teks/background/aksen penuh.
+       - Tipografi & Skalabilitas: Font type (`Monospace`, `Proportional`, `Serif`), gaya tebal/bold toggle (`Tebal (Bold)`), font size slider (`16px..140px`), opsi badge/label (tampilkan/sembunyikan pill label), kontrol ketebalan border/aksen (`0.0..12.0 px` / tanpa border), opsi format (tampilkan jam, titik dua solid `: ` tanpa kedip, format 24 jam), dan penyesuaian warna teks/background/aksen penuh.
      - Setiap source yang ditambahkan melalui dialog divalidasi namanya (harus unik dan tidak boleh kosong, otomatis diisi prefix unik seperti `Display Capture 2`), file diperiksa keberadaannya secara native via dialog picker, lalu disisipkan ke scene preview aktif pada index 0 (layer foreground terdepan).
    - **Alur Tambah Scene (Add Scene) & Default Empty Sources:**
      - Tombol + pada footer panel Scenes dan klik kanan -> Add Scene... memunculkan dialog modal konfirmasi nama scene baru terlebih dahulu (*Add Scene dialog*).

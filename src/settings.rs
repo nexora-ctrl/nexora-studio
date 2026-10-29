@@ -33,6 +33,13 @@ impl ThemeMode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum ScenesViewMode {
+    #[default]
+    List,
+    Grid,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum VideoPreset {
     FullHd60,
@@ -212,6 +219,7 @@ pub struct AppSettings {
     pub preferred_gpu_index: Option<u32>,
     pub preferred_gpu_name: String,
     pub media_decode_scale: MediaDecodeScale,
+    pub scenes_view_mode: ScenesViewMode,
 }
 
 impl Default for AppSettings {
@@ -237,6 +245,7 @@ impl Default for AppSettings {
             preferred_gpu_index: Some(0),
             preferred_gpu_name: String::new(),
             media_decode_scale: MediaDecodeScale::Performance540p,
+            scenes_view_mode: ScenesViewMode::List,
         }
     }
 }

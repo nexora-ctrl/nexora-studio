@@ -55,6 +55,10 @@ fn default_time_font_size() -> f32 {
     52.0
 }
 
+fn default_time_border_thickness() -> f32 {
+    2.0
+}
+
 fn default_white_rgba() -> [u8; 4] {
     [255, 255, 255, 255]
 }
@@ -471,6 +475,12 @@ pub enum SourceKind {
         font_size: f32,
         #[serde(default)]
         font_family: TimeFontFamily,
+        #[serde(default = "default_true")]
+        bold_font: bool,
+        #[serde(default = "default_time_border_thickness")]
+        border_thickness: f32,
+        #[serde(default = "default_true")]
+        show_badge: bool,
         #[serde(default = "default_white_rgba")]
         text_color_rgba: [u8; 4],
         #[serde(default = "default_time_bg_rgba")]

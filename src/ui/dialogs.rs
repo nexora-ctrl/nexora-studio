@@ -1505,6 +1505,9 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                     effect,
                                     font_size,
                                     font_family,
+                                    bold_font,
+                                    border_thickness,
+                                    show_badge,
                                     text_color_rgba,
                                     bg_color_rgba,
                                     accent_color_rgba,
@@ -1617,7 +1620,15 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                     ui.end_row();
 
                                     ui.label("Teks Badge (Label):");
-                                    any_changed |= ui.add_sized(Vec2::new(PROP_FIELD_W, 24.0), egui::TextEdit::singleline(badge_text).hint_text("LIVE / CLOCK / COUNTDOWN")).changed();
+                                    ui.horizontal(|ui| {
+                                        any_changed |= ui.checkbox(show_badge, "Tampilkan").changed();
+                                        if *show_badge {
+                                            any_changed |= ui.add_sized(
+                                                Vec2::new(PROP_FIELD_W - 90.0, 24.0),
+                                                egui::TextEdit::singleline(badge_text).hint_text("LIVE / CLOCK / COUNTDOWN"),
+                                            ).changed();
+                                        }
+                                    });
                                     ui.end_row();
 
                                     ui.label("Jenis Font (Type):");
@@ -1631,8 +1642,11 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                         });
                                     ui.end_row();
 
-                                    ui.label("Ukuran Font:");
-                                    any_changed |= ui.add(egui::Slider::new(font_size, 16.0..=140.0).suffix(" px")).changed();
+                                    ui.label("Ukuran & Gaya Font:");
+                                    ui.horizontal(|ui| {
+                                        any_changed |= ui.add(egui::Slider::new(font_size, 16.0..=140.0).suffix(" px")).changed();
+                                        any_changed |= ui.checkbox(bold_font, "Tebal (Bold)").changed();
+                                    });
                                     ui.end_row();
 
                                     ui.label("Format Waktu:");
@@ -1665,6 +1679,15 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                         any_changed |= ui.color_edit_button_srgba_unmultiplied(accent_color_rgba).changed();
                                         let [r, g, b, _] = *accent_color_rgba;
                                         ui.label(format!("#{:02X}{:02X}{:02X}", r, g, b));
+                                    });
+                                    ui.end_row();
+
+                                    ui.label("Tebal Garis / Border:");
+                                    ui.horizontal(|ui| {
+                                        any_changed |= ui.add(egui::Slider::new(border_thickness, 0.0..=12.0).suffix(" px")).changed();
+                                        if *border_thickness <= 0.0 {
+                                            ui.label(RichText::new("(Tanpa Border)").small().color(p.text_muted));
+                                        }
                                     });
                                     ui.end_row();
                                 }
@@ -1837,7 +1860,6 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
             app.capture_catalog.refresh_from_system();
         }
         if any_changed {
-            app.studio.sync_media_transport_to_program();
             app.studio.sync_if_linked();
             app.save_all_state();
         }
@@ -3332,6 +3354,9 @@ fn validate_and_create_source(app: &mut NexoraApp) -> Option<crate::studio::sour
                     effect: crate::studio::source::TimeVisualEffect::DigitalNeon,
                     font_size: 52.0,
                     font_family: crate::studio::source::TimeFontFamily::Monospace,
+                    bold_font: true,
+                    border_thickness: 2.0,
+                    show_badge: true,
                     text_color_rgba: [255, 255, 255, 255],
                     bg_color_rgba: [15, 23, 42, 220],
                     accent_color_rgba: [0, 210, 255, 255],

@@ -203,8 +203,10 @@ impl StudioState {
         self.transition_count += 1;
     }
 
-    /// Synchronizes live MediaSource audio/transport controls (volume, mute, play/pause, loop, restart)
-    /// from the scenes list into `program_scene_snapshot` if that source is already on Program.
+    /// Synchronizes live MediaSource audio/transport controls (volume, mute, play/pause, restart)
+    /// from the scenes list into `program_scene_snapshot` only if that source is already on Program.
+    /// Visual properties (styling, colors, fonts, slide indexes, formats, filters, transforms) are strictly
+    /// NOT synchronized here to preserve Preview vs Program isolation until the user clicks Transition.
     pub fn sync_media_transport_to_program(&mut self) {
         if self.auto_sync_program {
             self.sync_if_linked();
@@ -213,7 +215,6 @@ impl StudioState {
         for scene in &self.scenes {
             for src in &scene.sources {
                 if let SourceKind::MediaSource {
-                    loop_playback,
                     volume,
                     muted,
                     is_playing,
@@ -228,7 +229,6 @@ impl StudioState {
                         .find(|ps| ps.id == src.id)
                     {
                         if let SourceKind::MediaSource {
-                            loop_playback: p_loop,
                             volume: p_vol,
                             muted: p_muted,
                             is_playing: p_playing,
@@ -236,7 +236,6 @@ impl StudioState {
                             ..
                         } = &mut prog_src.kind
                         {
-                            *p_loop = *loop_playback;
                             *p_vol = *volume;
                             *p_muted = *muted;
                             *p_playing = *is_playing;
@@ -247,8 +246,6 @@ impl StudioState {
 
                 if let SourceKind::PowerPointSource {
                     file_path,
-                    slide_index,
-                    slide_count,
                     slides,
                     ..
                 } = &src.kind
@@ -263,78 +260,14 @@ impl StudioState {
                         })
                     {
                         if let SourceKind::PowerPointSource {
-                            slide_index: p_idx,
-                            slide_count: p_cnt,
                             slides: p_slides,
                             ..
                         } = &mut prog_src.kind
                         {
-                            *p_idx = *slide_index;
-                            *p_cnt = *slide_count;
+                            // Only share cached bitmap slides if program has not cached them yet
                             if p_slides.is_empty() && !slides.is_empty() {
                                 *p_slides = slides.clone();
                             }
-                        }
-                    }
-                }
-
-                if let SourceKind::TimeSource {
-                    mode,
-                    target_duration_sec,
-                    elapsed_sec,
-                    is_running,
-                    effect,
-                    font_size,
-                    font_family,
-                    text_color_rgba,
-                    bg_color_rgba,
-                    accent_color_rgba,
-                    show_hours,
-                    blink_colon,
-                    use_24h_format,
-                    badge_text,
-                    finish_text,
-                } = &src.kind
-                {
-                    if let Some(prog_src) = self
-                        .program_scene_snapshot
-                        .sources
-                        .iter_mut()
-                        .find(|ps| ps.id == src.id)
-                    {
-                        if let SourceKind::TimeSource {
-                            mode: p_mode,
-                            target_duration_sec: p_target,
-                            elapsed_sec: p_elapsed,
-                            is_running: p_running,
-                            effect: p_effect,
-                            font_size: p_fs,
-                            font_family: p_ff,
-                            text_color_rgba: p_tc,
-                            bg_color_rgba: p_bg,
-                            accent_color_rgba: p_ac,
-                            show_hours: p_sh,
-                            blink_colon: p_bc,
-                            use_24h_format: p_24,
-                            badge_text: p_badge,
-                            finish_text: p_finish,
-                        } = &mut prog_src.kind
-                        {
-                            *p_mode = *mode;
-                            *p_target = *target_duration_sec;
-                            *p_elapsed = *elapsed_sec;
-                            *p_running = *is_running;
-                            *p_effect = *effect;
-                            *p_fs = *font_size;
-                            *p_ff = *font_family;
-                            *p_tc = *text_color_rgba;
-                            *p_bg = *bg_color_rgba;
-                            *p_ac = *accent_color_rgba;
-                            *p_sh = *show_hours;
-                            *p_bc = *blink_colon;
-                            *p_24 = *use_24h_format;
-                            *p_badge = badge_text.clone();
-                            *p_finish = finish_text.clone();
                         }
                     }
                 }

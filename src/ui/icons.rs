@@ -231,6 +231,8 @@ pub const DEVICE_GAMEPAD: &str = "\u{eb63}";
 pub const PRESENTATION: &str = "\u{eb70}";
 /// `ti-list` — Scene Source
 pub const LIST: &str = "\u{eb6b}";
+/// `ti-layout-grid` — Grid Mode View
+pub const LAYOUT_GRID: &str = "\u{edba}";
 /// `ti-letter-case` — Text (GDI+) Source
 pub const LETTER_CASE: &str = "\u{eea5}";
 /// `ti-music` — Audio / MP3 Media

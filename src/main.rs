@@ -79,6 +79,53 @@ mod tests {
         studio.transition_preview_to_program();
         assert_eq!(studio.program_scene_id, new_scene_id);
         assert!(!studio.has_pending_preview_changes());
+
+        // Modifying a source in Preview must NOT bleed into Program snapshot before Transition
+        let time_source = crate::studio::source::SourceItem::new(
+            "Clock 1".to_string(),
+            crate::studio::source::SourceKind::TimeSource {
+                mode: crate::studio::source::TimeSourceMode::RealTimeClock,
+                target_duration_sec: 300,
+                elapsed_sec: 0.0,
+                is_running: true,
+                effect: crate::studio::source::TimeVisualEffect::DigitalNeon,
+                font_size: 52.0,
+                font_family: crate::studio::source::TimeFontFamily::Monospace,
+                bold_font: true,
+                border_thickness: 2.0,
+                show_badge: true,
+                text_color_rgba: [255, 255, 255, 255],
+                bg_color_rgba: [15, 23, 42, 220],
+                accent_color_rgba: [0, 210, 255, 255],
+                show_hours: true,
+                blink_colon: false,
+                use_24h_format: true,
+                badge_text: String::new(),
+                finish_text: String::new(),
+            },
+        );
+        studio.preview_scene_mut().sources.push(time_source);
+        studio.sync_media_transport_to_program();
+        assert!(studio.program_scene().sources.is_empty(), "Program scene must not contain Preview source changes before transition");
+        assert!(studio.has_pending_preview_changes());
+
+        // Transition applies changes to Program
+        studio.transition_preview_to_program();
+        assert_eq!(studio.program_scene().sources.len(), 1);
+        assert!(!studio.has_pending_preview_changes());
+
+        // Modifying visual property in Preview (e.g. font size) does not change Program
+        if let crate::studio::source::SourceKind::TimeSource { font_size, .. } = &mut studio.preview_scene_mut().sources[0].kind {
+            *font_size = 80.0;
+        }
+        studio.sync_media_transport_to_program();
+        if let crate::studio::source::SourceKind::TimeSource { font_size, .. } = &studio.program_scene().sources[0].kind {
+            assert_ne!(*font_size, 80.0, "Program font_size must remain at original value before Transition");
+        }
+        studio.transition_preview_to_program();
+        if let crate::studio::source::SourceKind::TimeSource { font_size, .. } = &studio.program_scene().sources[0].kind {
+            assert_eq!(*font_size, 80.0, "Program font_size must update after Transition");
+        }
     }
 
     #[test]
