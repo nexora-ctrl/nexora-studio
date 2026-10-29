@@ -41,7 +41,7 @@ pub fn render_top_bar(ctx: &egui::Context, app: &mut NexoraApp) {
 
                 ui.label(
                     RichText::new("NEXORA Studio")
-                        .font(egui::FontId::new(14.5, icons::brand_font_family()))
+                        .font(egui::FontId::new(15.0, icons::brand_font_family()))
                         .color(p.text_primary),
                 );
                 ui.label(
@@ -58,7 +58,7 @@ pub fn render_top_bar(ctx: &egui::Context, app: &mut NexoraApp) {
                 if ui
                     .add_enabled(
                         can_undo,
-                        egui::Button::new(RichText::new(format!("{} Undo", icons::UNDO)).size(11.0)),
+                        egui::Button::new(RichText::new(format!("{} Undo", icons::UNDO)).size(11.5)),
                     )
                     .on_hover_text(format!(
                         "Undo last change (Ctrl+Z) — {} step(s) available",
@@ -74,7 +74,7 @@ pub fn render_top_bar(ctx: &egui::Context, app: &mut NexoraApp) {
                 if ui
                     .add_enabled(
                         can_redo,
-                        egui::Button::new(RichText::new(format!("{} Redo", icons::REDO)).size(11.0)),
+                        egui::Button::new(RichText::new(format!("{} Redo", icons::REDO)).size(11.5)),
                     )
                     .on_hover_text(format!(
                         "Redo change (Ctrl+Y / Ctrl+Shift+Z) — {} step(s) available",
@@ -461,7 +461,7 @@ pub fn render_top_bar(ctx: &egui::Context, app: &mut NexoraApp) {
                             ui.horizontal(|ui| {
                                 ui.label(
                                     RichText::new(status_text)
-                                        .size(10.5)
+                                        .size(11.0)
                                         .color(if app.recording.status == RecordingStatus::Idle {
                                             p.text_secondary
                                         } else {
@@ -471,7 +471,7 @@ pub fn render_top_bar(ctx: &egui::Context, app: &mut NexoraApp) {
                                 ui.label(
                                     RichText::new(app.recording.formatted_timer())
                                         .monospace()
-                                        .size(11.0)
+                                        .size(11.5)
                                         .color(p.text_primary),
                                 );
                             });

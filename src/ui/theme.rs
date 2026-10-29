@@ -71,26 +71,26 @@ pub fn apply_studio_theme(ctx: &egui::Context, mode: ThemeMode) {
     let p = ThemePalette::for_mode(mode);
     let mut style = Style::default();
 
-    // Compact, slender studio typography with Rubik Light (clean, modern, non-bloated)
+    // Compact, slender studio typography with Rubik Light (clean, modern, balanced)
     style.text_styles.insert(
         TextStyle::Heading,
-        FontId::new(13.0, crate::ui::icons::rubik_family()),
+        FontId::new(13.8, crate::ui::icons::rubik_family()),
     );
     style.text_styles.insert(
         TextStyle::Body,
-        FontId::new(12.0, crate::ui::icons::rubik_light_family()),
+        FontId::new(12.5, crate::ui::icons::rubik_light_family()),
     );
     style.text_styles.insert(
         TextStyle::Button,
-        FontId::new(11.5, crate::ui::icons::rubik_light_family()),
+        FontId::new(12.0, crate::ui::icons::rubik_light_family()),
     );
     style.text_styles.insert(
         TextStyle::Small,
-        FontId::new(10.5, crate::ui::icons::rubik_light_family()),
+        FontId::new(11.0, crate::ui::icons::rubik_light_family()),
     );
     style.text_styles.insert(
         TextStyle::Monospace,
-        FontId::new(11.5, egui::FontFamily::Monospace),
+        FontId::new(12.0, egui::FontFamily::Monospace),
     );
 
     // Compact spacing for 1366x768 and 1920x1080 efficiency
