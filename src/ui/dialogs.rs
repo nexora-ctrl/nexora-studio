@@ -1549,6 +1549,10 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                     blink_colon: _,
                                     use_24h_format,
                                     badge_text,
+                                    badge_font_size,
+                                    badge_position,
+                                    badge_offset_x,
+                                    badge_offset_y,
                                     finish_text,
                                 } => {
                                     ui.label("Mode Waktu:");
@@ -1671,6 +1675,49 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                             .changed();
                                     });
                                     ui.end_row();
+
+                                    if *show_badge {
+                                        ui.label("Ukuran Teks Badge:");
+                                        ui.horizontal(|ui| {
+                                            any_changed |= ui.add(egui::Slider::new(badge_font_size, 8.0..=80.0).suffix(" px")).changed();
+                                            if ui.small_button("Reset").on_hover_text("Kembalikan ukuran font badge ke default 14px").clicked() {
+                                                *badge_font_size = 14.0;
+                                                any_changed = true;
+                                            }
+                                        });
+                                        ui.end_row();
+
+                                        ui.label("Posisi / Anchor Badge:");
+                                        egui::ComboBox::from_id_salt("prop_time_badge_pos")
+                                            .selected_text(badge_position.label())
+                                            .width(PROP_FIELD_W)
+                                            .show_ui(ui, |ui| {
+                                                for pos in crate::studio::source::TimeBadgePosition::all() {
+                                                    any_changed |= ui.selectable_value(badge_position, *pos, pos.label()).changed();
+                                                }
+                                            });
+                                        ui.end_row();
+
+                                        ui.label("Geser Posisi X (Horisontal):");
+                                        ui.horizontal(|ui| {
+                                            any_changed |= ui.add(egui::Slider::new(badge_offset_x, -400.0..=400.0).suffix(" px")).changed();
+                                            if ui.small_button("0").on_hover_text("Reset pergeseran X ke 0").clicked() {
+                                                *badge_offset_x = 0.0;
+                                                any_changed = true;
+                                            }
+                                        });
+                                        ui.end_row();
+
+                                        ui.label("Geser Posisi Y (Vertikal):");
+                                        ui.horizontal(|ui| {
+                                            any_changed |= ui.add(egui::Slider::new(badge_offset_y, -250.0..=350.0).suffix(" px")).changed();
+                                            if ui.small_button("0").on_hover_text("Reset pergeseran Y ke 0").clicked() {
+                                                *badge_offset_y = 0.0;
+                                                any_changed = true;
+                                            }
+                                        });
+                                        ui.end_row();
+                                    }
 
                                     ui.label("Jenis Font (Type):");
                                     egui::ComboBox::from_id_salt("prop_time_font_family")
@@ -3405,6 +3452,10 @@ fn validate_and_create_source(app: &mut NexoraApp) -> Option<crate::studio::sour
                     blink_colon: false,
                     use_24h_format: true,
                     badge_text: String::new(),
+                    badge_font_size: 14.0,
+                    badge_position: crate::studio::source::TimeBadgePosition::TopLeft,
+                    badge_offset_x: 0.0,
+                    badge_offset_y: 0.0,
                     finish_text: String::new(),
                 },
             );

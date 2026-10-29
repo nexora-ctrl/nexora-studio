@@ -3,7 +3,7 @@ use crate::recording::RecordingStatus;
 use crate::studio::scene::Scene;
 use crate::studio::source::{
     SlideTransitionEffect, SourceItem, SourceKind, SourceTransform, TextAnimationEffect,
-    TimeFontFamily, TimeSourceMode, TimeVisualEffect, TvBannerStyle,
+    TimeBadgePosition, TimeFontFamily, TimeSourceMode, TimeVisualEffect, TvBannerStyle,
 };
 use crate::ui::icons;
 use crate::ui::theme::ThemePalette;
@@ -1986,6 +1986,10 @@ fn draw_source_layer_visual(
         blink_colon,
         use_24h_format,
         badge_text,
+        badge_font_size,
+        badge_position,
+        badge_offset_x,
+        badge_offset_y,
         finish_text,
     } = kind
     {
@@ -2009,6 +2013,10 @@ fn draw_source_layer_visual(
             *blink_colon,
             *use_24h_format,
             badge_text,
+            *badge_font_size,
+            *badge_position,
+            *badge_offset_x,
+            *badge_offset_y,
             finish_text,
             time_sec,
             a_factor,
@@ -2588,6 +2596,10 @@ fn draw_time_source_layer(
     _blink_colon: bool,
     use_24h_format: bool,
     badge_text: &str,
+    badge_font_size: f32,
+    badge_position: TimeBadgePosition,
+    badge_offset_x: f32,
+    badge_offset_y: f32,
     finish_text: &str,
     time_sec: f64,
     alpha_mul: f32,
@@ -2636,10 +2648,10 @@ fn draw_time_source_layer(
             if is_finished && !finish_text.trim().is_empty() {
                 finish_text.trim().to_string()
             } else {
-                let rem_secs = remaining.ceil() as u64;
-                let h = rem_secs / 3600;
-                let m = (rem_secs % 3600) / 60;
-                let s = rem_secs % 60;
+                let total_secs = remaining.ceil() as u64;
+                let h = total_secs / 3600;
+                let m = (total_secs % 3600) / 60;
+                let s = total_secs % 60;
                 if show_hours || h > 0 {
                     format!("{:02}:{:02}:{:02}", h, m, s)
                 } else {
@@ -2664,12 +2676,25 @@ fn draw_time_source_layer(
         0.0
     };
     let eff_radius = (6.0 * (rect.height() / 120.0).clamp(0.3, 1.2)).clamp(2.0, 8.0);
+    let base_scale = (rect.height() / 90.0).clamp(0.08, 6.0);
 
     let has_badge = show_badge && rect.height() >= 16.0;
+    let eff_badge_font_px = (badge_font_size * base_scale).clamp(3.5, (rect.height() * 0.45).max(7.0));
+    let badge_font = FontId::proportional(eff_badge_font_px);
+
+    let is_badge_at_top = matches!(
+        badge_position,
+        TimeBadgePosition::TopLeft | TimeBadgePosition::TopCenter | TimeBadgePosition::TopRight
+    );
+    let is_badge_at_bottom = matches!(
+        badge_position,
+        TimeBadgePosition::BottomLeft | TimeBadgePosition::BottomCenter | TimeBadgePosition::BottomRight
+    );
+
     let badge_h = if has_badge {
         match effect {
             TimeVisualEffect::TvCornerBadge => 0.0,
-            _ => (rect.height() * 0.22).clamp(6.0, 28.0),
+            _ => (eff_badge_font_px * 1.5).max((rect.height() * 0.20).clamp(6.0, 40.0)),
         }
     } else {
         0.0
@@ -2686,7 +2711,6 @@ fn draw_time_source_layer(
     let avail_h = (rect.height() - badge_h - pad_y * 2.0).max(4.0);
     let max_font_h = avail_h * 0.92;
 
-    let base_scale = (rect.height() / 90.0).clamp(0.08, 6.0);
     let desired_font = font_size * base_scale;
     let effective_font_px = desired_font.min(max_font_w).min(max_font_h).clamp(3.0, 260.0);
 
@@ -2727,6 +2751,9 @@ fn draw_time_source_layer(
         badge_text.trim()
     };
 
+    let margin_x = (rect.width() * 0.05).clamp(4.0, 30.0);
+    let margin_y = (rect.height() * 0.07).clamp(3.0, 24.0);
+
     let draw_time_text = |target_painter: &egui::Painter, pos: Pos2, align: Align2, text: &str, font: FontId, color: Color32| {
         if bold_font {
             let bold_dx = (font.size * 0.024).clamp(0.4, 2.4);
@@ -2734,6 +2761,14 @@ fn draw_time_source_layer(
             target_painter.text(Pos2::new(pos.x, pos.y + bold_dx * 0.25), align, text, font.clone(), color);
         }
         target_painter.text(pos, align, text, font, color);
+    };
+
+    let time_center_y = if has_badge && is_badge_at_top {
+        rect.min.y + badge_h * 0.68 + (rect.height() - badge_h * 0.68) * 0.5
+    } else if has_badge && is_badge_at_bottom {
+        rect.min.y + (rect.height() - badge_h * 0.68) * 0.5
+    } else {
+        rect.center().y
     };
 
     // 4. Render based on TimeVisualEffect
@@ -2759,27 +2794,35 @@ fn draw_time_source_layer(
                 }
             }
 
-            // Top-left subtle header badge if show_badge is true and space permits
+            // Header badge with custom size, anchor position, and user offsets
             if has_badge {
-                let badge_font = FontId::proportional((effective_font_px * 0.32).clamp(3.5, 16.0));
                 let badge_col = accent_col.gamma_multiply(0.85);
-                let badge_x = rect.min.x + (rect.width() * 0.04).clamp(3.0, 10.0);
-                let badge_y = rect.min.y + (rect.height() * 0.04).clamp(2.0, 8.0);
+                let badge_str = format!("{} {}", icons::CLOCK, active_badge);
+                let badge_galley = clipped.layout_no_wrap(badge_str.clone(), badge_font.clone(), badge_col);
+                let badge_w = badge_galley.size().x;
+                let badge_h = badge_galley.size().y;
+
+                let (base_x, base_y) = match badge_position {
+                    TimeBadgePosition::TopLeft => (rect.min.x + margin_x, rect.min.y + margin_y),
+                    TimeBadgePosition::TopCenter => (rect.center().x - badge_w * 0.5, rect.min.y + margin_y),
+                    TimeBadgePosition::TopRight => (rect.max.x - margin_x - badge_w, rect.min.y + margin_y),
+                    TimeBadgePosition::BottomLeft => (rect.min.x + margin_x, rect.max.y - margin_y - badge_h),
+                    TimeBadgePosition::BottomCenter => (rect.center().x - badge_w * 0.5, rect.max.y - margin_y - badge_h),
+                    TimeBadgePosition::BottomRight => (rect.max.x - margin_x - badge_w, rect.max.y - margin_y - badge_h),
+                };
+                let final_x = base_x + badge_offset_x * base_scale;
+                let final_y = base_y + badge_offset_y * base_scale;
+
                 clipped.text(
-                    Pos2::new(badge_x, badge_y),
+                    Pos2::new(final_x, final_y),
                     Align2::LEFT_TOP,
-                    format!("{} {}", icons::CLOCK, active_badge),
+                    badge_str,
                     badge_font,
                     badge_col,
                 );
             }
 
             // Glowing neon shadow effect
-            let time_center_y = if has_badge {
-                rect.min.y + badge_h * 0.65 + (rect.height() - badge_h * 0.65) * 0.5
-            } else {
-                rect.center().y
-            };
             let center = Pos2::new(rect.center().x, time_center_y);
             let glow_col = accent_col.gamma_multiply(0.20 * alpha_mul);
             let glow_dist = (effective_font_px * 0.035).clamp(0.4, 2.0);
@@ -2810,23 +2853,26 @@ fn draw_time_source_layer(
             }
 
             if has_badge {
-                let badge_font = FontId::proportional((effective_font_px * 0.40).clamp(4.0, 24.0));
+                let badge_font = FontId::proportional(eff_badge_font_px.clamp(6.0, 36.0));
                 let badge_galley = clipped.layout_no_wrap(active_badge.to_string(), badge_font, Color32::WHITE);
-                let badge_pad = (rect.width() * 0.03).clamp(3.0, 14.0);
-                let badge_w = (badge_galley.size().x + badge_pad * 2.0).min(rect.width() * 0.38);
+                let badge_pad = (rect.width() * 0.03).clamp(3.0, 16.0);
+                let badge_w = (badge_galley.size().x + badge_pad * 2.0).min(rect.width() * 0.45);
+                let badge_h = rect.height();
 
-                let badge_rect = Rect::from_min_max(
-                    rect.min,
-                    Pos2::new(rect.min.x + badge_w, rect.max.y),
+                let (base_x, _) = match badge_position {
+                    TimeBadgePosition::TopRight | TimeBadgePosition::BottomRight => {
+                        (rect.max.x - badge_w, rect.min.y)
+                    }
+                    _ => (rect.min.x, rect.min.y),
+                };
+                let final_x = base_x + badge_offset_x * base_scale;
+                let badge_rect = Rect::from_min_size(
+                    Pos2::new(final_x, rect.min.y),
+                    Vec2::new(badge_w, badge_h),
                 );
                 clipped.rect_filled(
                     badge_rect,
-                    CornerRadius {
-                        nw: eff_radius as u8,
-                        ne: 0,
-                        sw: eff_radius as u8,
-                        se: 0,
-                    },
+                    CornerRadius::same(eff_radius as u8),
                     accent_col,
                 );
                 clipped.galley(
@@ -2838,10 +2884,11 @@ fn draw_time_source_layer(
                     Color32::WHITE,
                 );
 
-                let time_area = Rect::from_min_max(
-                    Pos2::new(badge_rect.max.x + 4.0, rect.min.y),
-                    rect.max,
-                );
+                let time_area = if base_x > rect.center().x {
+                    Rect::from_min_max(rect.min, Pos2::new(badge_rect.min.x - 4.0, rect.max.y))
+                } else {
+                    Rect::from_min_max(Pos2::new(badge_rect.max.x + 4.0, rect.min.y), rect.max)
+                };
                 draw_time_text(&clipped, time_area.center(), Align2::CENTER_CENTER, &time_display, font_id, text_col);
             } else {
                 draw_time_text(&clipped, rect.center(), Align2::CENTER_CENTER, &time_display, font_id, text_col);
@@ -2857,23 +2904,31 @@ fn draw_time_source_layer(
                     egui::StrokeKind::Inside,
                 );
             }
-            let text_center_y = if has_badge {
-                rect.min.y + badge_h * 0.65 + (rect.height() - badge_h * 0.65) * 0.5
-            } else {
-                rect.center().y
-            };
-            let text_pos = Pos2::new(rect.center().x, text_center_y);
+            let text_pos = Pos2::new(rect.center().x, time_center_y);
             draw_time_text(&clipped, text_pos, Align2::CENTER_CENTER, &time_display, font_id.clone(), text_col);
             if has_badge {
-                let badge_font = FontId::proportional((effective_font_px * 0.28).clamp(3.5, 14.0));
-                let badge_x = rect.min.x + (rect.width() * 0.04).clamp(3.0, 10.0);
-                let badge_y = rect.min.y + (rect.height() * 0.04).clamp(2.0, 8.0);
+                let badge_col = accent_col.gamma_multiply(0.9);
+                let badge_galley = clipped.layout_no_wrap(active_badge.to_string(), badge_font.clone(), badge_col);
+                let badge_w = badge_galley.size().x;
+                let badge_h = badge_galley.size().y;
+
+                let (base_x, base_y) = match badge_position {
+                    TimeBadgePosition::TopLeft => (rect.min.x + margin_x, rect.min.y + margin_y),
+                    TimeBadgePosition::TopCenter => (rect.center().x - badge_w * 0.5, rect.min.y + margin_y),
+                    TimeBadgePosition::TopRight => (rect.max.x - margin_x - badge_w, rect.min.y + margin_y),
+                    TimeBadgePosition::BottomLeft => (rect.min.x + margin_x, rect.max.y - margin_y - badge_h),
+                    TimeBadgePosition::BottomCenter => (rect.center().x - badge_w * 0.5, rect.max.y - margin_y - badge_h),
+                    TimeBadgePosition::BottomRight => (rect.max.x - margin_x - badge_w, rect.max.y - margin_y - badge_h),
+                };
+                let final_x = base_x + badge_offset_x * base_scale;
+                let final_y = base_y + badge_offset_y * base_scale;
+
                 clipped.text(
-                    Pos2::new(badge_x, badge_y),
+                    Pos2::new(final_x, final_y),
                     Align2::LEFT_TOP,
                     active_badge,
                     badge_font,
-                    accent_col.gamma_multiply(0.9),
+                    badge_col,
                 );
             }
         }
@@ -2896,10 +2951,25 @@ fn draw_time_source_layer(
 
             // Pulsing status dot & badge text if show_badge is enabled
             if has_badge {
-                let dot_radius = (rect.height() * 0.04).clamp(1.5, 4.5);
-                let dot_x = rect.min.x + (rect.width() * 0.05).clamp(4.0, 14.0);
-                let dot_y = rect.min.y + (rect.height() * 0.07).clamp(3.0, 12.0);
-                let dot_center = Pos2::new(dot_x, dot_y);
+                let dot_radius = (eff_badge_font_px * 0.28).clamp(2.0, (rect.height() * 0.15).max(3.0));
+                let dot_spacing = (eff_badge_font_px * 0.35).clamp(4.0, 20.0);
+                let badge_col = Color32::from_rgba_unmultiplied(200, 210, 225, (200.0 * alpha_mul) as u8);
+                let badge_galley = clipped.layout_no_wrap(active_badge.to_string(), badge_font.clone(), badge_col);
+                let badge_total_w = dot_radius * 2.0 + dot_spacing + badge_galley.size().x;
+                let badge_total_h = badge_galley.size().y.max(dot_radius * 2.0);
+
+                let (base_x, base_y) = match badge_position {
+                    TimeBadgePosition::TopLeft => (rect.min.x + margin_x, rect.min.y + margin_y),
+                    TimeBadgePosition::TopCenter => (rect.center().x - badge_total_w * 0.5, rect.min.y + margin_y),
+                    TimeBadgePosition::TopRight => (rect.max.x - margin_x - badge_total_w, rect.min.y + margin_y),
+                    TimeBadgePosition::BottomLeft => (rect.min.x + margin_x, rect.max.y - margin_y - badge_total_h),
+                    TimeBadgePosition::BottomCenter => (rect.center().x - badge_total_w * 0.5, rect.max.y - margin_y - badge_total_h),
+                    TimeBadgePosition::BottomRight => (rect.max.x - margin_x - badge_total_w, rect.max.y - margin_y - badge_total_h),
+                };
+                let final_x = base_x + badge_offset_x * base_scale;
+                let final_y = base_y + badge_offset_y * base_scale;
+
+                let dot_center = Pos2::new(final_x + dot_radius, final_y + badge_total_h * 0.5);
                 let dot_col = if is_running {
                     let pulse = ((time_sec * 4.0).sin() * 0.3 + 0.7) as f32;
                     accent_col.gamma_multiply(pulse)
@@ -2908,22 +2978,15 @@ fn draw_time_source_layer(
                 };
                 clipped.circle_filled(dot_center, dot_radius, dot_col);
 
-                let badge_font = FontId::proportional((effective_font_px * 0.30).clamp(3.5, 14.0));
-                let badge_x = dot_x + dot_radius + 4.0;
                 clipped.text(
-                    Pos2::new(badge_x, dot_y - badge_font.size * 0.5),
-                    Align2::LEFT_CENTER,
+                    Pos2::new(final_x + dot_radius * 2.0 + dot_spacing, final_y),
+                    Align2::LEFT_TOP,
                     active_badge,
                     badge_font,
-                    Color32::from_rgba_unmultiplied(200, 210, 225, (200.0 * alpha_mul) as u8),
+                    badge_col,
                 );
             }
 
-            let time_center_y = if has_badge {
-                rect.min.y + badge_h * 0.65 + (rect.height() - badge_h * 0.65) * 0.5
-            } else {
-                rect.center().y
-            };
             draw_time_text(&clipped, Pos2::new(rect.center().x, time_center_y), Align2::CENTER_CENTER, &time_display, font_id, text_col);
         }
     }

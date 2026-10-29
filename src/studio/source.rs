@@ -59,6 +59,10 @@ fn default_time_border_thickness() -> f32 {
     2.0
 }
 
+fn default_badge_font_size() -> f32 {
+    14.0
+}
+
 fn default_white_rgba() -> [u8; 4] {
     [255, 255, 255, 255]
 }
@@ -148,6 +152,41 @@ impl TimeFontFamily {
             Self::Monospace,
             Self::Proportional,
             Self::Serif,
+        ]
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum TimeBadgePosition {
+    #[default]
+    TopLeft,
+    TopCenter,
+    TopRight,
+    BottomLeft,
+    BottomCenter,
+    BottomRight,
+}
+
+impl TimeBadgePosition {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::TopLeft => "Kiri Atas (Top-Left)",
+            Self::TopCenter => "Tengah Atas (Top-Center)",
+            Self::TopRight => "Kanan Atas (Top-Right)",
+            Self::BottomLeft => "Kiri Bawah (Bottom-Left)",
+            Self::BottomCenter => "Tengah Bawah (Bottom-Center)",
+            Self::BottomRight => "Kanan Bawah (Bottom-Right)",
+        }
+    }
+
+    pub fn all() -> &'static [TimeBadgePosition] {
+        &[
+            Self::TopLeft,
+            Self::TopCenter,
+            Self::TopRight,
+            Self::BottomLeft,
+            Self::BottomCenter,
+            Self::BottomRight,
         ]
     }
 }
@@ -495,6 +534,14 @@ pub enum SourceKind {
         use_24h_format: bool,
         #[serde(default)]
         badge_text: String,
+        #[serde(default = "default_badge_font_size")]
+        badge_font_size: f32,
+        #[serde(default)]
+        badge_position: TimeBadgePosition,
+        #[serde(default)]
+        badge_offset_x: f32,
+        #[serde(default)]
+        badge_offset_y: f32,
         #[serde(default)]
         finish_text: String,
     },

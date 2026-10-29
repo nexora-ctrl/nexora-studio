@@ -95,6 +95,10 @@ mod tests {
                 blink_colon: false,
                 use_24h_format: true,
                 badge_text: String::new(),
+                badge_font_size: 14.0,
+                badge_position: crate::studio::source::TimeBadgePosition::TopLeft,
+                badge_offset_x: 0.0,
+                badge_offset_y: 0.0,
                 finish_text: String::new(),
             },
         );

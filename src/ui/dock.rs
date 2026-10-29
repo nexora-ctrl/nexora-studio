@@ -23,8 +23,9 @@ pub fn render_bottom_studio_dock(ctx: &egui::Context, app: &mut NexoraApp) {
     let p = ThemePalette::for_mode(app.settings.theme);
 
     let dock_h = app.settings.dock_height.clamp(210.0, 380.0);
+    let is_modal_open = app.is_any_modal_open();
     let dock_resp = egui::TopBottomPanel::bottom("nexora_studio_dock")
-        .resizable(true)
+        .resizable(!is_modal_open)
         .default_height(dock_h)
         .height_range(210.0..=380.0)
         .frame(
@@ -81,6 +82,12 @@ pub fn render_bottom_studio_dock(ctx: &egui::Context, app: &mut NexoraApp) {
     }
 
     // Splitter bar hit-testing & visual feedback between canvas viewports and bottom dock
+    // If any modal dialog is currently open, disable splitter interaction and visual indicator completely
+    if is_modal_open {
+        ctx.data_mut(|d| d.insert_temp(egui::Id::new("is_resizing_dock_splitter"), false));
+        return;
+    }
+
     let dock_top_y = dock_resp.response.rect.min.y;
     let splitter_hit_rect = Rect::from_min_max(
         Pos2::new(dock_resp.response.rect.min.x, dock_top_y - 4.0),
@@ -114,7 +121,7 @@ pub fn render_bottom_studio_dock(ctx: &egui::Context, app: &mut NexoraApp) {
         } else {
             p.accent_primary.gamma_multiply(0.7)
         };
-        ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("dock_splitter_indicator")))
+        ctx.layer_painter(egui::LayerId::background())
             .line_segment(
                 [
                     Pos2::new(dock_resp.response.rect.min.x, dock_top_y),
