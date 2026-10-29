@@ -30,7 +30,7 @@ fn main() -> eframe::Result<()> {
     let win_h = initial_settings.window_size.1.clamp(720.0, 2160.0);
 
     let mut viewport = ViewportBuilder::default()
-        .with_title("NEXORA Studio — Desktop Recording Studio")
+        .with_title("NEXORA Studio - Your Easy Studio.")
         .with_inner_size([win_w, win_h])
         .with_min_inner_size([1024.0, 620.0])
         .with_maximized(true);
