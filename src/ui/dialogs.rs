@@ -13,6 +13,18 @@ use std::path::PathBuf;
 /// Standardized singleline TextEdit with vertical centering and balanced margins
 pub(crate) fn standard_singleline_text<'a>(text: &'a mut String, hint: &'a str) -> egui::TextEdit<'a> {
     let mut edit = egui::TextEdit::singleline(text)
+        .desired_width(f32::INFINITY)
+        .vertical_align(egui::Align::Center)
+        .margin(egui::Margin::symmetric(6, 2));
+    if !hint.is_empty() {
+        edit = edit.hint_text(hint);
+    }
+    edit
+}
+
+pub(crate) fn standard_singleline_text_width<'a>(text: &'a mut String, hint: &'a str, width: f32) -> egui::TextEdit<'a> {
+    let mut edit = egui::TextEdit::singleline(text)
+        .desired_width(width)
         .vertical_align(egui::Align::Center)
         .margin(egui::Margin::symmetric(6, 2));
     if !hint.is_empty() {
@@ -520,15 +532,15 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
             .collapsible(false)
             .resizable(false)
             .auto_sized()
-            .default_width(495.0)
-            .max_width(495.0)
+            .default_width(515.0)
+            .max_width(515.0)
             .show(ctx, |ui| {
                 block_window_body_drag(ui);
                 let p = ThemePalette::for_mode(app.settings.theme);
                 const PROP_FIELD_W: f32 = 280.0;
                 const PROP_FIELD_H: f32 = 24.0;
-                ui.set_width(475.0);
-                ui.set_max_width(475.0);
+                ui.set_width(495.0);
+                ui.set_max_width(495.0);
 
                 if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
                     let mut pending_tv_template: Option<TvTextTemplate> = None;
@@ -555,21 +567,30 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                     ))
                                     .strong(),
                                 );
-                                if ui
-                                    .add(
-                                        egui::Button::new(
-                                            RichText::new(format!(
-                                                "{} Refresh Devices",
-                                                icons::REFRESH
-                                            ))
-                                            .size(11.5),
+                                let is_device_source = matches!(
+                                    src.kind,
+                                    SourceKind::DisplayCapture { .. }
+                                        | SourceKind::WindowCapture { .. }
+                                        | SourceKind::GameCapture { .. }
+                                        | SourceKind::WebcamDevice { .. }
+                                );
+                                if is_device_source {
+                                    if ui
+                                        .add(
+                                            egui::Button::new(
+                                                RichText::new(format!(
+                                                    "{} Refresh Devices",
+                                                    icons::REFRESH
+                                                ))
+                                                .size(11.5),
+                                            )
+                                            .min_size(Vec2::new(116.0, 22.0)),
                                         )
-                                        .min_size(Vec2::new(116.0, 22.0)),
-                                    )
-                                    .on_hover_text("Re-scan connected displays and open windows")
-                                    .clicked()
-                                {
-                                    refresh_catalog = true;
+                                        .on_hover_text("Re-scan connected displays, cameras, and open windows")
+                                        .clicked()
+                                    {
+                                        refresh_catalog = true;
+                                    }
                                 }
                             });
                             ui.end_row();
@@ -1571,12 +1592,12 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                         ui.horizontal(|ui| {
                                             let can_prev = *slide_index > 0;
                                             let can_next = *slide_index + 1 < *slide_count;
-                                            if ui.add_enabled(can_prev, egui::Button::new("◀ Prev")).clicked() {
+                                            if ui.add_enabled(can_prev, egui::Button::new(format!("{} Prev", icons::ARROW_LEFT))).clicked() {
                                                 *slide_index = slide_index.saturating_sub(1);
                                                 any_changed = true;
                                             }
                                             ui.label(RichText::new(format!("Slide {} dari {}", *slide_index + 1, slide_count)).strong());
-                                            if ui.add_enabled(can_next, egui::Button::new("Next ▶")).clicked() {
+                                            if ui.add_enabled(can_next, egui::Button::new(format!("Next {}", icons::ARROW_RIGHT))).clicked() {
                                                 *slide_index = (*slide_index + 1).min(slide_count.saturating_sub(1));
                                                 any_changed = true;
                                             }
@@ -1672,7 +1693,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                             let can_prev = *page_index > 0;
                                             let can_next = *page_index + 1 < *page_count;
                                             if ui
-                                                .add_enabled(can_prev, egui::Button::new("◀ Prev").min_size(Vec2::new(60.0, PROP_FIELD_H)))
+                                                .add_enabled(can_prev, egui::Button::new(format!("{} Prev", icons::ARROW_LEFT)).min_size(Vec2::new(60.0, PROP_FIELD_H)))
                                                 .clicked()
                                             {
                                                 *page_index = page_index.saturating_sub(1);
@@ -1680,7 +1701,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                             }
                                             ui.label(RichText::new(format!("Halaman {} dari {}", *page_index + 1, page_count)).strong());
                                             if ui
-                                                .add_enabled(can_next, egui::Button::new("Next ▶").min_size(Vec2::new(60.0, PROP_FIELD_H)))
+                                                .add_enabled(can_next, egui::Button::new(format!("Next {}", icons::ARROW_RIGHT)).min_size(Vec2::new(60.0, PROP_FIELD_H)))
                                                 .clicked()
                                             {
                                                 *page_index = (*page_index + 1).min(page_count.saturating_sub(1));
@@ -3292,7 +3313,7 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                                 let windows = app.capture_catalog.windows.clone();
                                 let ppt_window = windows.iter().find(|w| w.title.to_lowercase().contains("powerpoint") || w.executable.to_lowercase().contains("powerpnt"));
                                 if let Some(w) = ppt_window {
-                                    ui.label(RichText::new(format!("✓ Terdeteksi: [{}] {}", w.executable, w.title)).small().color(p.meter_ok));
+                                    ui.label(RichText::new(format!("{} Terdeteksi: [{}] {}", icons::CHECK, w.executable, w.title)).small().color(p.meter_ok));
                                     if app.add_source_file_path.is_empty() {
                                         app.add_source_file_path = w.hwnd.to_string();
                                     }

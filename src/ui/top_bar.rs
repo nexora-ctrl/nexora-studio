@@ -215,7 +215,7 @@ pub fn render_top_bar(ctx: &egui::Context, app: &mut NexoraApp) {
                             let is_active = app.settings.active_layout_name == name;
                             ui.horizontal(|ui| {
                                 let label_text = if is_active {
-                                    format!("● {}", name)
+                                    format!("{} {}", icons::CHECK, name)
                                 } else {
                                     format!("  {}", name)
                                 };

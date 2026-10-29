@@ -393,6 +393,14 @@ pub const CLOCK: &str = "\u{ea70}";
 pub const STOPWATCH: &str = "\u{ff9b}";
 /// `ti-hourglass` — Countdown Hourglass
 pub const HOURGLASS: &str = "\u{ef93}";
+/// `ti-check` — Checkmark / Synced / Success
+pub const CHECK: &str = "\u{ea5e}";
+/// `ti-circle-check` — Circle Check / Verified
+pub const CIRCLE_CHECK: &str = "\u{ea67}";
+/// `ti-point-filled` — Bullet Point / Unapplied Indicator
+pub const POINT_FILLED: &str = "\u{f698}";
+/// `ti-alert-circle` — Alert / Warning Indicator
+pub const ALERT_CIRCLE: &str = "\u{ea05}";
 
 
 

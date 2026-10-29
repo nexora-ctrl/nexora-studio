@@ -311,13 +311,13 @@ fn render_transition_bridge(ui: &mut egui::Ui, app: &mut NexoraApp, height: f32)
                 ui.add_space(4.0);
                 if pending {
                     ui.label(
-                        RichText::new("● Unapplied")
+                        RichText::new(format!("{} Unapplied", icons::ALERT_CIRCLE))
                             .small()
                             .color(p.pause_amber),
                     );
                 } else {
                     ui.label(
-                        RichText::new("✓ Synced")
+                        RichText::new(format!("{} Synced", icons::CHECK))
                             .small()
                             .color(p.meter_ok),
                     );
@@ -472,7 +472,7 @@ fn render_single_viewport_card(
 
                     if let Some((cur_idx, total_count, pres_label)) = maybe_pres {
                         ui.add_space(8.0);
-                        let next_btn = egui::Button::new(RichText::new("Next ▶").size(11.0))
+                        let next_btn = egui::Button::new(RichText::new(format!("Next {}", icons::ARROW_RIGHT)).size(11.5))
                             .min_size(Vec2::new(48.0, 19.0));
                         if ui.add(next_btn).clicked() {
                             app.advance_presentation_slide(1);
@@ -485,7 +485,7 @@ fn render_single_viewport_card(
                                 .strong(),
                         );
 
-                        let prev_btn = egui::Button::new(RichText::new("◀ Prev").size(11.0))
+                        let prev_btn = egui::Button::new(RichText::new(format!("{} Prev", icons::ARROW_LEFT)).size(11.5))
                             .min_size(Vec2::new(48.0, 19.0));
                         if ui.add(prev_btn).clicked() {
                             app.advance_presentation_slide(-1);
