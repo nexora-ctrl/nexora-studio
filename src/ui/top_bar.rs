@@ -452,30 +452,24 @@ pub fn render_top_bar(ctx: &egui::Context, app: &mut NexoraApp) {
                         ),
                     };
 
-                    egui::Frame::new()
-                        .fill(badge_color.gamma_multiply(0.18))
-                        .stroke(Stroke::new(1.0_f32, badge_color))
-                        .corner_radius(CornerRadius::same(4))
-                        .inner_margin(egui::Margin::symmetric(8, 2))
-                        .show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                ui.label(
-                                    RichText::new(status_text)
-                                        .size(11.0)
-                                        .color(if app.recording.status == RecordingStatus::Idle {
-                                            p.text_secondary
-                                        } else {
-                                            badge_color
-                                        }),
-                                );
-                                ui.label(
-                                    RichText::new(app.recording.formatted_timer())
-                                        .monospace()
-                                        .size(11.5)
-                                        .color(p.text_primary),
-                                );
-                            });
-                        });
+                    // Live Recording Status Indicator (Clean inline text without frame/border box)
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new(status_text)
+                                .size(11.0)
+                                .color(if app.recording.status == RecordingStatus::Idle {
+                                    p.text_muted
+                                } else {
+                                    badge_color
+                                }),
+                        );
+                        ui.label(
+                            RichText::new(app.recording.formatted_timer())
+                                .monospace()
+                                .size(11.5)
+                                .color(p.text_primary),
+                        );
+                    });
                 });
             });
         });
