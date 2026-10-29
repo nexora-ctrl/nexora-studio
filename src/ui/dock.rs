@@ -323,7 +323,6 @@ fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
     regions.with_header(ui, |ui| {
         ui.label(
             RichText::new("Scenes")
-                .strong()
                 .size(12.0)
                 .color(p.text_primary),
         );
@@ -1606,7 +1605,6 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
     regions.with_header(ui, |ui| {
         ui.label(
             RichText::new("Source")
-                .strong()
                 .size(12.0)
                 .color(p.text_primary),
         );
@@ -2029,7 +2027,7 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
     regions.with_footer(ui, |ui| {
         let add_btn = ui.add(
             egui::Button::new(
-                RichText::new(format!("{} Add Source", icons::PLUS)).strong().size(11.5)
+                RichText::new(format!("{} Add Source", icons::PLUS)).size(11.5)
             )
             .min_size(Vec2::new(96.0, 24.0))
         )
@@ -2647,7 +2645,6 @@ fn render_audio_mixer_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) 
     regions.with_header(ui, |ui| {
         ui.label(
             RichText::new("Audio Mixer")
-                .strong()
                 .size(12.0)
                 .color(p.text_primary),
         );
@@ -3049,7 +3046,6 @@ fn render_recording_controls_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size:
     regions.with_header(ui, |ui| {
         ui.label(
             RichText::new("Controls")
-                .strong()
                 .size(12.0)
                 .color(p.text_primary),
         );
@@ -3090,16 +3086,14 @@ fn render_recording_controls_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size:
                             icons::PLAYER_RECORD,
                             app.recording.status.label()
                         ))
-                        .strong()
-                        .size(11.5)
+                        .size(11.0)
                         .color(dot_color),
                     );
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         ui.label(
                             RichText::new(app.recording.formatted_timer())
                                 .monospace()
-                                .strong()
-                                .size(14.0)
+                                .size(13.5)
                                 .color(p.text_primary),
                         );
                     });
@@ -3115,7 +3109,6 @@ fn render_recording_controls_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size:
             if is_idle {
                 let start_btn = egui::Button::new(
                     RichText::new("Start Recording")
-                        .strong()
                         .size(12.0)
                         .color(Color32::WHITE),
                 )
@@ -3141,7 +3134,7 @@ fn render_recording_controls_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size:
                 let half_w = ((body_size.x - 4.0) * 0.5).max(40.0);
                 if ui
                     .add(
-                        egui::Button::new(RichText::new(pause_label).strong().size(12.0))
+                        egui::Button::new(RichText::new(pause_label).size(12.0))
                             .min_size(Vec2::new(half_w, 26.0)),
                     )
                     .clicked()
@@ -3151,7 +3144,6 @@ fn render_recording_controls_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size:
 
                 let stop_btn = egui::Button::new(
                     RichText::new("Stop")
-                        .strong()
                         .size(12.0)
                         .color(Color32::WHITE),
                 )
@@ -3185,7 +3177,6 @@ fn render_recording_controls_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size:
 
             let vcam_btn = egui::Button::new(
                 RichText::new(vcam_label)
-                    .strong()
                     .size(12.0)
                     .color(vcam_text_col),
             )

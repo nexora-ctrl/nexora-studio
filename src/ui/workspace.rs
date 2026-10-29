@@ -385,7 +385,7 @@ fn render_single_viewport_card(
                                 }
                             }
                         };
-                        ui.label(RichText::new(tag).small().strong().color(header_accent));
+                        ui.label(RichText::new(tag).small().color(header_accent));
                     });
 
                 let scene_top_label = match role {
@@ -399,7 +399,6 @@ fn render_single_viewport_card(
 
                 ui.label(
                     RichText::new(&scene_top_label)
-                        .strong()
                         .size(12.0)
                         .color(p.text_primary),
                 );
