@@ -21,10 +21,9 @@ Sebelum melakukan perubahan kode, **baca peta arsitektur lengkap di [`ARCHITECTU
 2. **Sistem Ikon & Font Offline (Tabler Icons, Rubik, Exo):**
    - Seluruh 5.936 ikon **Tabler Icons** sudah diunduh secara offline di [`assets/icons/`](file:///d:/Rust/Nexora%20Studio/assets/icons) (`tabler-icons.ttf`, `tabler-sprite.svg`, `tabler-icons-codepoints.json`) dan di-*embed* melalui [`src/ui/icons.rs`](file:///d:/Rust/Nexora%20Studio/src/ui/icons.rs).
    - Jangan gunakan karakter emoji mentah yang tidak didukung oleh font bawaan; gunakan konstanta dari [`src/ui/icons.rs`](file:///d:/Rust/Nexora%20Studio/src/ui/icons.rs).
-   - **Tipografi Keseluruhan UI (Rubik Offline):** Seluruh teks antarmuka aplikasi menggunakan font **Rubik** (lisensi SIL OFL) yang di-*embed* offline dalam 3 bobot bobot proporsional:
-     - `Rubik-Regular` (weight 400): Teks body, label input, deskripsi, nama layer & scene.
-     - `Rubik-Medium` (weight 500): Teks tombol (`TextStyle::Button`), tab, pill, dan item navigasi.
-     - `Rubik-SemiBold` (weight 600): Judul modal (`TextStyle::Heading`), header section, badge status siaran (`LIVE`, `REC`).
+   - **Tipografi Keseluruhan UI (Rubik Offline):** Seluruh teks antarmuka aplikasi menggunakan font **Rubik** (lisensi SIL OFL) yang di-*embed* offline dengan ketebalan ramping dan proporsional:
+     - `Rubik-Light` (weight 300): Teks tombol (`TextStyle::Button`), teks body (`TextStyle::Body`), caption (`TextStyle::Small`), label input, deskripsi, nama layer & scene agar tampil ramping, bersih, dan tidak tebal/bloated.
+     - `Rubik-Regular` (weight 400): Judul modal dialog (`TextStyle::Heading`), header section, badge status siaran (`LIVE`, `REC`).
    - **Font Judul Brand (Offline):** Judul `NEXORA Studio` di top bar memakai font **Exo Medium (weight 500)** yang di-*embed* dari [`assets/fonts/Exo-Medium.ttf`](file:///d:/Rust/Nexora%20Studio/assets/fonts/Exo-Medium.ttf) (lisensi OFL) via `icons::brand_font_family()`. Jangan memuat font dari internet saat runtime.
 
 3. **Konvensi Konsistensi UI/UX & Arsitektur Studio:**
