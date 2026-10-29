@@ -1608,7 +1608,10 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
 
                                     if !file_path.is_empty() {
                                         ui.label("File Path:");
-                                        ui.label(RichText::new(file_path.as_str()).small().color(p.text_muted));
+                                        ui.add_sized(
+                                            Vec2::new(PROP_FIELD_W, PROP_FIELD_H),
+                                            egui::Label::new(RichText::new(file_path.as_str()).small().color(p.text_muted)).truncate(),
+                                        );
                                         ui.end_row();
                                     }
                                 }
@@ -1666,12 +1669,18 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                         ui.horizontal(|ui| {
                                             let can_prev = *page_index > 0;
                                             let can_next = *page_index + 1 < *page_count;
-                                            if ui.add_enabled(can_prev, egui::Button::new("◀ Prev")).clicked() {
+                                            if ui
+                                                .add_enabled(can_prev, egui::Button::new("◀ Prev").min_size(Vec2::new(60.0, PROP_FIELD_H)))
+                                                .clicked()
+                                            {
                                                 *page_index = page_index.saturating_sub(1);
                                                 any_changed = true;
                                             }
                                             ui.label(RichText::new(format!("Halaman {} dari {}", *page_index + 1, page_count)).strong());
-                                            if ui.add_enabled(can_next, egui::Button::new("Next ▶")).clicked() {
+                                            if ui
+                                                .add_enabled(can_next, egui::Button::new("Next ▶").min_size(Vec2::new(60.0, PROP_FIELD_H)))
+                                                .clicked()
+                                            {
                                                 *page_index = (*page_index + 1).min(page_count.saturating_sub(1));
                                                 any_changed = true;
                                             }
@@ -1681,7 +1690,10 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
 
                                     if !file_path.is_empty() {
                                         ui.label("File Path:");
-                                        ui.label(RichText::new(file_path.as_str()).small().color(p.text_muted));
+                                        ui.add_sized(
+                                            Vec2::new(PROP_FIELD_W, PROP_FIELD_H),
+                                            egui::Label::new(RichText::new(file_path.as_str()).small().color(p.text_muted)).truncate(),
+                                        );
                                         ui.end_row();
                                     }
                                 }
@@ -2069,13 +2081,14 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                     ui.separator();
                     ui.add_space(4.0);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui
-                            .add(
-                                egui::Button::new(RichText::new("OK").size(12.0))
-                                    .min_size(Vec2::new(76.0, 24.0)),
-                            )
-                            .clicked()
-                        {
+                        let ok_btn = egui::Button::new(
+                            RichText::new("OK")
+                                .size(12.0)
+                                .color(egui::Color32::WHITE),
+                        )
+                        .fill(p.accent_preview)
+                        .min_size(Vec2::new(80.0, 26.0));
+                        if ui.add(ok_btn).clicked() {
                             close_clicked = true;
                         }
                     });
@@ -3299,13 +3312,15 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                                 });
                             }
                             crate::studio::source::AddSourceType::Pdf => {
-                                ui.label(RichText::new("Pilih File Dokumen / Presentasi PDF (.pdf):").strong().small());
+                                ui.label(RichText::new("File Dokumen / Presentasi PDF (.pdf):").strong().size(12.0));
                                 ui.horizontal(|ui| {
+                                    let btn_w = 84.0;
+                                    let input_w = (340.0 - btn_w - ui.spacing().item_spacing.x).max(120.0);
                                     let mut display_p = app.add_source_file_path.clone();
-                                    if ui.add_sized(Vec2::new(225.0, 24.0), egui::TextEdit::singleline(&mut display_p)).changed() {
+                                    if ui.add_sized(Vec2::new(input_w, 24.0), standard_singleline_text(&mut display_p, "Pilih file PDF...")).changed() {
                                         app.add_source_file_path = display_p;
                                     }
-                                    if ui.button(format!("{} Browse...", icons::FOLDER_OPEN)).clicked() {
+                                    if ui.add(egui::Button::new(format!("{} Browse", icons::FOLDER_OPEN)).min_size(Vec2::new(btn_w, 24.0))).clicked() {
                                         if let Some(path) = crate::platform::pick_pdf_file_dialog() {
                                             app.add_source_file_path = path.to_string_lossy().to_string();
                                             if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {

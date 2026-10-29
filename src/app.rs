@@ -441,17 +441,29 @@ impl NexoraApp {
     }
 
     pub fn sync_active_capture_requests(&mut self) {
-        // Auto-extract & cache PowerPoint slides if any source was saved/loaded with empty slides
+        // Auto-extract & cache PowerPoint and PDF slides if any source was saved/loaded with empty slides
         for scene in &mut self.studio.scenes {
             for src in &mut scene.sources {
-                if let SourceKind::PowerPointSource { file_path, window_hwnd, slides, slide_count, .. } = &mut src.kind {
-                    if *window_hwnd == 0 && slides.is_empty() && !file_path.trim().is_empty() {
-                        let exported = crate::platform::get_or_export_ppt_slides(file_path);
-                        if !exported.is_empty() {
-                            *slide_count = exported.len();
-                            *slides = exported;
+                match &mut src.kind {
+                    SourceKind::PowerPointSource { file_path, window_hwnd, slides, slide_count, .. } => {
+                        if *window_hwnd == 0 && slides.is_empty() && !file_path.trim().is_empty() {
+                            let exported = crate::platform::get_or_export_ppt_slides(file_path);
+                            if !exported.is_empty() {
+                                *slide_count = exported.len();
+                                *slides = exported;
+                            }
                         }
                     }
+                    SourceKind::PdfSource { file_path, pages, page_count, .. } => {
+                        if pages.is_empty() && !file_path.trim().is_empty() {
+                            let exported = crate::platform::get_or_export_pdf_pages(file_path);
+                            if !exported.is_empty() {
+                                *page_count = exported.len();
+                                *pages = exported;
+                            }
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
@@ -585,6 +597,17 @@ impl NexoraApp {
                         } else if let Some(cur_slide) = slides.get(*slide_index) {
                             set.insert(CaptureRequestTarget::ImageFile {
                                 file_path: cur_slide.clone(),
+                            });
+                        }
+                    }
+                    SourceKind::PdfSource {
+                        pages,
+                        page_index,
+                        ..
+                    } => {
+                        if let Some(cur_page) = pages.get(*page_index) {
+                            set.insert(CaptureRequestTarget::ImageFile {
+                                file_path: cur_page.clone(),
                             });
                         }
                     }

@@ -1,4 +1,4 @@
-﻿use crate::app::NexoraApp;
+use crate::app::NexoraApp;
 use crate::audio::AudioChannel;
 use crate::recording::RecordingStatus;
 use crate::studio::source::{

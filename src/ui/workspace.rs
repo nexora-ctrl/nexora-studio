@@ -1719,7 +1719,6 @@ pub(crate) fn render_source_item_on_canvas(
             }
         }
         SourceKind::PdfSource {
-            file_path,
             pages,
             page_index,
             ..
@@ -1727,14 +1726,6 @@ pub(crate) fn render_source_item_on_canvas(
             if let Some(current_page) = pages.get(*page_index) {
                 let key = format!("IMG:{}", current_page);
                 app.capture_engine.get_or_update_filtered_texture(egui_ctx, &key, &src.filter)
-            } else if !file_path.is_empty() {
-                let exported = crate::platform::get_or_export_pdf_pages(file_path);
-                if let Some(first) = exported.first() {
-                    let key = format!("IMG:{}", first);
-                    app.capture_engine.get_or_update_filtered_texture(egui_ctx, &key, &src.filter)
-                } else {
-                    None
-                }
             } else {
                 None
             }

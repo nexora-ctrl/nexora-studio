@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+﻿use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -293,7 +293,33 @@ impl LiveCaptureEngine {
             }
         }
 
-        self.textures.get(key).map(|(_, h)| h.clone())
+        if let Some((_, h)) = self.textures.get(key) {
+            return Some(h.clone());
+        }
+
+        // Direct instant fallback for local image files (PDF/PPT slides & static images)
+        // Loads immediately so there is zero latency/black frame while worker is starting
+        if let Some(path_str) = key.strip_prefix("IMG:") {
+            if let Ok(img) = image::open(path_str) {
+                let rgba = img.to_rgba8();
+                let (w, h) = (rgba.width() as usize, rgba.height() as usize);
+                if w > 0 && h > 0 {
+                    let color_image = egui::ColorImage::from_rgba_unmultiplied(
+                        [w, h],
+                        &rgba.into_raw(),
+                    );
+                    let handle = ctx.load_texture(
+                        format!("capture_tex_{}", key),
+                        color_image,
+                        egui::TextureOptions::LINEAR,
+                    );
+                    self.textures.insert(key.to_string(), (1, handle.clone()));
+                    return Some(handle);
+                }
+            }
+        }
+
+        None
     }
 
     /// Uploads and applies real-time Chroma Key, Color Key, or Luma Key filters to source frames

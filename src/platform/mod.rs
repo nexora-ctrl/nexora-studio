@@ -177,8 +177,9 @@ pub fn get_or_export_ppt_slides(file_path: &str) -> Vec<String> {
 }
 
 /// Exports or retrieves cached high-resolution slide PNGs from a PDF document (.pdf).
-/// Uses native Windows Runtime `Windows.Data.Pdf.PdfDocument` (100% offline, zero dependencies)
-/// to render every page to a high-res 1920px width PNG image.
+/// Uses native Windows Runtime `Windows.Data.Pdf.PdfDocument` (100% offline, zero dependencies).
+/// Renders Page 1 immediately (~0.2s) so UI stays light and responsive, while rendering remaining
+/// pages in a background worker thread.
 pub fn get_or_export_pdf_pages(file_path: &str) -> Vec<String> {
     if file_path.trim().is_empty() {
         return Vec::new();
@@ -206,71 +207,136 @@ pub fn get_or_export_pdf_pages(file_path: &str) -> Vec<String> {
     let sanitized_stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("document")
         .chars().filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-').take(24).collect::<String>();
     let out_dir = cache_root.join(format!("{}_{:016x}", sanitized_stem, hash_val));
-
-    let mut existing_pages = collect_sorted_slide_files(&out_dir);
-    if !existing_pages.is_empty() {
-        return existing_pages;
-    }
-
     let _ = std::fs::create_dir_all(&out_dir);
 
     #[cfg(target_os = "windows")]
     {
-        if let Ok(rendered) = render_pdf_to_images(file_path, &out_dir) {
-            if !rendered.is_empty() {
-                return rendered;
+        use windows::core::HSTRING;
+        use windows::Data::Pdf::PdfDocument;
+        use windows::Storage::{StorageFile, StorageFolder};
+
+        let abs_path = std::fs::canonicalize(file_path).unwrap_or_else(|_| PathBuf::from(file_path));
+        let mut abs_str = abs_path.to_string_lossy().to_string();
+        if abs_str.starts_with(r"\\?\") {
+            abs_str = abs_str[4..].to_string();
+        }
+
+        if let Ok(storage_file) = StorageFile::GetFileFromPathAsync(&HSTRING::from(abs_str)).and_then(|op| op.join()) {
+            if let Ok(doc) = PdfDocument::LoadFromFileAsync(&storage_file).and_then(|op| op.join()) {
+                if let Ok(count) = doc.PageCount() {
+                    if count > 0 {
+                        let abs_out = std::fs::canonicalize(&out_dir).unwrap_or_else(|_| out_dir.clone());
+                        let mut abs_out_str = abs_out.to_string_lossy().to_string();
+                        if abs_out_str.starts_with(r"\\?\") {
+                            abs_out_str = abs_out_str[4..].to_string();
+                        }
+                        if let Ok(folder) = StorageFolder::GetFolderFromPathAsync(&HSTRING::from(abs_out_str)).and_then(|op| op.join()) {
+                            // Render page 1 immediately so first frame is instantly ready
+                            let _ = render_pdf_page_index(&doc, &folder, &out_dir, 0);
+
+                            // Build full list of expected page file paths
+                            let mut all_pages = Vec::with_capacity(count as usize);
+                            let mut missing_any = false;
+                            for i in 0..count {
+                                let f_name = format!("page_{:04}.png", i + 1);
+                                let p = out_dir.join(f_name);
+                                if !p.exists() {
+                                    missing_any = true;
+                                }
+                                all_pages.push(p.to_string_lossy().to_string());
+                            }
+
+                            // If subsequent pages are not rendered yet, spawn background thread
+                            // so UI never freezes or stutters!
+                            if missing_any && count > 1 {
+                                let f_str = file_path.to_string();
+                                let o_dir = out_dir.clone();
+                                std::thread::Builder::new()
+                                    .name("nexora_pdf_bg_worker".into())
+                                    .spawn(move || {
+                                        render_pdf_remaining_pages(&f_str, &o_dir, 1, count);
+                                    })
+                                    .ok();
+                            }
+
+                            return all_pages;
+                        }
+                    }
+                }
             }
         }
-        existing_pages = collect_sorted_slide_files(&out_dir);
     }
 
-    existing_pages
+    collect_sorted_slide_files(&out_dir)
 }
 
 #[cfg(target_os = "windows")]
-fn render_pdf_to_images(file_path: &str, out_dir: &std::path::Path) -> windows::core::Result<Vec<String>> {
+fn render_pdf_page_index(
+    doc: &windows::Data::Pdf::PdfDocument,
+    folder: &windows::Storage::StorageFolder,
+    out_dir: &std::path::Path,
+    index: u32,
+) -> windows::core::Result<String> {
     use windows::core::HSTRING;
-    use windows::Data::Pdf::{PdfDocument, PdfPageRenderOptions};
-    use windows::Storage::{StorageFile, StorageFolder, CreationCollisionOption, FileAccessMode};
+    use windows::Data::Pdf::PdfPageRenderOptions;
+    use windows::Storage::{CreationCollisionOption, FileAccessMode};
+
+    let file_name = format!("page_{:04}.png", index + 1);
+    let full_out_path = out_dir.join(&file_name);
+
+    if full_out_path.exists() {
+        return Ok(full_out_path.to_string_lossy().to_string());
+    }
+
+    let page = doc.GetPage(index)?;
+    let out_file = folder
+        .CreateFileAsync(
+            &HSTRING::from(&file_name),
+            CreationCollisionOption::ReplaceExisting,
+        )?
+        .join()?;
+    let stream = out_file.OpenAsync(FileAccessMode::ReadWrite)?.join()?;
+
+    let options = PdfPageRenderOptions::new()?;
+    options.SetDestinationWidth(1920)?;
+
+    page.RenderWithOptionsToStreamAsync(&stream, &options)?
+        .join()?;
+    let _ = stream.Close();
+
+    Ok(full_out_path.to_string_lossy().to_string())
+}
+
+#[cfg(target_os = "windows")]
+fn render_pdf_remaining_pages(file_path: &str, out_dir: &std::path::Path, start_idx: u32, total: u32) {
+    use windows::core::HSTRING;
+    use windows::Data::Pdf::PdfDocument;
+    use windows::Storage::{StorageFile, StorageFolder};
 
     let abs_path = std::fs::canonicalize(file_path).unwrap_or_else(|_| PathBuf::from(file_path));
     let mut abs_str = abs_path.to_string_lossy().to_string();
     if abs_str.starts_with(r"\\?\") {
         abs_str = abs_str[4..].to_string();
     }
-
-    let h_file_path = HSTRING::from(abs_str);
-    let storage_file = StorageFile::GetFileFromPathAsync(&h_file_path)?.join()?;
-    let doc = PdfDocument::LoadFromFileAsync(&storage_file)?.join()?;
-    let page_count = doc.PageCount()?;
+    let Ok(storage_file) = StorageFile::GetFileFromPathAsync(&HSTRING::from(abs_str)).and_then(|op| op.join()) else {
+        return;
+    };
+    let Ok(doc) = PdfDocument::LoadFromFileAsync(&storage_file).and_then(|op| op.join()) else {
+        return;
+    };
 
     let abs_out = std::fs::canonicalize(out_dir).unwrap_or_else(|_| out_dir.to_path_buf());
     let mut abs_out_str = abs_out.to_string_lossy().to_string();
     if abs_out_str.starts_with(r"\\?\") {
         abs_out_str = abs_out_str[4..].to_string();
     }
-    let h_out_dir = HSTRING::from(abs_out_str);
-    let folder = StorageFolder::GetFolderFromPathAsync(&h_out_dir)?.join()?;
+    let Ok(folder) = StorageFolder::GetFolderFromPathAsync(&HSTRING::from(abs_out_str)).and_then(|op| op.join()) else {
+        return;
+    };
 
-    let mut result = Vec::with_capacity(page_count as usize);
-
-    for i in 0..page_count {
-        let page = doc.GetPage(i)?;
-        let file_name = format!("page_{:04}.png", i + 1);
-        let out_file = folder.CreateFileAsync(&HSTRING::from(&file_name), CreationCollisionOption::ReplaceExisting)?.join()?;
-        let stream = out_file.OpenAsync(FileAccessMode::ReadWrite)?.join()?;
-
-        let options = PdfPageRenderOptions::new()?;
-        options.SetDestinationWidth(1920)?;
-
-        page.RenderWithOptionsToStreamAsync(&stream, &options)?.join()?;
-        let _ = stream.Close();
-
-        let full_out_path = out_dir.join(&file_name).to_string_lossy().to_string();
-        result.push(full_out_path);
+    for i in start_idx..total {
+        let _ = render_pdf_page_index(&doc, &folder, out_dir, i);
     }
-
-    Ok(result)
 }
 
 #[cfg(test)]
@@ -279,15 +345,13 @@ mod pdf_tests {
 
     #[test]
     fn test_pdf_export_sample() {
-        let sample = r"C:\Users\JUNIOR-JR\.gemini\antigravity\brain\8e2f5c0f-b265-414e-8c15-540a1b15796a\scratch\sample_valid.pdf";
-        let out_dir = std::env::temp_dir().join("test_pdf_out");
-        let _ = std::fs::create_dir_all(&out_dir);
-        let res = render_pdf_to_images(sample, &out_dir);
-        println!("Render result: {:?}", res);
-        assert!(res.is_ok(), "Failed: {:?}", res);
-        let pages = res.unwrap();
-        assert!(!pages.is_empty(), "Expected at least 1 page");
-        println!("Rendered page file: {}", pages[0]);
+        let sample = r"D:\_KANTOR\Desain\Template Powet Point\Pelatihan Anti Fraud Bank Nusamba Jabar 2026 - Edit Pa Eddy.pdf";
+        if std::path::Path::new(sample).exists() {
+            let pages = get_or_export_pdf_pages(sample);
+            println!("Exported pages count: {}", pages.len());
+            assert!(!pages.is_empty(), "Expected at least 1 page");
+            assert!(std::path::Path::new(&pages[0]).exists(), "Page 1 must exist immediately");
+        }
     }
 }
 
