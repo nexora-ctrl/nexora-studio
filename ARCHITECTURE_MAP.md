@@ -223,3 +223,4 @@ Lingkungan Windows pada mesin ini memiliki konfigurasi khusus yang **tidak boleh
      - Mengklik kanan objek pada kanvas Preview otomatis memilih layer tersebut (*hit-testing*) dan langsung membuka menu konteks dengan submenu Transform.
      - Shortcut keyboard aktif langsung di kanvas saat layer dipilih: `Ctrl+F` (Fit), `Ctrl+S` (Stretch), `Ctrl+D` (Center), dan `Ctrl+R` (Reset).
      - Rendering rotasi dan flip menggunakan `egui::Mesh::with_texture` dan pemetaan UV dinamis sehingga rotasi dan flipping dirender secara native, halus, dan instan.
+     - Zero-drift transform resize: Proyeksi pergerakan mouse delta piksel dihitung langsung terhadap vektor diagonal layar layer (delta_px.dot(diag) / diag_sq), sehingga handle resize 8 titik menempel 1:1 di ujung kursor mouse tanpa over-sensitivitas atau lag pada aspek rasio layer lebar/tipis.

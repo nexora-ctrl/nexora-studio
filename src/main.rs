@@ -32,7 +32,7 @@ fn main() -> eframe::Result<()> {
         .with_title("NEXORA Studio — Desktop Recording Studio")
         .with_inner_size([win_w, win_h])
         .with_min_inner_size([1024.0, 620.0])
-        .with_maximized(initial_settings.window_maximized);
+        .with_maximized(true);
 
     if let Some(app_icon) = ui::icons::load_app_window_icon() {
         viewport = viewport.with_icon(app_icon);

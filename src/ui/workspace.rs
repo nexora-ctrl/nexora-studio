@@ -487,7 +487,22 @@ fn render_single_viewport_card(
                     .map(|s| compute_layer_screen_rect(canvas_rect, &s.transform));
 
                 // Click, right-click, or drag start: hit-test handles of selected source first, then top-most visible layer
-                if response.clicked() || response.drag_started() || response.secondary_clicked() {
+                if ui.input(|i| i.pointer.primary_pressed()) && response.hovered() {
+                    if let Some(ptr) = pointer_pos {
+                        if let Some(sel_rect) = selected_screen_rect {
+                            let matched = hit_test_handles(sel_rect, ptr, alt_held);
+                            if matched != PreviewDragMode::None && matched != PreviewDragMode::Move {
+                                app.preview_drag_mode = matched;
+                            }
+                        }
+                    }
+                }
+
+                if response.clicked()
+                    || response.drag_started()
+                    || (response.dragged() && app.preview_drag_mode == PreviewDragMode::None)
+                    || response.secondary_clicked()
+                {
                     let start_pos = ui.input(|i| i.pointer.press_origin()).or(pointer_pos);
                     if let Some(ptr) = start_pos {
                         let mut matched_handle = PreviewDragMode::None;
@@ -560,21 +575,26 @@ fn render_single_viewport_card(
                 // Apply active drag delta (Move, 8-Handle Resize, or Alt-Crop)
                 if response.dragged() && app.preview_drag_mode != PreviewDragMode::None {
                     let delta = response.drag_delta();
-                    let dx = delta.x / canvas_rect.width();
-                    let dy = delta.y / canvas_rect.height();
-
-                    if dx.abs() > 0.0001 || dy.abs() > 0.0001 {
+                    if delta.x.abs() > 0.0001 || delta.y.abs() > 0.0001 {
                         let mode = app.preview_drag_mode;
                         if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
                             if !src.locked {
-                                apply_transform_drag(&mut src.transform, mode, dx, dy, shift_held);
+                                apply_transform_drag(
+                                    &mut src.transform,
+                                    mode,
+                                    delta,
+                                    canvas_rect.size(),
+                                    shift_held,
+                                );
                             }
                         }
                         app.studio.sync_if_linked();
                     }
                 }
 
-                if response.drag_stopped() {
+                if response.drag_stopped()
+                    || !ui.input(|i| i.pointer.primary_down() || i.pointer.secondary_down())
+                {
                     app.preview_drag_mode = PreviewDragMode::None;
                 }
 
@@ -1225,7 +1245,8 @@ fn compute_layer_screen_rect(canvas_rect: Rect, transform: &SourceTransform) -> 
 }
 
 fn hit_test_handles(layer_rect: Rect, ptr: Pos2, alt_crop_mode: bool) -> PreviewDragMode {
-    let corner_margin = 12.0_f32;
+    let corner_margin_x = 12.0_f32.min(layer_rect.width() * 0.35);
+    let corner_margin_y = 12.0_f32.min(layer_rect.height() * 0.35);
     let edge_margin = 7.0_f32;
 
     let tl = layer_rect.left_top();
@@ -1234,24 +1255,24 @@ fn hit_test_handles(layer_rect: Rect, ptr: Pos2, alt_crop_mode: bool) -> Preview
     let br = layer_rect.right_bottom();
 
     // 1. Prioritas Utama: 4 Sudut (Corner Handles) selalu diuji pertama kali
-    if (ptr.x - tl.x).abs() <= corner_margin && (ptr.y - tl.y).abs() <= corner_margin {
+    if (ptr.x - tl.x).abs() <= corner_margin_x && (ptr.y - tl.y).abs() <= corner_margin_y {
         return PreviewDragMode::ResizeTopLeft;
     }
-    if (ptr.x - tr.x).abs() <= corner_margin && (ptr.y - tr.y).abs() <= corner_margin {
+    if (ptr.x - tr.x).abs() <= corner_margin_x && (ptr.y - tr.y).abs() <= corner_margin_y {
         return PreviewDragMode::ResizeTopRight;
     }
-    if (ptr.x - bl.x).abs() <= corner_margin && (ptr.y - bl.y).abs() <= corner_margin {
+    if (ptr.x - bl.x).abs() <= corner_margin_x && (ptr.y - bl.y).abs() <= corner_margin_y {
         return PreviewDragMode::ResizeBottomLeft;
     }
-    if (ptr.x - br.x).abs() <= corner_margin && (ptr.y - br.y).abs() <= corner_margin {
+    if (ptr.x - br.x).abs() <= corner_margin_x && (ptr.y - br.y).abs() <= corner_margin_y {
         return PreviewDragMode::ResizeBottomRight;
     }
 
     // 2. Prioritas Kedua: 4 Sisi / Edge Handles di antara sudut-sudut
-    let edge_x_min = layer_rect.min.x + corner_margin;
-    let edge_x_max = layer_rect.max.x - corner_margin;
-    let edge_y_min = layer_rect.min.y + corner_margin;
-    let edge_y_max = layer_rect.max.y - corner_margin;
+    let edge_x_min = layer_rect.min.x + corner_margin_x;
+    let edge_x_max = layer_rect.max.x - corner_margin_x;
+    let edge_y_min = layer_rect.min.y + corner_margin_y;
+    let edge_y_max = layer_rect.max.y - corner_margin_y;
 
     // Sisi atas & bawah
     if ptr.x >= edge_x_min && ptr.x <= edge_x_max {
@@ -1303,8 +1324,8 @@ fn hit_test_handles(layer_rect: Rect, ptr: Pos2, alt_crop_mode: bool) -> Preview
 fn apply_transform_drag(
     t: &mut SourceTransform,
     mode: PreviewDragMode,
-    dx: f32,
-    dy: f32,
+    delta_px: Vec2,
+    canvas_size: Vec2,
     shift_held: bool,
 ) {
     let (old_vx, old_vy, old_vw, old_vh) = t.visible_norm_rect();
@@ -1314,6 +1335,15 @@ fn apply_transform_drag(
     let cur_vw = old_vw.max(0.01);
     let cur_vh = old_vh.max(0.01);
 
+    let canvas_w = canvas_size.x.max(1.0);
+    let canvas_h = canvas_size.y.max(1.0);
+    let dx = delta_px.x / canvas_w;
+    let dy = delta_px.y / canvas_h;
+
+    let layer_w_px = (cur_vw * canvas_w).max(8.0);
+    let layer_h_px = (cur_vh * canvas_h).max(8.0);
+    let diag_sq = layer_w_px * layer_w_px + layer_h_px * layer_h_px;
+
     match mode {
         PreviewDragMode::Move => {
             t.pos_x = (t.pos_x + dx).clamp(-0.90, 0.96);
@@ -1321,11 +1351,7 @@ fn apply_transform_drag(
         }
         PreviewDragMode::ResizeBottomRight => {
             if t.lock_aspect && !shift_held {
-                let d_scale = if (dx / cur_vw).abs() > (dy / cur_vh).abs() {
-                    dx / cur_vw
-                } else {
-                    dy / cur_vh
-                };
+                let d_scale = (delta_px.x * layer_w_px + delta_px.y * layer_h_px) / diag_sq;
                 t.scale = (t.scale * (1.0 + d_scale)).clamp(0.08, 3.0);
             } else {
                 let new_vw = (old_vw + dx).clamp(0.04, 2.5);
@@ -1338,11 +1364,7 @@ fn apply_transform_drag(
             let br_x = old_vx + old_vw;
             let br_y = old_vy + old_vh;
             if t.lock_aspect && !shift_held {
-                let d_scale = if (dx / cur_vw).abs() > (dy / cur_vh).abs() {
-                    -dx / cur_vw
-                } else {
-                    -dy / cur_vh
-                };
+                let d_scale = (-delta_px.x * layer_w_px - delta_px.y * layer_h_px) / diag_sq;
                 t.scale = (t.scale * (1.0 + d_scale)).clamp(0.08, 3.0);
             } else {
                 let new_vw = (old_vw - dx).clamp(0.04, 2.5);
@@ -1358,11 +1380,7 @@ fn apply_transform_drag(
             let bl_x = old_vx;
             let bl_y = old_vy + old_vh;
             if t.lock_aspect && !shift_held {
-                let d_scale = if (dx / cur_vw).abs() > (dy / cur_vh).abs() {
-                    dx / cur_vw
-                } else {
-                    -dy / cur_vh
-                };
+                let d_scale = (delta_px.x * layer_w_px - delta_px.y * layer_h_px) / diag_sq;
                 t.scale = (t.scale * (1.0 + d_scale)).clamp(0.08, 3.0);
             } else {
                 let new_vw = (old_vw + dx).clamp(0.04, 2.5);
@@ -1378,11 +1396,7 @@ fn apply_transform_drag(
             let tr_x = old_vx + old_vw;
             let tr_y = old_vy;
             if t.lock_aspect && !shift_held {
-                let d_scale = if (dx / cur_vw).abs() > (dy / cur_vh).abs() {
-                    -dx / cur_vw
-                } else {
-                    dy / cur_vh
-                };
+                let d_scale = (-delta_px.x * layer_w_px + delta_px.y * layer_h_px) / diag_sq;
                 t.scale = (t.scale * (1.0 + d_scale)).clamp(0.08, 3.0);
             } else {
                 let new_vw = (old_vw - dx).clamp(0.04, 2.5);

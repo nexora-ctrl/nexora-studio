@@ -39,8 +39,10 @@ Sebelum melakukan perubahan kode, **baca peta arsitektur lengkap di [`ARCHITECTU
    - **Drag Modal Window Hanya Lewat Title Bar:**
      - Semua jendela modal (`Settings`, `Properties`, `Filters`, `Manage Slide Show Images`, `Rename`, `Save Layout Preset`) wajib memanggil `block_window_body_drag(ui)` di awal isi modal. Window hanya boleh digeser/dipindahkan melalui **Title Bar** saja untuk menjaga konsistensi dan mencegah pergeseran window yang tidak disengaja saat berinteraksi dengan widget/form.
    - **Standar Ikon Kursor & Drag-Drop:**
+     - Aplikasi selalu terbuka otomatis dalam kondisi jendela maksimal (*maximized / full screen*) saat pertama kali dibuka (.with_maximized(true)).
      - Kursor standar saat hovering/klik biasa adalah panah default (`CursorIcon::Default`).
      - Kursor arah resize langsung aktif secara instan (zero-latency) dengan prioritas 4 sudut diagonal (margin 12px) dan 4 sisi horizontal/vertikal (margin 7px) tanpa jeda/telat.
+     - Perhitungan drag resize sudut diagonal kanvas menggunakan proyeksi vektor diagonal layar sesungguhnya (delta_px.dot(diag) / diag_sq), menjamin handle resize menempel 1:1 di ujung kursor mouse tanpa drift atau ketidakseimbangan sensitivitas pada layer non-persegi (seperti TimeSource).
      - Kursor drag (`CursorIcon::Grabbing`) hanya aktif ketika mouse sedang benar-benar ditahan dan digeser (*actively dragging*), tidak boleh muncul sembarangan di seluruh area kanvas.
      - Jika modal dialog sedang terbuka (`app.is_any_modal_open()`), kanvas tidak boleh merebut kursor atau memicu resize/drag.
    - **Screen Color Picker / Pipet Warna Layar:**

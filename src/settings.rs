@@ -229,7 +229,7 @@ impl Default for AppSettings {
             show_safe_margins: true,
             window_size: (1340.0, 760.0),
             window_pos: None,
-            window_maximized: false,
+            window_maximized: true,
             dock_height: 245.0,
             library_drawer_width: 275.0,
             active_layout_name: "Default Studio Layout".to_string(),
