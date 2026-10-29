@@ -104,6 +104,7 @@ pub struct NexoraApp {
     pub preview_crop_mode: bool,
     pub media_audio_engine: crate::platform::MediaAudioEngine,
     pub brand_icon_texture: Option<egui::TextureHandle>,
+    pub initial_maximized_applied: bool,
     undo_stack: Vec<UndoSnapshot>,
     redo_stack: Vec<UndoSnapshot>,
     committed_snapshot: UndoSnapshot,
@@ -252,6 +253,7 @@ impl NexoraApp {
             preview_crop_mode: false,
             media_audio_engine: crate::platform::MediaAudioEngine::default(),
             brand_icon_texture,
+            initial_maximized_applied: false,
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             committed_snapshot: initial_snapshot,
@@ -1125,6 +1127,12 @@ impl NexoraApp {
 
 impl eframe::App for NexoraApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Enforce maximized/fullscreen window on startup
+        if !self.initial_maximized_applied {
+            self.initial_maximized_applied = true;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(true));
+        }
+
         let time_sec = ctx.input(|i| i.time);
         self.audio_mixer.tick_meters(time_sec);
         self.sync_active_capture_requests();

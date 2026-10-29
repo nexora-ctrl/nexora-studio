@@ -25,8 +25,8 @@ fn main() -> eframe::Result<()> {
         .init();
 
     let initial_settings = settings::AppSettings::load_or_default();
-    let win_w = initial_settings.window_size.0.clamp(1024.0, 3840.0);
-    let win_h = initial_settings.window_size.1.clamp(620.0, 2160.0);
+    let win_w = initial_settings.window_size.0.clamp(1280.0, 3840.0);
+    let win_h = initial_settings.window_size.1.clamp(720.0, 2160.0);
 
     let mut viewport = ViewportBuilder::default()
         .with_title("NEXORA Studio — Desktop Recording Studio")
@@ -36,12 +36,6 @@ fn main() -> eframe::Result<()> {
 
     if let Some(app_icon) = ui::icons::load_app_window_icon() {
         viewport = viewport.with_icon(app_icon);
-    }
-
-    if let Some((pos_x, pos_y)) = initial_settings.window_pos {
-        if pos_x > -3000.0 && pos_x < 6000.0 && pos_y > -3000.0 && pos_y < 4000.0 {
-            viewport = viewport.with_position([pos_x, pos_y]);
-        }
     }
 
     let native_options = eframe::NativeOptions {

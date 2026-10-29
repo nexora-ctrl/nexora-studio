@@ -10,6 +10,17 @@ use crate::ui::theme::{apply_studio_theme, ThemePalette};
 use egui::{Pos2, RichText, Stroke, Vec2};
 use std::path::PathBuf;
 
+/// Standardized singleline TextEdit with vertical centering and balanced margins
+pub(crate) fn standard_singleline_text<'a>(text: &'a mut String, hint: &'a str) -> egui::TextEdit<'a> {
+    let mut edit = egui::TextEdit::singleline(text)
+        .vertical_align(egui::Align::Center)
+        .margin(egui::Margin::symmetric(6, 2));
+    if !hint.is_empty() {
+        edit = edit.hint_text(hint);
+    }
+    edit
+}
+
 pub fn render_library_drawer_if_open(ctx: &egui::Context, app: &mut NexoraApp) {
     if !app.settings.panels.show_library_drawer {
         return;
@@ -297,9 +308,9 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                         let mut path_str =
                             app.settings.output_directory.to_string_lossy().to_string();
                         if ui
-                            .add(
-                                egui::TextEdit::singleline(&mut path_str)
-                                    .desired_width(SETTINGS_FIELD_W - 8.0),
+                            .add_sized(
+                                Vec2::new(SETTINGS_FIELD_W, 24.0),
+                                standard_singleline_text(&mut path_str, "Folder rekaman..."),
                             )
                             .changed()
                         {
@@ -362,10 +373,9 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                 let focus_id = ui.id().with("add_scene_focus_init");
                 let should_focus = ui.data_mut(|d| d.get_temp::<bool>(focus_id).unwrap_or(true));
 
-                let text_resp = ui.add(
-                    egui::TextEdit::singleline(&mut app.add_scene_name_buffer)
-                        .desired_width(290.0)
-                        .hint_text("Nama scene..."),
+                let text_resp = ui.add_sized(
+                    Vec2::new(290.0, 24.0),
+                    standard_singleline_text(&mut app.add_scene_name_buffer, "Nama scene..."),
                 );
 
                 if should_focus {
@@ -477,6 +487,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
         }
     }
 
+
     // 4. OBS-Style Source Properties Modal Window (Properties for Selected Source)
     if app.show_source_properties_dialog {
         let mut open = app.show_source_properties_dialog;
@@ -510,6 +521,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                 block_window_body_drag(ui);
                 let p = ThemePalette::for_mode(app.settings.theme);
                 const PROP_FIELD_W: f32 = 280.0;
+                const PROP_FIELD_H: f32 = 24.0;
                 ui.set_width(475.0);
                 ui.set_max_width(475.0);
 
@@ -521,9 +533,9 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                         .show(ui, |ui| {
                             ui.label("Source Name:");
                             any_changed |= ui
-                                .add(
-                                    egui::TextEdit::singleline(&mut src.name)
-                                        .desired_width(PROP_FIELD_W - 8.0),
+                                .add_sized(
+                                    Vec2::new(PROP_FIELD_W, PROP_FIELD_H),
+                                    standard_singleline_text(&mut src.name, "Nama source..."),
                                 )
                                 .changed();
                             ui.end_row();
@@ -745,15 +757,19 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                         "Input URL / Path:"
                                     });
                                     ui.horizontal(|ui| {
+                                        let btn_w = 84.0;
+                                        let input_w = (PROP_FIELD_W - btn_w - ui.spacing().item_spacing.x).max(120.0);
                                         any_changed |= ui
-                                            .add(
-                                                egui::TextEdit::singleline(file_path)
-                                                    .desired_width(198.0)
-                                                    .hint_text("Select .mp4, .mkv, .mp3, .wav..."),
+                                            .add_sized(
+                                                Vec2::new(input_w, PROP_FIELD_H),
+                                                standard_singleline_text(file_path, "Select .mp4, .mkv, .mp3, .wav..."),
                                             )
                                             .changed();
                                         if ui
-                                            .button(format!("{} Browse...", icons::FOLDER_OPEN))
+                                            .add(
+                                                egui::Button::new(format!("{} Browse...", icons::FOLDER_OPEN))
+                                                    .min_size(Vec2::new(btn_w, PROP_FIELD_H)),
+                                            )
                                             .on_hover_text(
                                                 "Browse local Video (.mp4, .mkv, .mov, .avi) or Audio (.mp3, .wav, .flac, .m4a) file",
                                             )
@@ -926,15 +942,19 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                 SourceKind::ImageSource { file_path, opacity } => {
                                     ui.label("Image File:");
                                     ui.horizontal(|ui| {
+                                        let btn_w = 84.0;
+                                        let input_w = (PROP_FIELD_W - btn_w - ui.spacing().item_spacing.x).max(120.0);
                                         any_changed |= ui
-                                            .add(
-                                                egui::TextEdit::singleline(file_path)
-                                                    .desired_width(198.0)
-                                                    .hint_text("Select .png, .jpg, .webp..."),
+                                            .add_sized(
+                                                Vec2::new(input_w, PROP_FIELD_H),
+                                                standard_singleline_text(file_path, "Select .png, .jpg, .webp..."),
                                             )
                                             .changed();
                                         if ui
-                                            .button(format!("{} Browse...", icons::FOLDER_OPEN))
+                                            .add(
+                                                egui::Button::new(format!("{} Browse...", icons::FOLDER_OPEN))
+                                                    .min_size(Vec2::new(btn_w, PROP_FIELD_H)),
+                                            )
                                             .on_hover_text("Browse local image file (.png, .jpg, .bmp, .webp)")
                                             .clicked()
                                         {
@@ -1160,11 +1180,12 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                     if banner_style.uses_badge() {
                                         ui.label("TV Badge / Tag:");
                                         ui.horizontal(|ui| {
+                                            let color_w = 76.0;
+                                            let input_w = (PROP_FIELD_W - color_w - ui.spacing().item_spacing.x).max(120.0);
                                             any_changed |= ui
-                                                .add(
-                                                    egui::TextEdit::singleline(badge_text)
-                                                        .desired_width(175.0)
-                                                        .hint_text("BREAKING NEWS / LIVE"),
+                                                .add_sized(
+                                                    Vec2::new(input_w, PROP_FIELD_H),
+                                                    standard_singleline_text(badge_text, "BREAKING NEWS / LIVE"),
                                                 )
                                                 .changed();
                                             ui.label("Accent:");
@@ -1193,9 +1214,9 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
 
                                     ui.label("Text Content:");
                                     any_changed |= ui
-                                        .add(
+                                        .add_sized(
+                                            Vec2::new(PROP_FIELD_W, 64.0),
                                             egui::TextEdit::multiline(text)
-                                                .desired_width(PROP_FIELD_W - 8.0)
                                                 .desired_rows(3),
                                         )
                                         .changed();
@@ -1432,8 +1453,21 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
 
                                     ui.label("Presentasi:");
                                     ui.horizontal(|ui| {
-                                        any_changed |= ui.add_sized(Vec2::new(PROP_FIELD_W - 90.0, 24.0), egui::TextEdit::singleline(presentation_name)).changed();
-                                        if ui.button(format!("{} Browse", icons::FOLDER_OPEN)).clicked() {
+                                        let btn_w = 84.0;
+                                        let input_w = (PROP_FIELD_W - btn_w - ui.spacing().item_spacing.x).max(120.0);
+                                        any_changed |= ui
+                                            .add_sized(
+                                                Vec2::new(input_w, PROP_FIELD_H),
+                                                standard_singleline_text(presentation_name, "Nama presentasi PPT..."),
+                                            )
+                                            .changed();
+                                        if ui
+                                            .add(
+                                                egui::Button::new(format!("{} Browse", icons::FOLDER_OPEN))
+                                                    .min_size(Vec2::new(btn_w, PROP_FIELD_H)),
+                                            )
+                                            .clicked()
+                                        {
                                             if let Some(path) = crate::platform::pick_powerpoint_file_dialog() {
                                                 let p_str = path.to_string_lossy().to_string();
                                                 let exported = crate::platform::get_or_export_ppt_slides(&p_str);
@@ -1604,7 +1638,12 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                         ui.end_row();
 
                                         ui.label("Teks Waktu Habis:");
-                                        any_changed |= ui.add_sized(Vec2::new(PROP_FIELD_W, 24.0), egui::TextEdit::singleline(finish_text).hint_text("WAKTU HABIS! / SELESAI")).changed();
+                                        any_changed |= ui
+                                            .add_sized(
+                                                Vec2::new(PROP_FIELD_W, PROP_FIELD_H),
+                                                standard_singleline_text(finish_text, "WAKTU HABIS! / SELESAI"),
+                                            )
+                                            .changed();
                                         ui.end_row();
                                     }
 
@@ -1619,15 +1658,17 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                         });
                                     ui.end_row();
 
-                                    ui.label("Teks Badge (Label):");
-                                    ui.horizontal(|ui| {
-                                        any_changed |= ui.checkbox(show_badge, "Tampilkan").changed();
-                                        if *show_badge {
-                                            any_changed |= ui.add_sized(
-                                                Vec2::new(PROP_FIELD_W - 90.0, 24.0),
-                                                egui::TextEdit::singleline(badge_text).hint_text("LIVE / CLOCK / COUNTDOWN"),
-                                            ).changed();
-                                        }
+                                    any_changed |= ui
+                                        .checkbox(show_badge, "Teks Badge (Label):")
+                                        .on_hover_text("Centang untuk mengaktifkan teks badge (label) di sudut")
+                                        .changed();
+                                    ui.add_enabled_ui(*show_badge, |ui| {
+                                        any_changed |= ui
+                                            .add_sized(
+                                                Vec2::new(PROP_FIELD_W, PROP_FIELD_H),
+                                                standard_singleline_text(badge_text, "LIVE / CLOCK / COUNTDOWN / STOPWATCH"),
+                                            )
+                                            .changed();
                                     });
                                     ui.end_row();
 
@@ -2918,7 +2959,7 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                         ui.label(RichText::new("Nama Source:").strong().size(12.0));
                         ui.add_sized(
                             Vec2::new(340.0, 24.0),
-                            egui::TextEdit::singleline(&mut app.add_source_name_buffer),
+                            standard_singleline_text(&mut app.add_source_name_buffer, "Nama source..."),
                         );
                         ui.add_space(6.0);
 
@@ -2974,7 +3015,7 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                             crate::studio::source::AddSourceType::Image => {
                                 ui.label("Pilih File Gambar:");
                                 ui.horizontal(|ui| {
-                                    ui.add_sized(Vec2::new(225.0, 24.0), egui::TextEdit::singleline(&mut app.add_source_file_path).hint_text("Path file gambar..."));
+                                    ui.add_sized(Vec2::new(225.0, 24.0), standard_singleline_text(&mut app.add_source_file_path, "Path file gambar..."));
                                     if ui.button(format!("{} Browse...", icons::FOLDER_OPEN)).clicked() {
                                         if let Some(path) = crate::platform::pick_image_file_dialog() {
                                             app.add_source_file_path = path.to_string_lossy().to_string();
@@ -2990,7 +3031,7 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                             crate::studio::source::AddSourceType::MediaSource => {
                                 ui.label("Pilih File Video atau Audio:");
                                 ui.horizontal(|ui| {
-                                    ui.add_sized(Vec2::new(225.0, 24.0), egui::TextEdit::singleline(&mut app.add_source_file_path).hint_text("Path file video/audio..."));
+                                    ui.add_sized(Vec2::new(225.0, 24.0), standard_singleline_text(&mut app.add_source_file_path, "Path file video/audio..."));
                                     if ui.button(format!("{} Browse...", icons::FOLDER_OPEN)).clicked() {
                                         if let Some(path) = crate::platform::pick_media_file_dialog() {
                                             app.add_source_file_path = path.to_string_lossy().to_string();
@@ -3005,7 +3046,7 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                             }
                             crate::studio::source::AddSourceType::TextGdiPlus => {
                                 ui.label("Isi Teks:");
-                                ui.add_sized(Vec2::new(340.0, 24.0), egui::TextEdit::singleline(&mut app.add_source_text_content));
+                                ui.add_sized(Vec2::new(340.0, 24.0), standard_singleline_text(&mut app.add_source_text_content, "Masukkan teks yang ingin ditampilkan..."));
                                 ui.add_space(4.0);
                                 ui.label(RichText::new("Teks berjalan (marquee) dan template TV show dapat disesuaikan di Properties.").small().color(p.text_muted));
                             }
