@@ -603,13 +603,23 @@ impl NexoraApp {
                         }
                     }
                     SourceKind::PdfSource {
+                        file_path,
                         pages,
                         page_index,
                         ..
                     } => {
-                        if let Some(cur_page) = pages.get(*page_index) {
+                        let cur_page = if let Some(p) = pages.get(*page_index) {
+                            if std::path::Path::new(p).exists() {
+                                Some(p.clone())
+                            } else {
+                                crate::platform::ensure_pdf_page_rendered(file_path, *page_index)
+                            }
+                        } else {
+                            crate::platform::ensure_pdf_page_rendered(file_path, *page_index)
+                        };
+                        if let Some(target_file) = cur_page {
                             set.insert(CaptureRequestTarget::ImageFile {
-                                file_path: cur_page.clone(),
+                                file_path: target_file,
                             });
                         }
                     }
@@ -637,224 +647,235 @@ impl NexoraApp {
     /// 2. Active Preview scene if Program has no presentation.
     /// 3. Any scene in the project containing PPT or PDF (allows advancing slides even while switching/previewing other scenes).
     /// All instances of the presentation are automatically synchronized across Program, Preview, and all scenes.
-    pub fn advance_presentation_slide(&mut self, delta: i32) -> bool {
-        let mut changed = false;
+    pub fn advance_source_slide(&mut self, target_source_id: Option<uuid::Uuid>, delta: i32) -> bool {
+        let mut pres_info: Option<(uuid::Uuid, String, usize, usize, bool)> = None;
 
-        // 1. First priority: Update PowerPoint or PDF source on Program Output (what the audience sees live)
-        let prog_pres_info = {
-            let mut info = None;
+        // A. If a specific source ID was targeted (e.g. from dock row buttons)
+        if let Some(target_id) = target_source_id {
             for src in &self.studio.program_scene_snapshot.sources {
-                match &src.kind {
-                    SourceKind::PowerPointSource { file_path, slide_index, slide_count, slides, .. } => {
-                        let total = if *slide_count > 0 { *slide_count } else { slides.len() };
-                        if total > 0 {
-                            info = Some((src.id, file_path.clone(), *slide_index, total, true));
-                            break;
-                        }
-                    }
-                    SourceKind::PdfSource { file_path, page_index, page_count, pages, .. } => {
-                        let total = if *page_count > 0 { *page_count } else { pages.len() };
-                        if total > 0 {
-                            info = Some((src.id, file_path.clone(), *page_index, total, false));
-                            break;
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            info
-        };
-
-        if let Some((prog_src_id, prog_file_path, cur_idx, total, is_ppt)) = prog_pres_info {
-            let new_idx = if delta > 0 {
-                (cur_idx + (delta as usize)).min(total.saturating_sub(1))
-            } else {
-                cur_idx.saturating_sub((-delta) as usize)
-            };
-
-            if new_idx != cur_idx {
-                for src in &mut self.studio.program_scene_snapshot.sources {
-                    if src.id == prog_src_id || match &src.kind {
-                        SourceKind::PowerPointSource { file_path, .. } => is_ppt && !file_path.is_empty() && file_path == &prog_file_path,
-                        SourceKind::PdfSource { file_path, .. } => !is_ppt && !file_path.is_empty() && file_path == &prog_file_path,
-                        _ => false,
-                    } {
-                        if let SourceKind::PowerPointSource { slide_index, .. } = &mut src.kind {
-                            *slide_index = new_idx;
-                            changed = true;
-                        } else if let SourceKind::PdfSource { page_index, .. } = &mut src.kind {
-                            *page_index = new_idx;
-                            changed = true;
-                        }
-                    }
-                }
-
-                // Also sync across scenes so Preview & saved project stay synchronized
-                for scene in &mut self.studio.scenes {
-                    for src in &mut scene.sources {
-                        if src.id == prog_src_id || match &src.kind {
-                            SourceKind::PowerPointSource { file_path, .. } => is_ppt && !file_path.is_empty() && file_path == &prog_file_path,
-                            SourceKind::PdfSource { file_path, .. } => !is_ppt && !file_path.is_empty() && file_path == &prog_file_path,
-                            _ => false,
-                        } {
-                            if let SourceKind::PowerPointSource { slide_index, .. } = &mut src.kind {
-                                *slide_index = new_idx;
-                            } else if let SourceKind::PdfSource { page_index, .. } = &mut src.kind {
-                                *page_index = new_idx;
-                            }
-                        }
-                    }
-                }
-            }
-            if changed {
-                self.sync_active_capture_requests();
-                return true;
-            }
-        }
-
-        // 2. Second priority: If Program doesn't have an active PPT or PDF, update in Preview scene
-        let prev_pres_info = {
-            let mut info = None;
-            let scene = self.studio.preview_scene();
-            for src in &scene.sources {
-                match &src.kind {
-                    SourceKind::PowerPointSource { file_path, slide_index, slide_count, slides, .. } => {
-                        let total = if *slide_count > 0 { *slide_count } else { slides.len() };
-                        if total > 0 {
-                            info = Some((src.id, file_path.clone(), *slide_index, total, true));
-                            break;
-                        }
-                    }
-                    SourceKind::PdfSource { file_path, page_index, page_count, pages, .. } => {
-                        let total = if *page_count > 0 { *page_count } else { pages.len() };
-                        if total > 0 {
-                            info = Some((src.id, file_path.clone(), *page_index, total, false));
-                            break;
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            info
-        };
-
-        if let Some((prev_src_id, prev_file_path, cur_idx, total, is_ppt)) = prev_pres_info {
-            let new_idx = if delta > 0 {
-                (cur_idx + (delta as usize)).min(total.saturating_sub(1))
-            } else {
-                cur_idx.saturating_sub((-delta) as usize)
-            };
-
-            if new_idx != cur_idx {
-                for scene in &mut self.studio.scenes {
-                    for src in &mut scene.sources {
-                        if src.id == prev_src_id || match &src.kind {
-                            SourceKind::PowerPointSource { file_path, .. } => is_ppt && !file_path.is_empty() && file_path == &prev_file_path,
-                            SourceKind::PdfSource { file_path, .. } => !is_ppt && !file_path.is_empty() && file_path == &prev_file_path,
-                            _ => false,
-                        } {
-                            if let SourceKind::PowerPointSource { slide_index, .. } = &mut src.kind {
-                                *slide_index = new_idx;
-                                changed = true;
-                            } else if let SourceKind::PdfSource { page_index, .. } = &mut src.kind {
-                                *page_index = new_idx;
-                                changed = true;
-                            }
-                        }
-                    }
-                }
-                self.studio.sync_media_transport_to_program();
-                if self.studio.auto_sync_program {
-                    self.studio.sync_if_linked();
-                }
-            }
-            if changed {
-                self.sync_active_capture_requests();
-                return true;
-            }
-        }
-
-        // 3. Third priority: If neither Program nor active Preview scene has PPT/PDF (e.g. user switched Preview to an empty scene),
-        // search across all scenes in the project so the presenter can still advance slides from any scene!
-        let any_pres_info = {
-            let mut info = None;
-            for scene in &self.studio.scenes {
-                for src in &scene.sources {
+                if src.id == target_id {
                     match &src.kind {
                         SourceKind::PowerPointSource { file_path, slide_index, slide_count, slides, .. } => {
                             let total = if *slide_count > 0 { *slide_count } else { slides.len() };
                             if total > 0 {
-                                info = Some((src.id, file_path.clone(), *slide_index, total, true));
+                                pres_info = Some((src.id, file_path.clone(), *slide_index, total, true));
                                 break;
                             }
                         }
                         SourceKind::PdfSource { file_path, page_index, page_count, pages, .. } => {
                             let total = if *page_count > 0 { *page_count } else { pages.len() };
                             if total > 0 {
-                                info = Some((src.id, file_path.clone(), *page_index, total, false));
+                                pres_info = Some((src.id, file_path.clone(), *page_index, total, false));
                                 break;
                             }
                         }
                         _ => {}
                     }
                 }
-                if info.is_some() {
-                    break;
+            }
+            if pres_info.is_none() {
+                for scene in &self.studio.scenes {
+                    for src in &scene.sources {
+                        if src.id == target_id {
+                            match &src.kind {
+                                SourceKind::PowerPointSource { file_path, slide_index, slide_count, slides, .. } => {
+                                    let total = if *slide_count > 0 { *slide_count } else { slides.len() };
+                                    if total > 0 {
+                                        pres_info = Some((src.id, file_path.clone(), *slide_index, total, true));
+                                        break;
+                                    }
+                                }
+                                SourceKind::PdfSource { file_path, page_index, page_count, pages, .. } => {
+                                    let total = if *page_count > 0 { *page_count } else { pages.len() };
+                                    if total > 0 {
+                                        pres_info = Some((src.id, file_path.clone(), *page_index, total, false));
+                                        break;
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    if pres_info.is_some() {
+                        break;
+                    }
                 }
             }
-            info
-        };
+        }
 
-        if let Some((src_id, target_file_path, cur_idx, total, is_ppt)) = any_pres_info {
-            let new_idx = if delta > 0 {
-                (cur_idx + (delta as usize)).min(total.saturating_sub(1))
-            } else {
-                cur_idx.saturating_sub((-delta) as usize)
+        // B. If no target ID or not found, search with priority on VISIBLE presentations
+        if pres_info.is_none() {
+            let check_src = |src: &crate::studio::source::SourceItem| -> Option<(uuid::Uuid, String, usize, usize, bool)> {
+                match &src.kind {
+                    SourceKind::PowerPointSource { file_path, slide_index, slide_count, slides, .. } => {
+                        let total = if *slide_count > 0 { *slide_count } else { slides.len() };
+                        if total > 0 {
+                            return Some((src.id, file_path.clone(), *slide_index, total, true));
+                        }
+                    }
+                    SourceKind::PdfSource { file_path, page_index, page_count, pages, .. } => {
+                        let total = if *page_count > 0 { *page_count } else { pages.len() };
+                        if total > 0 {
+                            return Some((src.id, file_path.clone(), *page_index, total, false));
+                        }
+                    }
+                    _ => {}
+                }
+                None
             };
 
-            if new_idx != cur_idx {
-                for scene in &mut self.studio.scenes {
-                    for src in &mut scene.sources {
-                        if src.id == src_id || match &src.kind {
-                            SourceKind::PowerPointSource { file_path, .. } => is_ppt && !file_path.is_empty() && file_path == &target_file_path,
-                            SourceKind::PdfSource { file_path, .. } => !is_ppt && !file_path.is_empty() && file_path == &target_file_path,
-                            _ => false,
-                        } {
-                            if let SourceKind::PowerPointSource { slide_index, .. } = &mut src.kind {
-                                *slide_index = new_idx;
-                                changed = true;
-                            } else if let SourceKind::PdfSource { page_index, .. } = &mut src.kind {
-                                *page_index = new_idx;
-                                changed = true;
+            // 1. Visible presentation in Program Output
+            for src in &self.studio.program_scene_snapshot.sources {
+                if src.visible {
+                    if let Some(info) = check_src(src) {
+                        pres_info = Some(info);
+                        break;
+                    }
+                }
+            }
+
+            // 2. Visible presentation in Preview scene
+            if pres_info.is_none() {
+                for src in &self.studio.preview_scene().sources {
+                    if src.visible {
+                        if let Some(info) = check_src(src) {
+                            pres_info = Some(info);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // 3. Visible presentation anywhere in project
+            if pres_info.is_none() {
+                'outer_vis: for scene in &self.studio.scenes {
+                    for src in &scene.sources {
+                        if src.visible {
+                            if let Some(info) = check_src(src) {
+                                pres_info = Some(info);
+                                break 'outer_vis;
                             }
                         }
                     }
                 }
+            }
 
-                // If Program has matching source, update it too
-                for src in &mut self.studio.program_scene_snapshot.sources {
-                    if src.id == src_id || match &src.kind {
-                        SourceKind::PowerPointSource { file_path, .. } => is_ppt && !file_path.is_empty() && file_path == &target_file_path,
-                        SourceKind::PdfSource { file_path, .. } => !is_ppt && !file_path.is_empty() && file_path == &target_file_path,
-                        _ => false,
-                    } {
-                        if let SourceKind::PowerPointSource { slide_index, .. } = &mut src.kind {
-                            *slide_index = new_idx;
-                            changed = true;
-                        } else if let SourceKind::PdfSource { page_index, .. } = &mut src.kind {
-                            *page_index = new_idx;
-                            changed = true;
+            // 4. Fallback: Any presentation (even if hidden)
+            if pres_info.is_none() {
+                for src in &self.studio.program_scene_snapshot.sources {
+                    if let Some(info) = check_src(src) {
+                        pres_info = Some(info);
+                        break;
+                    }
+                }
+            }
+            if pres_info.is_none() {
+                for src in &self.studio.preview_scene().sources {
+                    if let Some(info) = check_src(src) {
+                        pres_info = Some(info);
+                        break;
+                    }
+                }
+            }
+            if pres_info.is_none() {
+                'outer_any: for scene in &self.studio.scenes {
+                    for src in &scene.sources {
+                        if let Some(info) = check_src(src) {
+                            pres_info = Some(info);
+                            break 'outer_any;
                         }
                     }
                 }
             }
-            if changed {
-                self.sync_active_capture_requests();
-                return true;
+        }
+
+        let Some((target_id, target_file_path, cur_idx, total, is_ppt)) = pres_info else {
+            return false;
+        };
+
+        let new_idx = if delta > 0 {
+            (cur_idx + (delta as usize)).min(total.saturating_sub(1))
+        } else {
+            cur_idx.saturating_sub((-delta) as usize)
+        };
+
+        if new_idx == cur_idx {
+            return false;
+        }
+
+        let mut changed = false;
+
+        // Ensure PDF page is rendered immediately
+        let rendered_pdf_path = if !is_ppt && !target_file_path.is_empty() {
+            crate::platform::ensure_pdf_page_rendered(&target_file_path, new_idx)
+        } else {
+            None
+        };
+
+        // 1. Update matching source in Program Output (LIVE)
+        for src in &mut self.studio.program_scene_snapshot.sources {
+            let matches_src = src.id == target_id || match &src.kind {
+                SourceKind::PowerPointSource { file_path, .. } => is_ppt && !file_path.is_empty() && file_path == &target_file_path,
+                SourceKind::PdfSource { file_path, .. } => !is_ppt && !file_path.is_empty() && file_path == &target_file_path,
+                _ => false,
+            };
+            if matches_src {
+                if let SourceKind::PowerPointSource { slide_index, .. } = &mut src.kind {
+                    *slide_index = new_idx;
+                    changed = true;
+                } else if let SourceKind::PdfSource { page_index, pages, .. } = &mut src.kind {
+                    *page_index = new_idx;
+                    if let Some(ref r_path) = rendered_pdf_path {
+                        if new_idx >= pages.len() {
+                            pages.resize(new_idx + 1, String::new());
+                        }
+                        pages[new_idx] = r_path.clone();
+                    }
+                    changed = true;
+                }
             }
         }
 
-        false
+        // 2. Synchronize across all scenes (Preview & saved project)
+        for scene in &mut self.studio.scenes {
+            for src in &mut scene.sources {
+                let matches_src = src.id == target_id || match &src.kind {
+                    SourceKind::PowerPointSource { file_path, .. } => is_ppt && !file_path.is_empty() && file_path == &target_file_path,
+                    SourceKind::PdfSource { file_path, .. } => !is_ppt && !file_path.is_empty() && file_path == &target_file_path,
+                    _ => false,
+                };
+                if matches_src {
+                    if let SourceKind::PowerPointSource { slide_index, .. } = &mut src.kind {
+                        *slide_index = new_idx;
+                        changed = true;
+                    } else if let SourceKind::PdfSource { page_index, pages, .. } = &mut src.kind {
+                        *page_index = new_idx;
+                        if let Some(ref r_path) = rendered_pdf_path {
+                            if new_idx >= pages.len() {
+                                pages.resize(new_idx + 1, String::new());
+                            }
+                            pages[new_idx] = r_path.clone();
+                        }
+                        changed = true;
+                    }
+                }
+            }
+        }
+
+        if changed {
+            self.studio.sync_media_transport_to_program();
+            if self.studio.auto_sync_program {
+                self.studio.sync_if_linked();
+            }
+            self.sync_active_capture_requests();
+        }
+
+        changed
+    }
+
+    /// Advances or rewinds the active presentation slide by delta (+1 = next, -1 = prev).
+    pub fn advance_presentation_slide(&mut self, delta: i32) -> bool {
+        self.advance_source_slide(None, delta)
     }
 
     /// Advances all running TimeSource clocks and countdown timers by the given delta time

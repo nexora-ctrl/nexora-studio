@@ -208,6 +208,51 @@ pub fn get_or_export_ppt_slides(file_path: &str) -> Vec<String> {
     existing_slides
 }
 
+fn resolve_pdf_cache_dir(cache_root: &std::path::Path, sanitized_stem: &str, hash_val: u64) -> PathBuf {
+    // 1. Check if an existing directory with the exact hash exists and has files
+    let exact_dir = cache_root.join(format!("{}_{:016x}", sanitized_stem, hash_val));
+    if exact_dir.exists() {
+        let has_files = std::fs::read_dir(&exact_dir)
+            .map(|mut r| r.next().is_some())
+            .unwrap_or(false);
+        if has_files {
+            return exact_dir;
+        }
+    }
+
+    // 2. Check if any existing directory matching sanitized_stem_* has rendered pages
+    let prefix = format!("{}_", sanitized_stem);
+    if let Ok(entries) = std::fs::read_dir(cache_root) {
+        let mut best_dir = None;
+        let mut best_count = 0;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if let Some(folder_name) = path.file_name().and_then(|s| s.to_str()) {
+                    if folder_name.starts_with(&prefix) {
+                        let count = std::fs::read_dir(&path)
+                            .map(|r| r.count())
+                            .unwrap_or(0);
+                        if count > best_count {
+                            best_count = count;
+                            best_dir = Some(path);
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(dir) = best_dir {
+            if best_count > 0 {
+                return dir;
+            }
+        }
+    }
+
+    // 3. Fallback to exact_dir
+    let _ = std::fs::create_dir_all(&exact_dir);
+    exact_dir
+}
+
 /// Exports or retrieves cached high-resolution slide PNGs from a PDF document (.pdf).
 /// Uses native Windows Runtime `Windows.Data.Pdf.PdfDocument` (100% offline, zero dependencies).
 /// Renders Page 1 immediately (~0.2s) so UI stays light and responsive, while rendering remaining
@@ -230,7 +275,7 @@ pub fn get_or_export_pdf_pages(file_path: &str) -> Vec<String> {
     let hash_val = compute_stable_file_hash(file_path, p);
     let sanitized_stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("document")
         .chars().filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-').take(24).collect::<String>();
-    let out_dir = cache_root.join(format!("{}_{:016x}", sanitized_stem, hash_val));
+    let out_dir = resolve_pdf_cache_dir(&cache_root, &sanitized_stem, hash_val);
     let _ = std::fs::create_dir_all(&out_dir);
 
     #[cfg(target_os = "windows")]
@@ -324,7 +369,7 @@ pub fn ensure_pdf_page_rendered(file_path: &str, page_index: usize) -> Option<St
     let hash_val = compute_stable_file_hash(file_path, p);
     let sanitized_stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("document")
         .chars().filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-').take(24).collect::<String>();
-    let out_dir = cache_root.join(format!("{}_{:016x}", sanitized_stem, hash_val));
+    let out_dir = resolve_pdf_cache_dir(&cache_root, &sanitized_stem, hash_val);
     let target_file = out_dir.join(format!("page_{:04}.png", page_index + 1));
     if target_file.exists() {
         return Some(target_file.to_string_lossy().to_string());
@@ -343,11 +388,21 @@ pub fn ensure_pdf_page_rendered(file_path: &str, page_index: usize) -> Option<St
         if abs_str.starts_with(r"\\?\") {
             abs_str = abs_str[4..].to_string();
         }
-        let Ok(storage_file) = StorageFile::GetFileFromPathAsync(&HSTRING::from(abs_str)).and_then(|op| op.join()) else {
-            return None;
+        let storage_file_res = StorageFile::GetFileFromPathAsync(&HSTRING::from(abs_str)).and_then(|op| op.join());
+        let storage_file = match storage_file_res {
+            Ok(sf) => sf,
+            Err(e) => {
+                println!("StorageFile::GetFileFromPathAsync error: {:?}", e);
+                return None;
+            }
         };
-        let Ok(doc) = PdfDocument::LoadFromFileAsync(&storage_file).and_then(|op| op.join()) else {
-            return None;
+        let doc_res = PdfDocument::LoadFromFileAsync(&storage_file).and_then(|op| op.join());
+        let doc = match doc_res {
+            Ok(d) => d,
+            Err(e) => {
+                println!("PdfDocument::LoadFromFileAsync error: {:?}", e);
+                return None;
+            }
         };
 
         let abs_out = std::fs::canonicalize(&out_dir).unwrap_or_else(|_| out_dir.clone());
@@ -355,11 +410,23 @@ pub fn ensure_pdf_page_rendered(file_path: &str, page_index: usize) -> Option<St
         if abs_out_str.starts_with(r"\\?\") {
             abs_out_str = abs_out_str[4..].to_string();
         }
-        let Ok(folder) = StorageFolder::GetFolderFromPathAsync(&HSTRING::from(abs_out_str)).and_then(|op| op.join()) else {
-            return None;
+        let folder_res = StorageFolder::GetFolderFromPathAsync(&HSTRING::from(abs_out_str)).and_then(|op| op.join());
+        let folder = match folder_res {
+            Ok(f) => f,
+            Err(e) => {
+                println!("StorageFolder::GetFolderFromPathAsync error: {:?}", e);
+                return None;
+            }
         };
 
-        render_pdf_page_index(&doc, &folder, &out_dir, page_index as u32).ok()
+        let render_res = render_pdf_page_index(&doc, &folder, &out_dir, page_index as u32);
+        match render_res {
+            Ok(path) => Some(path),
+            Err(e) => {
+                println!("render_pdf_page_index error: {:?}", e);
+                None
+            }
+        }
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -437,11 +504,19 @@ fn render_pdf_remaining_pages(file_path: &str, out_dir: &std::path::Path, start_
     if abs_str.starts_with(r"\\?\") {
         abs_str = abs_str[4..].to_string();
     }
-    let Ok(storage_file) = StorageFile::GetFileFromPathAsync(&HSTRING::from(abs_str)).and_then(|op| op.join()) else {
-        return;
+    let storage_file = match StorageFile::GetFileFromPathAsync(&HSTRING::from(&abs_str)).and_then(|op| op.join()) {
+        Ok(sf) => sf,
+        Err(e) => {
+            println!("[render_pdf_remaining_pages] StorageFile error: {:?}", e);
+            return;
+        }
     };
-    let Ok(doc) = PdfDocument::LoadFromFileAsync(&storage_file).and_then(|op| op.join()) else {
-        return;
+    let doc = match PdfDocument::LoadFromFileAsync(&storage_file).and_then(|op| op.join()) {
+        Ok(d) => d,
+        Err(e) => {
+            println!("[render_pdf_remaining_pages] PdfDocument error: {:?}", e);
+            return;
+        }
     };
 
     let abs_out = std::fs::canonicalize(out_dir).unwrap_or_else(|_| out_dir.to_path_buf());
@@ -449,15 +524,22 @@ fn render_pdf_remaining_pages(file_path: &str, out_dir: &std::path::Path, start_
     if abs_out_str.starts_with(r"\\?\") {
         abs_out_str = abs_out_str[4..].to_string();
     }
-    let Ok(folder) = StorageFolder::GetFolderFromPathAsync(&HSTRING::from(abs_out_str)).and_then(|op| op.join()) else {
-        return;
+    let folder = match StorageFolder::GetFolderFromPathAsync(&HSTRING::from(&abs_out_str)).and_then(|op| op.join()) {
+        Ok(f) => f,
+        Err(e) => {
+            println!("[render_pdf_remaining_pages] StorageFolder error: {:?}", e);
+            return;
+        }
     };
 
     for i in start_idx..total {
         if is_app_shutting_down() {
             break;
         }
-        let _ = render_pdf_page_index(&doc, &folder, out_dir, i);
+        let res = render_pdf_page_index(&doc, &folder, out_dir, i);
+        if let Err(e) = res {
+            println!("[render_pdf_remaining_pages] render page {} error: {:?}", i, e);
+        }
     }
 }
 
@@ -467,12 +549,22 @@ mod pdf_tests {
 
     #[test]
     fn test_pdf_export_sample() {
-        let sample = r"D:\_KANTOR\Desain\Template Powet Point\Pelatihan Anti Fraud Bank Nusamba Jabar 2026 - Edit Pa Eddy.pdf";
+        let sample = r"C:\Users\JUNIOR-JR\Desktop\Pelatihan Sosialisasi Anti Fraud dan Direksi Mendengar\Pelatihan Anti Fraud Bank Nusamba Jabar 2026.pdf";
         if std::path::Path::new(sample).exists() {
             let pages = get_or_export_pdf_pages(sample);
             println!("Exported pages count: {}", pages.len());
             assert!(!pages.is_empty(), "Expected at least 1 page");
             assert!(std::path::Path::new(&pages[0]).exists(), "Page 1 must exist immediately");
+
+            // Test render page 2
+            let p2 = ensure_pdf_page_rendered(sample, 1);
+            println!("Page 2 rendered path: {:?}", p2);
+            assert!(p2.is_some(), "Page 2 must be rendered on demand");
+
+            // Sleep a moment to see if background worker finishes pages
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            let p3 = ensure_pdf_page_rendered(sample, 2);
+            println!("Page 3 rendered path: {:?}", p3);
         }
     }
 }

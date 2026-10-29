@@ -1,4 +1,4 @@
-﻿use crate::app::{NexoraApp, PreviewDragMode};
+use crate::app::{NexoraApp, PreviewDragMode};
 use crate::recording::RecordingStatus;
 use crate::studio::scene::Scene;
 use crate::studio::source::{
@@ -431,7 +431,7 @@ fn render_single_viewport_card(
                             _ => {}
                         }
                     }
-                    if res.is_none() && role == ViewportRole::Program {
+                    if res.is_none() {
                         for sc in &app.studio.scenes {
                             for s in &sc.sources {
                                 if !s.visible {

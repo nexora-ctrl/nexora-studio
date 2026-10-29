@@ -1632,7 +1632,7 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                 let cur_sel = scene.selected_source_id;
                 let mut new_selected = cur_sel;
                 let mut vis_changed = false;
-                let mut pending_slide_delta: Option<i32> = None;
+                let mut pending_slide_target: Option<(uuid::Uuid, i32)> = None;
 
                 if scene.sources.is_empty() {
                     let empty_resp = ui.selectable_label(
@@ -1914,17 +1914,7 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                     {
                         let total = if *page_count > 0 { *page_count } else { pages.len() };
                         if total > 0 {
-                            let tip_prev = format!("Halaman Sebelumnya (Saat ini: {}/{})", *page_index + 1, total);
-                            if paint_icon_action_btn(
-                                &mut btn_ui,
-                                icons::ARROW_LEFT,
-                                None,
-                                &p,
-                                &tip_prev,
-                            ) {
-                                pending_slide_delta = Some(-1);
-                            }
-
+                            // In right_to_left layout, render Next first so on screen [ <- ] is left and [ -> ] is right
                             let tip_next = format!("Halaman Selanjutnya (Saat ini: {}/{})", *page_index + 1, total);
                             if paint_icon_action_btn(
                                 &mut btn_ui,
@@ -1933,7 +1923,18 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                                 &p,
                                 &tip_next,
                             ) {
-                                pending_slide_delta = Some(1);
+                                pending_slide_target = Some((src.id, 1));
+                            }
+
+                            let tip_prev = format!("Halaman Sebelumnya (Saat ini: {}/{})", *page_index + 1, total);
+                            if paint_icon_action_btn(
+                                &mut btn_ui,
+                                icons::ARROW_LEFT,
+                                None,
+                                &p,
+                                &tip_prev,
+                            ) {
+                                pending_slide_target = Some((src.id, -1));
                             }
                         }
                     }
@@ -1947,17 +1948,7 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                     {
                         let total = if *slide_count > 0 { *slide_count } else { slides.len() };
                         if total > 0 {
-                            let tip_prev = format!("Slide Sebelumnya (Saat ini: {}/{})", *slide_index + 1, total);
-                            if paint_icon_action_btn(
-                                &mut btn_ui,
-                                icons::ARROW_LEFT,
-                                None,
-                                &p,
-                                &tip_prev,
-                            ) {
-                                pending_slide_delta = Some(-1);
-                            }
-
+                            // In right_to_left layout, render Next first so on screen [ <- ] is left and [ -> ] is right
                             let tip_next = format!("Slide Selanjutnya (Saat ini: {}/{})", *slide_index + 1, total);
                             if paint_icon_action_btn(
                                 &mut btn_ui,
@@ -1966,7 +1957,18 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                                 &p,
                                 &tip_next,
                             ) {
-                                pending_slide_delta = Some(1);
+                                pending_slide_target = Some((src.id, 1));
+                            }
+
+                            let tip_prev = format!("Slide Sebelumnya (Saat ini: {}/{})", *slide_index + 1, total);
+                            if paint_icon_action_btn(
+                                &mut btn_ui,
+                                icons::ARROW_LEFT,
+                                None,
+                                &p,
+                                &tip_prev,
+                            ) {
+                                pending_slide_target = Some((src.id, -1));
                             }
                         }
                     }
@@ -2016,8 +2018,8 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                     .unwrap_or_default();
 
                 scene.selected_source_id = new_selected;
-                if let Some(delta) = pending_slide_delta {
-                    app.advance_presentation_slide(delta);
+                if let Some((tgt_id, delta)) = pending_slide_target {
+                    app.advance_source_slide(Some(tgt_id), delta);
                 }
                 if vis_changed {
                     app.studio.sync_media_transport_to_program();
