@@ -168,6 +168,8 @@ pub const SETTINGS: &str = "\u{eb20}";
 pub const TRASH: &str = "\u{eb41}";
 /// `ti-copy` — Duplicate / Copy Item
 pub const COPY: &str = "\u{ea7a}";
+/// `ti-clipboard` — Paste / Clipboard Item
+pub const CLIPBOARD: &str = "\u{ea6f}";
 /// `ti-edit` — Rename / Edit Item
 pub const EDIT: &str = "\u{ea98}";
 

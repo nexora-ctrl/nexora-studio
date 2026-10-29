@@ -1,4 +1,4 @@
-use crate::app::NexoraApp;
+use crate::app::{NexoraApp, VirtualCameraOutputType};
 use crate::settings::{BitratePreset, MediaDecodeScale, ThemeMode, VideoPreset};
 use crate::studio::source::{
     MediaColorRange, SlideTransitionEffect, SourceColorTag, SourceItem, SourceKind,
@@ -159,6 +159,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
+            .auto_sized()
             .default_width(485.0)
             .max_width(485.0)
             .show(ctx, |ui| {
@@ -357,6 +358,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
+            .auto_sized()
             .default_width(320.0)
             .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
             .show(ctx, |ui| {
@@ -427,6 +429,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
+            .auto_sized()
             .default_width(290.0)
             .show(ctx, |ui| {
                 block_window_body_drag(ui);
@@ -459,6 +462,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
+            .auto_sized()
             .default_width(290.0)
             .show(ctx, |ui| {
                 block_window_body_drag(ui);
@@ -515,6 +519,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
+            .auto_sized()
             .default_width(495.0)
             .max_width(495.0)
             .show(ctx, |ui| {
@@ -2063,6 +2068,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
+            .auto_sized()
             .default_width(530.0)
             .max_width(530.0)
             .show(ctx, |ui| {
@@ -2412,6 +2418,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
+            .auto_sized()
             .default_width(510.0)
             .max_width(510.0)
             .show(ctx, |ui| {
@@ -2700,6 +2707,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
         .open(&mut open)
         .collapsible(false)
         .resizable(false)
+        .auto_sized()
         .default_width(360.0)
         .show(ctx, |ui| {
             block_window_body_drag(ui);
@@ -2738,6 +2746,9 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
 
     // 8. OBS-Style Modern Add Source Modal Dialog
     render_add_source_dialog(ctx, app);
+
+    // 9. OBS-Style Virtual Camera Configuration Modal Dialog
+    render_virtual_camera_dialog(ctx, app);
 
     // 6. Dedicated Native OS Fullscreen / Windowed Projector (Multi-Monitor OBS Style)
     if app.show_projector_window {
@@ -2944,6 +2955,7 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
         .open(&mut open)
         .collapsible(false)
         .resizable(false)
+        .auto_sized()
         .default_width(650.0)
         .max_width(650.0)
         .show(ctx, |ui| {
@@ -3743,4 +3755,114 @@ fn sample_scene_sources_at(
 
     // Default stage surface color
     Some([16, 20, 28])
+}
+
+pub fn render_virtual_camera_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
+    if !app.show_virtual_camera_dialog {
+        return;
+    }
+
+    let p = ThemePalette::for_mode(app.settings.theme);
+    let mut is_open = app.show_virtual_camera_dialog;
+
+    egui::Window::new(format!("{} Virtual Camera", icons::CAMERA))
+        .id(egui::Id::new("nexora_vcam_modal_win_v2"))
+        .open(&mut is_open)
+        .collapsible(false)
+        .resizable(false)
+        .auto_sized()
+        .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+        .default_width(300.0)
+        .max_width(310.0)
+        .max_height(185.0)
+        .show(ctx, |ui| {
+            block_window_body_drag(ui);
+            const VCAM_FIELD_W: f32 = 280.0;
+            ui.set_width(280.0);
+            ui.set_max_width(280.0);
+
+            ui.add_space(4.0);
+
+            // Output Type
+            ui.label(RichText::new("Output Type").size(12.0).strong().color(p.text_primary));
+            ui.add_space(2.0);
+            egui::ComboBox::from_id_salt("vcam_output_type_combo")
+                .width(VCAM_FIELD_W)
+                .selected_text(app.virtual_camera_dialog_draft_type.label())
+                .show_ui(ui, |ui| {
+                    ui.set_width(VCAM_FIELD_W);
+                    for ot in VirtualCameraOutputType::all() {
+                        let is_sel = app.virtual_camera_dialog_draft_type == *ot;
+                        if ui.selectable_label(is_sel, ot.label()).clicked() {
+                            app.virtual_camera_dialog_draft_type = *ot;
+                        }
+                    }
+                });
+
+            ui.add_space(6.0);
+
+            // Output Selection
+            ui.label(RichText::new("Output Selection").size(12.0).strong().color(p.text_primary));
+            ui.add_space(2.0);
+            let is_scene_mode = app.virtual_camera_dialog_draft_type == VirtualCameraOutputType::Scene;
+            if is_scene_mode {
+                let current_scene_name = app.studio.scenes.iter()
+                    .find(|s| Some(s.id) == app.virtual_camera_dialog_draft_scene_id)
+                    .map(|s| s.name.clone())
+                    .or_else(|| app.studio.scenes.first().map(|s| s.name.clone()))
+                    .unwrap_or_else(|| "Pilih Scene...".to_string());
+
+                egui::ComboBox::from_id_salt("vcam_scene_selection_combo")
+                    .width(VCAM_FIELD_W)
+                    .selected_text(current_scene_name)
+                    .show_ui(ui, |ui| {
+                        ui.set_width(VCAM_FIELD_W);
+                        for sc in &app.studio.scenes {
+                            let is_sel = app.virtual_camera_dialog_draft_scene_id == Some(sc.id);
+                            if ui.selectable_label(is_sel, &sc.name).clicked() {
+                                app.virtual_camera_dialog_draft_scene_id = Some(sc.id);
+                            }
+                        }
+                    });
+            } else {
+                ui.add_enabled_ui(false, |ui| {
+                    egui::ComboBox::from_id_salt("vcam_no_selection_combo")
+                        .width(VCAM_FIELD_W)
+                        .selected_text("No selection for this output type")
+                        .show_ui(ui, |_ui| {});
+                });
+            }
+
+            ui.add_space(10.0);
+            ui.separator();
+            ui.add_space(6.0);
+
+            // OK and Cancel buttons
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.add(
+                    egui::Button::new(RichText::new("Cancel").size(12.0))
+                        .min_size(Vec2::new(72.0, 24.0))
+                ).clicked() {
+                    app.show_virtual_camera_dialog = false;
+                }
+
+                if ui.add(
+                    egui::Button::new(RichText::new("OK").strong().size(12.0).color(egui::Color32::WHITE))
+                        .fill(p.accent_preview)
+                        .min_size(Vec2::new(72.0, 24.0))
+                ).clicked() {
+                    app.virtual_camera_output_type = app.virtual_camera_dialog_draft_type;
+                    app.virtual_camera_scene_id = app.virtual_camera_dialog_draft_scene_id;
+                    app.show_virtual_camera_dialog = false;
+                    if app.virtual_camera_active {
+                        let out_label = app.virtual_camera_target_label();
+                        app.recording.last_message = format!("Virtual Camera: LIVE ({})", out_label);
+                    }
+                }
+            });
+        });
+
+    if !is_open {
+        app.show_virtual_camera_dialog = false;
+    }
 }

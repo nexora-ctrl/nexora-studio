@@ -201,5 +201,29 @@ impl Scene {
         self.selected_source_id = Some(new_id);
         Some(new_id)
     }
+
+    pub fn paste_source(&mut self, source: &SourceItem) -> Uuid {
+        let mut copy = source.clone();
+        copy.id = Uuid::new_v4();
+
+        let name_exists = self.sources.iter().any(|s| s.name.eq_ignore_ascii_case(&copy.name));
+        if name_exists {
+            let mut counter = 2;
+            let base_name = copy.name.clone();
+            let mut candidate = format!("{} (Copy)", base_name);
+            while self.sources.iter().any(|s| s.name.eq_ignore_ascii_case(&candidate)) {
+                candidate = format!("{} (Copy {})", base_name, counter);
+                counter += 1;
+            }
+            copy.name = candidate;
+            copy.transform.pos_x = (copy.transform.pos_x + 0.02).clamp(0.0, 0.90);
+            copy.transform.pos_y = (copy.transform.pos_y + 0.02).clamp(0.0, 0.90);
+        }
+
+        let new_id = copy.id;
+        self.sources.insert(0, copy);
+        self.selected_source_id = Some(new_id);
+        new_id
+    }
 }
 

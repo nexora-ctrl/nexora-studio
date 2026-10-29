@@ -1376,8 +1376,17 @@ mod win32_capture {
         pub height: usize,
         pub is_nv12: bool,
         pub is_yuy2: bool,
+        pub media_source: windows::Win32::Media::MediaFoundation::IMFMediaSource,
         pub reader: windows::Win32::Media::MediaFoundation::IMFSourceReader,
         pub has_delivered_frame: bool,
+    }
+
+    impl Drop for MfCameraSession {
+        fn drop(&mut self) {
+            unsafe {
+                let _ = self.media_source.Shutdown();
+            }
+        }
     }
 
     impl MfCameraSession {
@@ -1448,6 +1457,7 @@ mod win32_capture {
                     height,
                     is_nv12,
                     is_yuy2,
+                    media_source,
                     reader,
                     has_delivered_frame: false,
                 })
@@ -2320,5 +2330,8 @@ mod win32_capture {
         let (w, h, rgba) = frame.unwrap();
         assert!(w >= 320 && h >= 240);
         assert_eq!(rgba.len(), w * h * 4);
+        CAMERA_SESSION.with(|cell| {
+            *cell.borrow_mut() = None;
+        });
     }
 }

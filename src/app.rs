@@ -60,6 +60,33 @@ pub struct ProjectorTarget {
     pub snap_frames_remaining: u8,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum VirtualCameraOutputType {
+    Program,
+    Preview,
+    Scene,
+}
+
+impl Default for VirtualCameraOutputType {
+    fn default() -> Self {
+        Self::Program
+    }
+}
+
+impl VirtualCameraOutputType {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Program => "Program (Default)",
+            Self::Preview => "Preview",
+            Self::Scene => "Scene",
+        }
+    }
+
+    pub fn all() -> &'static [Self] {
+        &[Self::Program, Self::Preview, Self::Scene]
+    }
+}
+
 pub struct NexoraApp {
     pub settings: AppSettings,
     pub studio: StudioState,
@@ -105,6 +132,13 @@ pub struct NexoraApp {
     pub media_audio_engine: crate::platform::MediaAudioEngine,
     pub brand_icon_texture: Option<egui::TextureHandle>,
     pub initial_maximized_applied: bool,
+    pub copied_source: Option<crate::studio::source::SourceItem>,
+    pub virtual_camera_active: bool,
+    pub virtual_camera_output_type: VirtualCameraOutputType,
+    pub virtual_camera_scene_id: Option<uuid::Uuid>,
+    pub show_virtual_camera_dialog: bool,
+    pub virtual_camera_dialog_draft_type: VirtualCameraOutputType,
+    pub virtual_camera_dialog_draft_scene_id: Option<uuid::Uuid>,
     undo_stack: Vec<UndoSnapshot>,
     redo_stack: Vec<UndoSnapshot>,
     committed_snapshot: UndoSnapshot,
@@ -254,6 +288,13 @@ impl NexoraApp {
             media_audio_engine: crate::platform::MediaAudioEngine::default(),
             brand_icon_texture,
             initial_maximized_applied: false,
+            copied_source: None,
+            virtual_camera_active: false,
+            virtual_camera_output_type: VirtualCameraOutputType::Program,
+            virtual_camera_scene_id: None,
+            show_virtual_camera_dialog: false,
+            virtual_camera_dialog_draft_type: VirtualCameraOutputType::Program,
+            virtual_camera_dialog_draft_scene_id: None,
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             committed_snapshot: initial_snapshot,
@@ -1004,6 +1045,27 @@ impl NexoraApp {
             || self.show_source_filters_dialog
             || self.show_save_layout_dialog
             || self.show_add_source_dialog
+            || self.show_virtual_camera_dialog
+    }
+
+    pub fn open_virtual_camera_dialog(&mut self) {
+        self.virtual_camera_dialog_draft_type = self.virtual_camera_output_type;
+        self.virtual_camera_dialog_draft_scene_id = self.virtual_camera_scene_id.or_else(|| self.studio.scenes.first().map(|s| s.id));
+        self.show_virtual_camera_dialog = true;
+    }
+
+    pub fn virtual_camera_target_label(&self) -> String {
+        match self.virtual_camera_output_type {
+            VirtualCameraOutputType::Program => "Program".to_string(),
+            VirtualCameraOutputType::Preview => "Preview".to_string(),
+            VirtualCameraOutputType::Scene => {
+                let name = self.studio.scenes.iter()
+                    .find(|s| Some(s.id) == self.virtual_camera_scene_id)
+                    .map(|s| s.name.clone())
+                    .unwrap_or_else(|| "Scene".to_string());
+                format!("Scene: {}", name)
+            }
+        }
     }
 
     pub fn open_add_scene_dialog(&mut self) {
@@ -1034,6 +1096,38 @@ impl NexoraApp {
             _ => {
                 self.add_source_file_path.clear();
             }
+        }
+    }
+
+    pub fn copy_source_by_id(&mut self, src_id: uuid::Uuid) {
+        if let Some(src) = self.studio.preview_scene().sources.iter().find(|s| s.id == src_id) {
+            self.copied_source = Some(src.clone());
+            self.recording.last_message = format!("Disalin: {}", src.name);
+        }
+    }
+
+    pub fn copy_selected_source(&mut self) {
+        if let Some(src) = self.studio.preview_scene().selected_source() {
+            self.copied_source = Some(src.clone());
+            self.recording.last_message = format!("Disalin: {}", src.name);
+        }
+    }
+
+    pub fn paste_copied_source(&mut self) -> bool {
+        if let Some(copied) = self.copied_source.clone() {
+            let _ = self.studio.preview_scene_mut().paste_source(&copied);
+            self.studio.sync_if_linked();
+            self.recording.last_message = format!("Ditempel ke '{}'", self.studio.preview_scene().name);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn duplicate_selected_source(&mut self) {
+        if self.studio.preview_scene_mut().duplicate_selected_source().is_some() {
+            self.studio.sync_if_linked();
+            self.recording.last_message = "Menduplikasi source".to_string();
         }
     }
 

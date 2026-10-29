@@ -672,8 +672,12 @@ fn render_single_viewport_card(
                     && !ui.ctx().wants_keyboard_input()
                     && !app.is_any_modal_open()
                 {
-                    let ctrl = ui.input(|i| i.modifiers.ctrl);
-                    if ctrl {
+                    let ctrl = ui.input(|i| i.modifiers.command || i.modifiers.ctrl);
+                    if ctrl && ui.input(|i| i.key_pressed(egui::Key::V)) {
+                        app.paste_copied_source();
+                    } else if ctrl && ui.input(|i| i.key_pressed(egui::Key::C)) {
+                        app.copy_selected_source();
+                    } else if ctrl {
                         if ui.input(|i| i.key_pressed(egui::Key::F)) {
                             if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
                                 src.transform.fit_to_screen();
@@ -1005,6 +1009,40 @@ fn render_single_viewport_card(
                         });
                         ui.separator();
 
+                        if ui
+                            .add(egui::Button::new(format!("{}  Copy", icons::COPY)).shortcut_text("Ctrl+C"))
+                            .clicked()
+                        {
+                            app.copy_selected_source();
+                            ui.close_menu();
+                        }
+
+                        let paste_label = if let Some(cs) = &app.copied_source {
+                            format!("{}  Paste '{}'", icons::CLIPBOARD, cs.name)
+                        } else {
+                            format!("{}  Paste", icons::CLIPBOARD)
+                        };
+                        if ui
+                            .add_enabled(
+                                app.copied_source.is_some(),
+                                egui::Button::new(paste_label).shortcut_text("Ctrl+V"),
+                            )
+                            .clicked()
+                        {
+                            app.paste_copied_source();
+                            ui.close_menu();
+                        }
+
+                        if ui
+                            .button(format!("{}  Duplicate", icons::COPY))
+                            .clicked()
+                        {
+                            app.duplicate_selected_source();
+                            ui.close_menu();
+                        }
+
+                        ui.separator();
+
                         ui.menu_button(format!("{}  Transform", icons::TRANSFORM), |ui| {
                             ui.set_min_width(220.0);
                             if ui.button("Rotate 90 degrees CW").clicked() {
@@ -1124,6 +1162,15 @@ fn render_single_viewport_card(
                             ui.close_menu();
                         }
 
+                        ui.separator();
+                    } else if let Some(cs) = &app.copied_source {
+                        if ui
+                            .add(egui::Button::new(format!("{}  Paste '{}'", icons::CLIPBOARD, cs.name)).shortcut_text("Ctrl+V"))
+                            .clicked()
+                        {
+                            app.paste_copied_source();
+                            ui.close_menu();
+                        }
                         ui.separator();
                     }
                 }

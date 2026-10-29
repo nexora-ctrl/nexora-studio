@@ -116,25 +116,37 @@ pub fn apply_studio_theme(ctx: &egui::Context, mode: ThemeMode) {
     visuals.selection.stroke = Stroke::new(1.0_f32, p.accent_primary);
 
     let radius = CornerRadius::same(4);
+    visuals.clip_rect_margin = 0.0;
+
     visuals.widgets.noninteractive.bg_fill = p.bg_panel;
     visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, p.border_subtle);
     visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, p.text_primary);
     visuals.widgets.noninteractive.corner_radius = radius;
+    visuals.widgets.noninteractive.expansion = 0.0;
 
     visuals.widgets.inactive.bg_fill = p.bg_elevated;
     visuals.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, p.border_subtle);
     visuals.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, p.text_primary);
     visuals.widgets.inactive.corner_radius = radius;
+    visuals.widgets.inactive.expansion = 0.0;
 
     visuals.widgets.hovered.bg_fill = p.accent_primary.gamma_multiply(0.22);
     visuals.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, p.accent_primary);
     visuals.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, p.text_primary);
     visuals.widgets.hovered.corner_radius = radius;
+    visuals.widgets.hovered.expansion = 0.0;
 
     visuals.widgets.active.bg_fill = p.accent_primary.gamma_multiply(0.35);
     visuals.widgets.active.bg_stroke = Stroke::new(1.0_f32, p.accent_primary);
     visuals.widgets.active.fg_stroke = Stroke::new(1.0_f32, p.text_primary);
     visuals.widgets.active.corner_radius = radius;
+    visuals.widgets.active.expansion = 0.0;
+
+    visuals.widgets.open.bg_fill = p.accent_primary.gamma_multiply(0.22);
+    visuals.widgets.open.bg_stroke = Stroke::new(1.0_f32, p.accent_primary);
+    visuals.widgets.open.fg_stroke = Stroke::new(1.0_f32, p.text_primary);
+    visuals.widgets.open.corner_radius = radius;
+    visuals.widgets.open.expansion = 0.0;
 
     style.visuals = visuals;
     ctx.set_style(style);

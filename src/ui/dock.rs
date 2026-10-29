@@ -1139,6 +1139,8 @@ enum SourceContextAction {
     SetColor(Uuid, SourceColorTag),
     SetFilterKind(Uuid, crate::studio::source::KeyFilterKind),
     OpenFilters(Uuid),
+    Copy(Uuid),
+    Paste,
     Duplicate(Uuid),
     Remove(Uuid),
     Rename(Uuid),
@@ -1345,6 +1347,7 @@ fn populate_source_context_menu(
     is_locked: bool,
     current_color: SourceColorTag,
     current_filter_kind: crate::studio::source::KeyFilterKind,
+    copied_source_name: Option<&str>,
     action_out: &mut Option<SourceContextAction>,
 ) {
     ui.set_min_width(220.0);
@@ -1493,7 +1496,29 @@ fn populate_source_context_menu(
     ui.separator();
 
     if ui
-        .button(format!("{}  Copy / Duplicate", icons::COPY))
+        .button(format!("{}  Copy                        Ctrl+C", icons::COPY))
+        .clicked()
+    {
+        *action_out = Some(SourceContextAction::Copy(src_id));
+        ui.close_menu();
+    }
+
+    let paste_label = if let Some(name) = copied_source_name {
+        format!("{}  Paste '{}'           Ctrl+V", icons::CLIPBOARD, name)
+    } else {
+        format!("{}  Paste                       Ctrl+V", icons::CLIPBOARD)
+    };
+    if ui
+        .add_enabled(copied_source_name.is_some(), egui::Button::new(paste_label))
+        .clicked()
+    {
+        *action_out = Some(SourceContextAction::Paste);
+        ui.close_menu();
+    }
+
+    if ui
+        .button(format!("{}  Duplicate", icons::COPY))
+        .on_hover_text("Duplikasi layer ini langsung di scene aktif")
         .clicked()
     {
         *action_out = Some(SourceContextAction::Duplicate(src_id));
@@ -1540,9 +1565,19 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
     let p = ThemePalette::for_mode(app.settings.theme);
     let mut pending_action: Option<SourceContextAction> = None;
 
-    // Keyboard shortcuts for selected source (Delete / F2 / Left-Right slide navigation) when no modal or text input is active
+    // Keyboard shortcuts for selected source (Delete / F2 / Left-Right slide navigation / Ctrl+C / Ctrl+V / Ctrl+D) when no modal or text input is active
     if !ui.ctx().wants_keyboard_input() && !app.is_any_modal_open() {
-        if let Some(sel_id) = app.studio.preview_scene().selected_source_id {
+        let ctrl = ui.input(|i| i.modifiers.command || i.modifiers.ctrl);
+        if ctrl && ui.input(|i| i.key_pressed(egui::Key::V)) {
+            if app.copied_source.is_some() {
+                pending_action = Some(SourceContextAction::Paste);
+            }
+        } else if let Some(sel_id) = app.studio.preview_scene().selected_source_id {
+            if ctrl && ui.input(|i| i.key_pressed(egui::Key::C)) {
+                pending_action = Some(SourceContextAction::Copy(sel_id));
+            } else if ctrl && ui.input(|i| i.key_pressed(egui::Key::D)) {
+                pending_action = Some(SourceContextAction::Duplicate(sel_id));
+            } else
             if ui.input(|i| i.key_pressed(egui::Key::Delete)) {
                 pending_action = Some(SourceContextAction::Remove(sel_id));
             } else if ui.input(|i| i.key_pressed(egui::Key::F2)) {
@@ -1613,6 +1648,13 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                             .color(p.text_muted),
                     );
                     empty_resp.context_menu(|ui| {
+                        if let Some(src) = &app.copied_source {
+                            if ui.button(format!("{}  Paste '{}'  Ctrl+V", icons::CLIPBOARD, src.name)).clicked() {
+                                pending_action = Some(SourceContextAction::Paste);
+                                ui.close_menu();
+                            }
+                            ui.separator();
+                        }
                         populate_add_source_menu(ui, &mut pending_action);
                     });
                 }
@@ -1765,6 +1807,7 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                             is_locked,
                             current_color,
                             current_filter_kind,
+                            app.copied_source.as_ref().map(|s| s.name.as_str()),
                             &mut pending_action,
                         );
                     });
@@ -1956,6 +1999,13 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                         Sense::click(),
                     );
                     blank_resp.context_menu(|ui| {
+                        if let Some(src) = &app.copied_source {
+                            if ui.button(format!("{}  Paste '{}'  Ctrl+V", icons::CLIPBOARD, src.name)).clicked() {
+                                pending_action = Some(SourceContextAction::Paste);
+                                ui.close_menu();
+                            }
+                            ui.separator();
+                        }
                         if let Some(sel_id) = new_selected {
                             populate_source_context_menu(
                                 ui,
@@ -1963,7 +2013,8 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                                 false,
                                 SourceColorTag::None,
                                 sel_filter_k,
-                                &mut pending_action,
+                                app.copied_source.as_ref().map(|s| s.name.as_str()),
+                            &mut pending_action,
                             );
                         } else {
                             ui.menu_button("Add Source", |ui| {
@@ -2543,6 +2594,12 @@ fn execute_source_context_action(app: &mut NexoraApp, action: SourceContextActio
             scene.selected_source_id = Some(id);
             app.show_source_filters_dialog = true;
         }
+        SourceContextAction::Copy(id) => {
+            app.copy_source_by_id(id);
+        }
+        SourceContextAction::Paste => {
+            app.paste_copied_source();
+        }
         SourceContextAction::Duplicate(id) => {
             let scene = app.studio.preview_scene_mut();
             scene.selected_source_id = Some(id);
@@ -3011,12 +3068,14 @@ fn render_recording_controls_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size:
     });
 
     regions.with_body(ui, |ui, body_size| {
+        ui.spacing_mut().item_spacing.y = 2.5;
+
         // Digital Studio Timer Readout
         egui::Frame::new()
             .fill(p.bg_canvas_well)
             .stroke(Stroke::new(1.0_f32, p.border_subtle))
             .corner_radius(CornerRadius::same(4))
-            .inner_margin(egui::Margin::symmetric(8, 5))
+            .inner_margin(egui::Margin::symmetric(8, 4))
             .show(ui, |ui| {
                 ui.set_min_width((body_size.x - 16.0).max(60.0));
                 ui.horizontal(|ui| {
@@ -3040,27 +3099,28 @@ fn render_recording_controls_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size:
                             RichText::new(app.recording.formatted_timer())
                                 .monospace()
                                 .strong()
-                                .size(14.5)
+                                .size(14.0)
                                 .color(p.text_primary),
                         );
                     });
                 });
             });
 
-        ui.add_space(6.0);
+        ui.add_space(1.5);
 
-        // Start / Pause / Stop Buttons
+        // Start / Pause / Stop Recording Button Row (Full-width, No Icon)
         ui.horizontal(|ui| {
             let is_idle = app.recording.status == RecordingStatus::Idle;
 
             if is_idle {
                 let start_btn = egui::Button::new(
-                    RichText::new(format!("{} Start Recording", icons::PLAYER_RECORD))
+                    RichText::new("Start Recording")
                         .strong()
+                        .size(12.0)
                         .color(Color32::WHITE),
                 )
                 .fill(p.rec_red)
-                .min_size(Vec2::new(body_size.x, 28.0));
+                .min_size(Vec2::new(body_size.x, 26.0));
 
                 if ui
                     .add(start_btn)
@@ -3074,14 +3134,15 @@ fn render_recording_controls_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size:
                 }
             } else {
                 let pause_label = if app.recording.status == RecordingStatus::Paused {
-                    format!("{} Resume", icons::PLAYER_PLAY)
+                    "Resume"
                 } else {
-                    format!("{} Pause", icons::PLAYER_PAUSE)
+                    "Pause"
                 };
+                let half_w = ((body_size.x - 4.0) * 0.5).max(40.0);
                 if ui
                     .add(
-                        egui::Button::new(RichText::new(pause_label).strong())
-                            .min_size(Vec2::new(78.0, 28.0)),
+                        egui::Button::new(RichText::new(pause_label).strong().size(12.0))
+                            .min_size(Vec2::new(half_w, 26.0)),
                     )
                     .clicked()
                 {
@@ -3089,12 +3150,13 @@ fn render_recording_controls_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size:
                 }
 
                 let stop_btn = egui::Button::new(
-                    RichText::new(format!("{} Stop", icons::PLAYER_STOP))
+                    RichText::new("Stop")
                         .strong()
+                        .size(12.0)
                         .color(Color32::WHITE),
                 )
                 .fill(p.accent_program)
-                .min_size(Vec2::new((body_size.x - 84.0).max(50.0), 28.0));
+                .min_size(Vec2::new(half_w, 26.0));
 
                 if ui.add(stop_btn).clicked() {
                     let _ = app.recording.stop_session();
@@ -3102,21 +3164,80 @@ fn render_recording_controls_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size:
             }
         });
 
-        ui.add_space(6.0);
+        ui.add_space(1.5);
 
-        // Output Destination Path
+        // Virtual Camera Button Row (Full-width, Identical Size to Recording, No Icon)
         ui.horizontal(|ui| {
-            ui.label(RichText::new("Out:").small().color(p.text_muted));
-            let dir_str = app.settings.output_directory.to_string_lossy();
-            ui.add(
-                egui::Label::new(
-                    RichText::new(dir_str.as_ref())
-                        .small()
-                        .monospace()
-                        .color(p.text_secondary),
+            let vcam_active = app.virtual_camera_active;
+            let (vcam_label, vcam_fill, vcam_text_col) = if vcam_active {
+                (
+                    "Stop Virtual Camera",
+                    p.accent_preview,
+                    Color32::WHITE,
                 )
-                .truncate(),
-            );
+            } else {
+                (
+                    "Start Virtual Camera",
+                    p.bg_elevated,
+                    p.text_primary,
+                )
+            };
+
+            let vcam_btn = egui::Button::new(
+                RichText::new(vcam_label)
+                    .strong()
+                    .size(12.0)
+                    .color(vcam_text_col),
+            )
+            .fill(vcam_fill)
+            .min_size(Vec2::new(body_size.x, 26.0));
+
+            let vcam_resp = ui.add(vcam_btn).on_hover_text(if vcam_active {
+                "Hentikan output Virtual Camera (Klik kanan untuk Pengaturan)"
+            } else {
+                "Mulai Virtual Camera (Klik kanan untuk Pengaturan)"
+            });
+
+            if vcam_resp.clicked() {
+                app.virtual_camera_active = !app.virtual_camera_active;
+                if app.virtual_camera_active {
+                    let out_label = app.virtual_camera_target_label();
+                    app.recording.last_message = format!("Virtual Camera: LIVE ({})", out_label);
+                } else {
+                    app.recording.last_message = "Virtual Camera: Stopped".to_string();
+                }
+            }
+
+            vcam_resp.context_menu(|ui| {
+                if ui.button(format!("{}  Virtual Camera Settings...", icons::SETTINGS)).clicked() {
+                    app.open_virtual_camera_dialog();
+                    ui.close_menu();
+                }
+            });
+        });
+
+        // Output Destination Path (Diposisikan di paling bawah dengan teks kecil rapi)
+        ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
+            ui.add_space(2.0);
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                ui.label(
+                    RichText::new("Out:")
+                        .size(10.0)
+                        .color(p.text_muted),
+                );
+                let dir_str = app.settings.output_directory.to_string_lossy();
+                ui.add(
+                    egui::Label::new(
+                        RichText::new(dir_str.as_ref())
+                            .size(10.0)
+                            .monospace()
+                            .color(p.text_secondary),
+                    )
+                    .truncate(),
+                )
+                .on_hover_text(format!("Output Directory: {}", dir_str));
+            });
         });
     });
 
@@ -3126,7 +3247,7 @@ fn render_recording_controls_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size:
                 egui::Button::new(
                     RichText::new(format!("{} Open Folder", icons::FOLDER_OPEN)).small(),
                 )
-                .min_size(Vec2::new(95.0, 24.0)),
+                .min_size(Vec2::new(90.0, 24.0)),
             )
             .on_hover_text("Open output directory in Windows Explorer")
             .clicked()
@@ -3138,7 +3259,7 @@ fn render_recording_controls_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size:
                 egui::Button::new(
                     RichText::new(format!("{} Library", icons::MOVIE)).small(),
                 )
-                .min_size(Vec2::new(78.0, 24.0)),
+                .min_size(Vec2::new(72.0, 24.0)),
             )
             .on_hover_text("Open Recording Library drawer")
             .clicked()
@@ -3149,6 +3270,18 @@ fn render_recording_controls_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size:
                 app.media_library
                     .scan_directory(&app.settings.output_directory);
             }
+        }
+        if ui
+            .add(
+                egui::Button::new(
+                    RichText::new(format!("{} VCam", icons::SETTINGS)).small(),
+                )
+                .min_size(Vec2::new(65.0, 24.0)),
+            )
+            .on_hover_text("Pengaturan Virtual Camera (Output Type: Program, Preview, Scene)")
+            .clicked()
+        {
+            app.open_virtual_camera_dialog();
         }
     });
 }

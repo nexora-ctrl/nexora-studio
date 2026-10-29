@@ -196,5 +196,37 @@ mod tests {
         assert!(icon.width >= 32 && icon.height >= 32);
         assert_eq!(icon.rgba.len(), (icon.width * icon.height * 4) as usize);
     }
+
+    #[test]
+    fn test_copy_and_paste_source_across_scenes() {
+        let mut studio = StudioState::default();
+        let scene1 = &studio.scenes[0];
+        let original_source = scene1.sources[0].clone();
+
+        let new_scene_id = studio.add_scene("Scene 3".to_string());
+        let target_scene = studio.scenes.iter_mut().find(|s| s.id == new_scene_id).unwrap();
+        assert!(target_scene.sources.is_empty());
+
+        let pasted_id = target_scene.paste_source(&original_source);
+        assert_eq!(target_scene.sources.len(), 1);
+        assert_eq!(target_scene.sources[0].id, pasted_id);
+        assert_ne!(pasted_id, original_source.id);
+        assert_eq!(target_scene.sources[0].name, original_source.name);
+
+        // Pasting again into same scene appends (Copy)
+        let second_pasted_id = target_scene.paste_source(&original_source);
+        assert_eq!(target_scene.sources.len(), 2);
+        assert_eq!(target_scene.sources[0].id, second_pasted_id);
+        assert_eq!(target_scene.sources[0].name, format!("{} (Copy)", original_source.name));
+    }
+
+    #[test]
+    fn test_virtual_camera_default_off_and_outputs() {
+        use crate::app::VirtualCameraOutputType;
+        assert_eq!(VirtualCameraOutputType::default(), VirtualCameraOutputType::Program);
+        assert_eq!(VirtualCameraOutputType::Program.label(), "Program (Default)");
+        assert_eq!(VirtualCameraOutputType::Preview.label(), "Preview");
+        assert_eq!(VirtualCameraOutputType::Scene.label(), "Scene");
+    }
 }
 

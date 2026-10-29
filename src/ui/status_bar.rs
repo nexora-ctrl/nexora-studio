@@ -1,4 +1,5 @@
 use crate::app::NexoraApp;
+use crate::ui::icons;
 use crate::ui::theme::ThemePalette;
 use egui::{RichText, Stroke};
 
@@ -64,6 +65,16 @@ pub fn render_status_bar(ctx: &egui::Context, app: &NexoraApp) {
                     .small()
                     .color(p.text_secondary),
                 );
+
+                if app.virtual_camera_active {
+                    ui.separator();
+                    ui.label(
+                        RichText::new(format!("{} VCam: LIVE ({})", icons::CAMERA, app.virtual_camera_target_label()))
+                            .small()
+                            .strong()
+                            .color(p.accent_preview),
+                    );
+                }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if let Some((msg, inst)) = &app.screenshot_notify {
