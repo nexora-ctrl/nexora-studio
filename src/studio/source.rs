@@ -397,6 +397,12 @@ pub enum SourceKind {
         device_id: String,
         device_name: String,
         resolution: (u32, u32),
+        #[serde(default)]
+        corner_radius: f32,
+        #[serde(default)]
+        border_thickness: f32,
+        #[serde(default = "default_white_rgba")]
+        border_color_rgba: [u8; 4],
     },
     MediaSource {
         #[serde(default = "default_true")]

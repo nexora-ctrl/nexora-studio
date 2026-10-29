@@ -1694,6 +1694,7 @@ fn paint_transformed_image(
     flip_h: bool,
     flip_v: bool,
     rotation_deg: i32,
+    corner_radius: f32,
 ) {
     let (mut left_u, mut right_u) = (u0, u1);
     let (mut top_v, mut bot_v) = (v0, v1);
@@ -1705,51 +1706,107 @@ fn paint_transformed_image(
     }
 
     let rot = ((rotation_deg % 360) + 360) % 360;
-    if rot == 0 {
-        painter.image(
-            texture_id,
-            rect,
-            Rect::from_min_max(Pos2::new(left_u, top_v), Pos2::new(right_u, bot_v)),
-            tint,
-        );
+
+    let calc_uv = |pos: Pos2| -> Pos2 {
+        let nx = if rect.width() > 0.0 {
+            ((pos.x - rect.min.x) / rect.width()).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let ny = if rect.height() > 0.0 {
+            ((pos.y - rect.min.y) / rect.height()).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        match rot {
+            90 => Pos2::new(
+                left_u + ny * (right_u - left_u),
+                bot_v + nx * (top_v - bot_v),
+            ),
+            180 => Pos2::new(
+                right_u + nx * (left_u - right_u),
+                bot_v + ny * (top_v - bot_v),
+            ),
+            270 => Pos2::new(
+                right_u + ny * (left_u - right_u),
+                top_v + nx * (bot_v - top_v),
+            ),
+            _ => Pos2::new(
+                left_u + nx * (right_u - left_u),
+                top_v + ny * (bot_v - top_v),
+            ),
+        }
+    };
+
+    let r = corner_radius.min(rect.width() * 0.5).min(rect.height() * 0.5);
+
+    if r <= 0.5 {
+        if rot == 0 {
+            painter.image(
+                texture_id,
+                rect,
+                Rect::from_min_max(Pos2::new(left_u, top_v), Pos2::new(right_u, bot_v)),
+                tint,
+            );
+            return;
+        }
+
+        let mut mesh = egui::Mesh::with_texture(texture_id);
+        let idx = mesh.vertices.len() as u32;
+        mesh.vertices.push(egui::epaint::Vertex { pos: Pos2::new(rect.min.x, rect.min.y), uv: calc_uv(Pos2::new(rect.min.x, rect.min.y)), color: tint });
+        mesh.vertices.push(egui::epaint::Vertex { pos: Pos2::new(rect.max.x, rect.min.y), uv: calc_uv(Pos2::new(rect.max.x, rect.min.y)), color: tint });
+        mesh.vertices.push(egui::epaint::Vertex { pos: Pos2::new(rect.max.x, rect.max.y), uv: calc_uv(Pos2::new(rect.max.x, rect.max.y)), color: tint });
+        mesh.vertices.push(egui::epaint::Vertex { pos: Pos2::new(rect.min.x, rect.max.y), uv: calc_uv(Pos2::new(rect.min.x, rect.max.y)), color: tint });
+        mesh.add_triangle(idx, idx + 1, idx + 2);
+        mesh.add_triangle(idx, idx + 2, idx + 3);
+        painter.add(egui::Shape::mesh(mesh));
         return;
     }
 
-    let (c_tl, c_tr, c_br, c_bl) = match rot {
-        90 => (
-            Pos2::new(left_u, bot_v),
-            Pos2::new(left_u, top_v),
-            Pos2::new(right_u, top_v),
-            Pos2::new(right_u, bot_v),
-        ),
-        180 => (
-            Pos2::new(right_u, bot_v),
-            Pos2::new(left_u, bot_v),
-            Pos2::new(left_u, top_v),
-            Pos2::new(right_u, top_v),
-        ),
-        270 => (
-            Pos2::new(right_u, top_v),
-            Pos2::new(right_u, bot_v),
-            Pos2::new(left_u, bot_v),
-            Pos2::new(left_u, top_v),
-        ),
-        _ => (
-            Pos2::new(left_u, top_v),
-            Pos2::new(right_u, top_v),
-            Pos2::new(right_u, bot_v),
-            Pos2::new(left_u, bot_v),
-        ),
-    };
+    // High quality rounded polygon triangulation (fan from center)
+    let mut perimeter: Vec<Pos2> = Vec::with_capacity(36);
+    let x0 = rect.min.x;
+    let x1 = rect.max.x;
+    let y0 = rect.min.y;
+    let y1 = rect.max.y;
+
+    const N: usize = 8;
+    let corners = [
+        (x1 - r, y0 + r, -std::f32::consts::FRAC_PI_2), // Top-Right
+        (x1 - r, y1 - r, 0.0),                          // Bottom-Right
+        (x0 + r, y1 - r, std::f32::consts::FRAC_PI_2),  // Bottom-Left
+        (x0 + r, y0 + r, std::f32::consts::PI),         // Top-Left
+    ];
+
+    for &(cx, cy, start_angle) in &corners {
+        for s in 0..N {
+            let angle = start_angle + (s as f32 / N as f32) * std::f32::consts::FRAC_PI_2;
+            perimeter.push(Pos2::new(cx + r * angle.cos(), cy + r * angle.sin()));
+        }
+    }
 
     let mut mesh = egui::Mesh::with_texture(texture_id);
-    let idx = mesh.vertices.len() as u32;
-    mesh.vertices.push(egui::epaint::Vertex { pos: Pos2::new(rect.min.x, rect.min.y), uv: c_tl, color: tint });
-    mesh.vertices.push(egui::epaint::Vertex { pos: Pos2::new(rect.max.x, rect.min.y), uv: c_tr, color: tint });
-    mesh.vertices.push(egui::epaint::Vertex { pos: Pos2::new(rect.max.x, rect.max.y), uv: c_br, color: tint });
-    mesh.vertices.push(egui::epaint::Vertex { pos: Pos2::new(rect.min.x, rect.max.y), uv: c_bl, color: tint });
-    mesh.add_triangle(idx, idx + 1, idx + 2);
-    mesh.add_triangle(idx, idx + 2, idx + 3);
+    let center_pos = rect.center();
+    mesh.vertices.push(egui::epaint::Vertex {
+        pos: center_pos,
+        uv: calc_uv(center_pos),
+        color: tint,
+    });
+
+    let num_pts = perimeter.len();
+    for &p in &perimeter {
+        mesh.vertices.push(egui::epaint::Vertex {
+            pos: p,
+            uv: calc_uv(p),
+            color: tint,
+        });
+    }
+
+    for i in 1..=num_pts {
+        let next_i = if i == num_pts { 1 } else { i + 1 };
+        mesh.add_triangle(0, i as u32, next_i as u32);
+    }
+
     painter.add(egui::Shape::mesh(mesh));
 }
 
@@ -2047,6 +2104,33 @@ fn draw_source_layer_visual(
         ),
     };
 
+    let (corner_radius_val, border_thick_val, border_col_val) = match kind {
+        SourceKind::WebcamDevice {
+            corner_radius,
+            border_thickness,
+            border_color_rgba,
+            ..
+        } => {
+            let scale_factor = (rect.height() / 240.0).clamp(0.1, 8.0);
+            let eff_radius = (*corner_radius * scale_factor)
+                .min(rect.width() * 0.5)
+                .min(rect.height() * 0.5);
+            let eff_border = if *border_thickness > 0.0 {
+                (*border_thickness * scale_factor).clamp(0.5, 40.0)
+            } else {
+                0.0
+            };
+            let b_col = Color32::from_rgba_unmultiplied(
+                border_color_rgba[0],
+                border_color_rgba[1],
+                border_color_rgba[2],
+                ((border_color_rgba[3] as f32) * a_factor) as u8,
+            );
+            (eff_radius, eff_border, Some(b_col))
+        }
+        _ => (0.0, 0.0, None),
+    };
+
     if let Some(tex) = live_texture {
         // Render real live captured frame with cropped UV coordinates and ZERO text overlay
         let (u0, v0, u1, v1) = transform.uv_bounds();
@@ -2069,9 +2153,37 @@ fn draw_source_layer_visual(
             transform.flip_h,
             transform.flip_v,
             transform.rotation_deg,
+            corner_radius_val,
         );
+
+        if border_thick_val > 0.0 {
+            if let Some(b_col) = border_col_val {
+                painter.rect_stroke(
+                    rect,
+                    CornerRadius::same(corner_radius_val as u8),
+                    Stroke::new(border_thick_val, b_col),
+                    egui::StrokeKind::Inside,
+                );
+            }
+        }
     } else {
-        painter.rect_filled(rect, CornerRadius::same(3), fill_color.gamma_multiply(a_factor));
+        let cr_u8 = if corner_radius_val > 0.5 {
+            corner_radius_val as u8
+        } else {
+            3
+        };
+        painter.rect_filled(rect, CornerRadius::same(cr_u8), fill_color.gamma_multiply(a_factor));
+
+        if border_thick_val > 0.0 {
+            if let Some(b_col) = border_col_val {
+                painter.rect_stroke(
+                    rect,
+                    CornerRadius::same(cr_u8),
+                    Stroke::new(border_thick_val, b_col),
+                    egui::StrokeKind::Inside,
+                );
+            }
+        }
 
         // Animated telemetry scan bar only when waiting for frame
         let phase = ((time_sec * 0.35).fract()) as f32;

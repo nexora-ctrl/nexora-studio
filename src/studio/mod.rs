@@ -68,6 +68,9 @@ impl Default for StudioState {
                 device_id: "CAM_0".to_string(),
                 device_name: "Integrated Studio Camera".to_string(),
                 resolution: (1280, 720),
+                corner_radius: 0.0,
+                border_thickness: 0.0,
+                border_color_rgba: [255, 255, 255, 255],
             },
         ));
 

@@ -671,6 +671,9 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                     device_id,
                                     device_name,
                                     resolution,
+                                    corner_radius,
+                                    border_thickness,
+                                    border_color_rgba,
                                 } => {
                                     ui.label("Camera Device:");
                                     let current_display = if let Some(cam) = cameras.iter().find(|c| c.id == *device_id) {
@@ -730,6 +733,79 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                             }
                                         });
                                     ui.end_row();
+
+                                    ui.label("Rounded Sisi (Sudut):");
+                                    ui.horizontal(|ui| {
+                                        any_changed |= ui.add(egui::Slider::new(corner_radius, 0.0..=160.0).suffix(" px")).changed();
+                                        if ui.small_button("0").on_hover_text("Persegi siku standar (0 px)").clicked() {
+                                            *corner_radius = 0.0;
+                                            any_changed = true;
+                                        }
+                                        if ui.small_button("16").on_hover_text("Rounded halus (16 px)").clicked() {
+                                            *corner_radius = 16.0;
+                                            any_changed = true;
+                                        }
+                                        if ui.small_button("32").on_hover_text("Rounded sedang (32 px)").clicked() {
+                                            *corner_radius = 32.0;
+                                            any_changed = true;
+                                        }
+                                        if ui.small_button("Circle").on_hover_text("Bulat penuh / Lingkaran").clicked() {
+                                            *corner_radius = 999.0;
+                                            any_changed = true;
+                                        }
+                                    });
+                                    ui.end_row();
+
+                                    ui.label("Tebal Outline / Border:");
+                                    ui.horizontal(|ui| {
+                                        any_changed |= ui.add(egui::Slider::new(border_thickness, 0.0..=20.0).suffix(" px")).changed();
+                                        if ui.small_button("Off").on_hover_text("Tanpa outline / border (0 px)").clicked() {
+                                            *border_thickness = 0.0;
+                                            any_changed = true;
+                                        }
+                                        if ui.small_button("2px").clicked() {
+                                            *border_thickness = 2.0;
+                                            any_changed = true;
+                                        }
+                                        if ui.small_button("4px").clicked() {
+                                            *border_thickness = 4.0;
+                                            any_changed = true;
+                                        }
+                                        if ui.small_button("6px").clicked() {
+                                            *border_thickness = 6.0;
+                                            any_changed = true;
+                                        }
+                                    });
+                                    ui.end_row();
+
+                                    if *border_thickness > 0.0 {
+                                        ui.label("Warna Outline / Border:");
+                                        ui.horizontal(|ui| {
+                                            any_changed |= ui.color_edit_button_srgba_unmultiplied(border_color_rgba).changed();
+                                            let [r, g, b, _] = *border_color_rgba;
+                                            ui.label(format!("#{:02X}{:02X}{:02X}", r, g, b));
+
+                                            let color_presets: &[([u8; 4], &str)] = &[
+                                                ([255, 255, 255, 255], "Putih"),
+                                                ([0, 210, 255, 255], "Cyan"),
+                                                ([168, 85, 247, 255], "Ungu"),
+                                                ([239, 68, 68, 255], "Merah"),
+                                                ([34, 197, 94, 255], "Hijau"),
+                                                ([245, 158, 11, 255], "Emas"),
+                                            ];
+                                            for &(col, tip) in color_presets {
+                                                let btn_col = egui::Color32::from_rgb(col[0], col[1], col[2]);
+                                                let (sq_rect, sq_resp) = ui.allocate_exact_size(egui::Vec2::new(16.0, 16.0), egui::Sense::click());
+                                                ui.painter().rect_filled(sq_rect, egui::CornerRadius::same(3), btn_col);
+                                                ui.painter().rect_stroke(sq_rect, egui::CornerRadius::same(3), egui::Stroke::new(1.0_f32, egui::Color32::from_gray(80)), egui::StrokeKind::Inside);
+                                                if sq_resp.on_hover_text(tip).clicked() {
+                                                    *border_color_rgba = col;
+                                                    any_changed = true;
+                                                }
+                                            }
+                                        });
+                                        ui.end_row();
+                                    }
                                 }
                                 SourceKind::MediaSource {
                                     is_local_file,
@@ -3416,6 +3492,9 @@ fn validate_and_create_source(app: &mut NexoraApp) -> Option<crate::studio::sour
                     device_id: cid,
                     device_name: cname,
                     resolution: (1280, 720),
+                    corner_radius: 0.0,
+                    border_thickness: 0.0,
+                    border_color_rgba: [255, 255, 255, 255],
                 },
             ))
         }

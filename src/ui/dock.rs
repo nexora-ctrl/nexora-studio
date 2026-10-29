@@ -2147,6 +2147,9 @@ fn execute_source_context_action(app: &mut NexoraApp, action: SourceContextActio
                     device_id: cid,
                     device_name: cname,
                     resolution: (1280, 720),
+                    corner_radius: 0.0,
+                    border_thickness: 0.0,
+                    border_color_rgba: [255, 255, 255, 255],
                 },
             );
             app.studio.preview_scene_mut().add_source(item);

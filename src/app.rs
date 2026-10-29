@@ -928,6 +928,9 @@ impl NexoraApp {
                         device_id: cam_id,
                         device_name: cam_name,
                         resolution: (1280, 720),
+                        corner_radius: 0.0,
+                        border_thickness: 0.0,
+                        border_color_rgba: [255, 255, 255, 255],
                     },
                 ));
             }
