@@ -71,22 +71,22 @@ pub fn apply_studio_theme(ctx: &egui::Context, mode: ThemeMode) {
     let p = ThemePalette::for_mode(mode);
     let mut style = Style::default();
 
-    // Compact studio typography
+    // Compact studio typography with Rubik weights
     style.text_styles.insert(
         TextStyle::Heading,
-        FontId::new(14.0, egui::FontFamily::Proportional),
+        FontId::new(14.5, crate::ui::icons::rubik_semibold_family()),
     );
     style.text_styles.insert(
         TextStyle::Body,
-        FontId::new(12.5, egui::FontFamily::Proportional),
+        FontId::new(12.5, crate::ui::icons::rubik_family()),
     );
     style.text_styles.insert(
         TextStyle::Button,
-        FontId::new(12.0, egui::FontFamily::Proportional),
+        FontId::new(12.0, crate::ui::icons::rubik_medium_family()),
     );
     style.text_styles.insert(
         TextStyle::Small,
-        FontId::new(11.0, egui::FontFamily::Proportional),
+        FontId::new(11.0, crate::ui::icons::rubik_family()),
     );
     style.text_styles.insert(
         TextStyle::Monospace,

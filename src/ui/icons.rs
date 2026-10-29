@@ -110,39 +110,110 @@ pub fn load_app_window_icon() -> Option<Arc<egui::IconData>> {
 pub fn install_tabler_icons(ctx: &egui::Context) {
     let mut fonts = FontDefinitions::default();
 
+    // 1. Tabler Icons (5,936 offline icon glyphs)
     fonts.font_data.insert(
         "tabler-icons".to_owned(),
         Arc::new(FontData::from_static(TABLER_ICONS_TTF)),
     );
 
+    // 2. Rubik font family (Embedded Offline: Regular 400, Medium 500, SemiBold 600)
+    fonts.font_data.insert(
+        RUBIK_REGULAR_NAME.to_owned(),
+        Arc::new(FontData::from_static(RUBIK_REGULAR_TTF)),
+    );
+    fonts.font_data.insert(
+        RUBIK_MEDIUM_NAME.to_owned(),
+        Arc::new(FontData::from_static(RUBIK_MEDIUM_TTF)),
+    );
+    fonts.font_data.insert(
+        RUBIK_SEMIBOLD_NAME.to_owned(),
+        Arc::new(FontData::from_static(RUBIK_SEMIBOLD_TTF)),
+    );
+
+    // 3. Brand Title Font: Exo Medium (weight 500), embedded offline from `assets/fonts/Exo-Medium.ttf`
+    fonts.font_data.insert(
+        BRAND_FONT_NAME.to_owned(),
+        Arc::new(FontData::from_static(EXO_MEDIUM_TTF)),
+    );
+
+    // Make Rubik Regular the primary font for Proportional text across the entire UI
     if let Some(family) = fonts.families.get_mut(&FontFamily::Proportional) {
+        family.insert(0, RUBIK_REGULAR_NAME.to_owned());
         family.push("tabler-icons".to_owned());
     }
     if let Some(family) = fonts.families.get_mut(&FontFamily::Monospace) {
         family.push("tabler-icons".to_owned());
     }
 
-    // Brand title font: Exo Medium (weight 500), embedded offline from `assets/fonts/Exo-Medium.ttf`
-    fonts.font_data.insert(
-        BRAND_FONT_NAME.to_owned(),
-        Arc::new(FontData::from_static(EXO_MEDIUM_TTF)),
+    // Specific named families for fine-grained typography weight control
+    fonts.families.insert(
+        FontFamily::Name(RUBIK_REGULAR_NAME.into()),
+        vec![RUBIK_REGULAR_NAME.to_owned(), "tabler-icons".to_owned()],
+    );
+    fonts.families.insert(
+        FontFamily::Name(RUBIK_MEDIUM_NAME.into()),
+        vec![RUBIK_MEDIUM_NAME.to_owned(), "tabler-icons".to_owned()],
+    );
+    fonts.families.insert(
+        FontFamily::Name(RUBIK_SEMIBOLD_NAME.into()),
+        vec![RUBIK_SEMIBOLD_NAME.to_owned(), "tabler-icons".to_owned()],
     );
     fonts.families.insert(
         FontFamily::Name(BRAND_FONT_NAME.into()),
-        vec![BRAND_FONT_NAME.to_owned(), "Ubuntu-Light".to_owned()],
+        vec![BRAND_FONT_NAME.to_owned(), RUBIK_REGULAR_NAME.to_owned(), "tabler-icons".to_owned()],
     );
 
     ctx.set_fonts(fonts);
 }
 
+/// Rubik Regular (weight 400) — SIL Open Font License, see `assets/fonts/Rubik-OFL.txt`
+const RUBIK_REGULAR_TTF: &[u8] = include_bytes!("../../assets/fonts/Rubik-Regular.ttf");
+/// Rubik Medium (weight 500) — SIL Open Font License
+const RUBIK_MEDIUM_TTF: &[u8] = include_bytes!("../../assets/fonts/Rubik-Medium.ttf");
+/// Rubik SemiBold (weight 600) — SIL Open Font License
+const RUBIK_SEMIBOLD_TTF: &[u8] = include_bytes!("../../assets/fonts/Rubik-SemiBold.ttf");
+
 /// Exo Medium (wght 500) — SIL Open Font License, see `assets/fonts/Exo-OFL.txt`
 const EXO_MEDIUM_TTF: &[u8] = include_bytes!("../../assets/fonts/Exo-Medium.ttf");
-/// Named font family used for the "NEXORA Studio" brand title in the top bar
+
+pub const RUBIK_REGULAR_NAME: &str = "rubik-regular";
+pub const RUBIK_MEDIUM_NAME: &str = "rubik-medium";
+pub const RUBIK_SEMIBOLD_NAME: &str = "rubik-semibold";
 pub const BRAND_FONT_NAME: &str = "exo-medium";
 
 /// Font family handle for the brand title (Exo 500, works fully offline)
 pub fn brand_font_family() -> FontFamily {
     FontFamily::Name(BRAND_FONT_NAME.into())
+}
+
+/// Font family handle for Rubik Regular (weight 400)
+pub fn rubik_family() -> FontFamily {
+    FontFamily::Name(RUBIK_REGULAR_NAME.into())
+}
+
+/// Font family handle for Rubik Medium (weight 500)
+pub fn rubik_medium_family() -> FontFamily {
+    FontFamily::Name(RUBIK_MEDIUM_NAME.into())
+}
+
+/// Font family handle for Rubik SemiBold (weight 600)
+pub fn rubik_semibold_family() -> FontFamily {
+    FontFamily::Name(RUBIK_SEMIBOLD_NAME.into())
+}
+
+/// Helper to produce a FontId with Rubik Regular at given size
+pub fn font_rubik(size: f32) -> egui::FontId {
+    egui::FontId::new(size, rubik_family())
+}
+
+/// Helper to produce a FontId with Rubik Medium at given size
+pub fn font_rubik_medium(size: f32) -> egui::FontId {
+    egui::FontId::new(size, rubik_medium_family())
+}
+
+/// Helper to produce a FontId with Rubik SemiBold at given size
+pub fn font_rubik_semibold(size: f32) -> egui::FontId {
+    egui::FontId::new(size, rubik_semibold_family())
 }
 
 // ============================================================================
