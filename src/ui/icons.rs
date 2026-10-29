@@ -147,10 +147,11 @@ pub fn install_tabler_icons(ctx: &egui::Context) {
         "Ubuntu-Light".to_owned(),
     ];
 
-    // Make Rubik Light (slender, modern, non-bloated) the primary font across the entire UI
+    // Make Rubik Regular (weight 400, clean, clear, perfectly balanced) the primary font across the entire UI
     if let Some(family) = fonts.families.get_mut(&FontFamily::Proportional) {
-        family.insert(0, RUBIK_LIGHT_NAME.to_owned());
-        family.push(RUBIK_REGULAR_NAME.to_owned());
+        family.insert(0, RUBIK_REGULAR_NAME.to_owned());
+        family.push(RUBIK_MEDIUM_NAME.to_owned());
+        family.push(RUBIK_LIGHT_NAME.to_owned());
         family.push("tabler-icons".to_owned());
     }
     if let Some(family) = fonts.families.get_mut(&FontFamily::Monospace) {
