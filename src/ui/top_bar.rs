@@ -42,8 +42,7 @@ pub fn render_top_bar(ctx: &egui::Context, app: &mut NexoraApp) {
 
                 ui.label(
                     RichText::new("NEXORA Studio")
-                        .strong()
-                        .size(13.5)
+                        .font(egui::FontId::new(15.0, icons::brand_font_family()))
                         .color(p.text_primary),
                 );
                 ui.label(

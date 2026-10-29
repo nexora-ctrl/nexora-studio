@@ -122,7 +122,27 @@ pub fn install_tabler_icons(ctx: &egui::Context) {
         family.push("tabler-icons".to_owned());
     }
 
+    // Brand title font: Exo Medium (weight 500), embedded offline from `assets/fonts/Exo-Medium.ttf`
+    fonts.font_data.insert(
+        BRAND_FONT_NAME.to_owned(),
+        Arc::new(FontData::from_static(EXO_MEDIUM_TTF)),
+    );
+    fonts.families.insert(
+        FontFamily::Name(BRAND_FONT_NAME.into()),
+        vec![BRAND_FONT_NAME.to_owned(), "Ubuntu-Light".to_owned()],
+    );
+
     ctx.set_fonts(fonts);
+}
+
+/// Exo Medium (wght 500) — SIL Open Font License, see `assets/fonts/Exo-OFL.txt`
+const EXO_MEDIUM_TTF: &[u8] = include_bytes!("../../assets/fonts/Exo-Medium.ttf");
+/// Named font family used for the "NEXORA Studio" brand title in the top bar
+pub const BRAND_FONT_NAME: &str = "exo-medium";
+
+/// Font family handle for the brand title (Exo 500, works fully offline)
+pub fn brand_font_family() -> FontFamily {
+    FontFamily::Name(BRAND_FONT_NAME.into())
 }
 
 // ============================================================================
