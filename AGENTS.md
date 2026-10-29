@@ -66,4 +66,6 @@ Sebelum melakukan perubahan kode, **baca peta arsitektur lengkap di [`ARCHITECTU
        - Penyesuaian Kanvas: `Fit to screen` (`Ctrl+F`), `Stretch to screen` (`Ctrl+S`), `Center to screen` (`Ctrl+D`), `Center Vertically`, `Center Horizontally`.
        - Reset: `Reset Transform` (`Ctrl+R`).
      - Manipulasi langsung di canvas dapat dilakukan menggunakan tombol pintas keyboard di atas layer terpilih (`Ctrl+F`, `Ctrl+S`, `Ctrl+D`, `Ctrl+R`) serta klik kanan langsung pada objek layer untuk memilih dan membuka menu Transform.
+   - **Splitter Pemisah Canvas & Dock Bawah:**
+     - Garis pemisah antara kanvas viewport (Preview & Program) dan panel dock bawah (Scenes, Source, Mixer, Controls) memiliki deteksi hover dan drag aktif dengan kursor panah vertikal ganda (CursorIcon::ResizeVertical) serta garis highlight aksen real-time yang jelas saat digeser.
    - **Larangan Mutlak:** Dilarang menambahkan fitur *live streaming* / RTMP / cloud / login.

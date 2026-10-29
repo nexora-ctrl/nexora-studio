@@ -200,6 +200,10 @@ Lingkungan Windows pada mesin ini memiliki konfigurasi khusus yang **tidak boleh
      - Modal dialog mem-prefill nama scene unik otomatis (Scene N), mengarahkan fokus ke teks input, dan mendukung tombol Enter / tombol OK untuk konfirmasi cepat atau Esc / Batal untuk membatalkan.
      - Scene baru yang ditambahkan selalu dimulai dengan layer yang **KOSONG** (sources: Vec::new()) tanpa menambahkan layer capture default apapun.
 
+
+   - **Splitter Pemisah Canvas & Dock Bawah:**
+     - Area garis pemisah vertikal antara viewport kanvas atas dan dock panel bawah menggunakan deteksi hit-test splitter (+/- 4px) dengan kursor arah vertikal (CursorIcon::ResizeVertical) dan highlight garis aksen interaktif saat di-hover maupun saat proses drag resizing berlangsung.
+
 8. **Sistem Menu Transform & Manipulasi Kanvas Langsung (OBS-Style):**
    - **Submenu Transform Lengkap**:
      - Tersedia di klik kanan layer pada kanvas Preview dan klik kanan kartu Source pada dock Sources.

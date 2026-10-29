@@ -488,7 +488,8 @@ fn render_single_viewport_card(
 
                 // Click, right-click, or drag start: hit-test handles of selected source first, then top-most visible layer
                 if response.clicked() || response.drag_started() || response.secondary_clicked() {
-                    if let Some(ptr) = pointer_pos {
+                    let start_pos = ui.input(|i| i.pointer.press_origin()).or(pointer_pos);
+                    if let Some(ptr) = start_pos {
                         let mut matched_handle = PreviewDragMode::None;
                         if !response.secondary_clicked() {
                             if let Some(sel_rect) = selected_screen_rect {
@@ -580,42 +581,44 @@ fn render_single_viewport_card(
                 // Update cursor icon secara instan (zero latency) berdasarkan hover / active drag state terkini
                 if let Some(ptr) = pointer_pos {
                     if app.preview_drag_mode == PreviewDragMode::None {
-                        if let Some(sel_src) = scene_clone.selected_source() {
-                            if !sel_src.locked {
-                                if let Some(sel_rect) = selected_screen_rect {
-                                    let hover_mode = hit_test_handles(sel_rect, ptr, alt_held);
-                                    match hover_mode {
-                                        PreviewDragMode::ResizeTopLeft | PreviewDragMode::ResizeBottomRight => {
-                                            ui.ctx().set_cursor_icon(CursorIcon::ResizeNwSe);
-                                        }
-                                        PreviewDragMode::ResizeTopRight | PreviewDragMode::ResizeBottomLeft => {
-                                            ui.ctx().set_cursor_icon(CursorIcon::ResizeNeSw);
-                                        }
-                                        PreviewDragMode::ResizeTop
-                                        | PreviewDragMode::ResizeBottom
-                                        | PreviewDragMode::CropTop
-                                        | PreviewDragMode::CropBottom => {
-                                            ui.ctx().set_cursor_icon(CursorIcon::ResizeVertical);
-                                        }
-                                        PreviewDragMode::ResizeLeft
-                                        | PreviewDragMode::ResizeRight
-                                        | PreviewDragMode::CropLeft
-                                        | PreviewDragMode::CropRight => {
-                                            ui.ctx().set_cursor_icon(CursorIcon::ResizeHorizontal);
-                                        }
-                                        PreviewDragMode::Move => {
-                                            ui.ctx().set_cursor_icon(CursorIcon::Default);
-                                        }
-                                        PreviewDragMode::None => {
-                                            ui.ctx().set_cursor_icon(CursorIcon::Default);
+                        if response.hovered() && well_rect.contains(ptr) {
+                            if let Some(sel_src) = scene_clone.selected_source() {
+                                if !sel_src.locked {
+                                    if let Some(sel_rect) = selected_screen_rect {
+                                        let hover_mode = hit_test_handles(sel_rect, ptr, alt_held);
+                                        match hover_mode {
+                                            PreviewDragMode::ResizeTopLeft | PreviewDragMode::ResizeBottomRight => {
+                                                ui.ctx().set_cursor_icon(CursorIcon::ResizeNwSe);
+                                            }
+                                            PreviewDragMode::ResizeTopRight | PreviewDragMode::ResizeBottomLeft => {
+                                                ui.ctx().set_cursor_icon(CursorIcon::ResizeNeSw);
+                                            }
+                                            PreviewDragMode::ResizeTop
+                                            | PreviewDragMode::ResizeBottom
+                                            | PreviewDragMode::CropTop
+                                            | PreviewDragMode::CropBottom => {
+                                                ui.ctx().set_cursor_icon(CursorIcon::ResizeVertical);
+                                            }
+                                            PreviewDragMode::ResizeLeft
+                                            | PreviewDragMode::ResizeRight
+                                            | PreviewDragMode::CropLeft
+                                            | PreviewDragMode::CropRight => {
+                                                ui.ctx().set_cursor_icon(CursorIcon::ResizeHorizontal);
+                                            }
+                                            PreviewDragMode::Move => {
+                                                ui.ctx().set_cursor_icon(CursorIcon::Default);
+                                            }
+                                            PreviewDragMode::None => {
+                                                ui.ctx().set_cursor_icon(CursorIcon::Default);
+                                            }
                                         }
                                     }
+                                } else {
+                                    ui.ctx().set_cursor_icon(CursorIcon::Default);
                                 }
                             } else {
                                 ui.ctx().set_cursor_icon(CursorIcon::Default);
                             }
-                        } else {
-                            ui.ctx().set_cursor_icon(CursorIcon::Default);
                         }
                     } else if app.preview_drag_mode == PreviewDragMode::Move {
                         ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
@@ -1244,42 +1247,49 @@ fn hit_test_handles(layer_rect: Rect, ptr: Pos2, alt_crop_mode: bool) -> Preview
         return PreviewDragMode::ResizeBottomRight;
     }
 
-    // 2. Prioritas Kedua: 4 Sisi / Edge Handles (Atas, Bawah, Kiri, Kanan)
-    let in_x_range = ptr.x >= (layer_rect.min.x - corner_margin) && ptr.x <= (layer_rect.max.x + corner_margin);
-    let in_y_range = ptr.y >= (layer_rect.min.y - corner_margin) && ptr.y <= (layer_rect.max.y + corner_margin);
+    // 2. Prioritas Kedua: 4 Sisi / Edge Handles di antara sudut-sudut
+    let edge_x_min = layer_rect.min.x + corner_margin;
+    let edge_x_max = layer_rect.max.x - corner_margin;
+    let edge_y_min = layer_rect.min.y + corner_margin;
+    let edge_y_max = layer_rect.max.y - corner_margin;
 
-    if in_x_range {
+    // Sisi atas & bawah
+    if ptr.x >= edge_x_min && ptr.x <= edge_x_max {
         if (ptr.y - layer_rect.min.y).abs() <= edge_margin {
-            return if alt_crop_mode {
-                PreviewDragMode::CropTop
-            } else {
-                PreviewDragMode::ResizeTop
-            };
+            return if alt_crop_mode { PreviewDragMode::CropTop } else { PreviewDragMode::ResizeTop };
         }
         if (ptr.y - layer_rect.max.y).abs() <= edge_margin {
-            return if alt_crop_mode {
-                PreviewDragMode::CropBottom
-            } else {
-                PreviewDragMode::ResizeBottom
-            };
+            return if alt_crop_mode { PreviewDragMode::CropBottom } else { PreviewDragMode::ResizeBottom };
         }
     }
 
-    if in_y_range {
+    // Sisi kiri & kanan
+    if ptr.y >= edge_y_min && ptr.y <= edge_y_max {
         if (ptr.x - layer_rect.min.x).abs() <= edge_margin {
-            return if alt_crop_mode {
-                PreviewDragMode::CropLeft
-            } else {
-                PreviewDragMode::ResizeLeft
-            };
+            return if alt_crop_mode { PreviewDragMode::CropLeft } else { PreviewDragMode::ResizeLeft };
         }
         if (ptr.x - layer_rect.max.x).abs() <= edge_margin {
-            return if alt_crop_mode {
-                PreviewDragMode::CropRight
-            } else {
-                PreviewDragMode::ResizeRight
-            };
+            return if alt_crop_mode { PreviewDragMode::CropRight } else { PreviewDragMode::ResizeRight };
         }
+    }
+
+    // Titik handle tengah langsung (midpoint handles)
+    let top_mid = Pos2::new(layer_rect.center().x, layer_rect.min.y);
+    let bot_mid = Pos2::new(layer_rect.center().x, layer_rect.max.y);
+    let left_mid = Pos2::new(layer_rect.min.x, layer_rect.center().y);
+    let right_mid = Pos2::new(layer_rect.max.x, layer_rect.center().y);
+
+    if (ptr.x - top_mid.x).abs() <= 10.0 && (ptr.y - top_mid.y).abs() <= edge_margin {
+        return if alt_crop_mode { PreviewDragMode::CropTop } else { PreviewDragMode::ResizeTop };
+    }
+    if (ptr.x - bot_mid.x).abs() <= 10.0 && (ptr.y - bot_mid.y).abs() <= edge_margin {
+        return if alt_crop_mode { PreviewDragMode::CropBottom } else { PreviewDragMode::ResizeBottom };
+    }
+    if (ptr.x - left_mid.x).abs() <= edge_margin && (ptr.y - left_mid.y).abs() <= 10.0 {
+        return if alt_crop_mode { PreviewDragMode::CropLeft } else { PreviewDragMode::ResizeLeft };
+    }
+    if (ptr.x - right_mid.x).abs() <= edge_margin && (ptr.y - right_mid.y).abs() <= 10.0 {
+        return if alt_crop_mode { PreviewDragMode::CropRight } else { PreviewDragMode::ResizeRight };
     }
 
     // 3. Prioritas Ketiga: Badan layer dalam (Move / Drag)
@@ -1301,6 +1311,8 @@ fn apply_transform_drag(
     let (u0, v0, u1, v1) = t.uv_bounds();
     let uv_w = (u1 - u0).max(0.05);
     let uv_h = (v1 - v0).max(0.05);
+    let cur_vw = old_vw.max(0.01);
+    let cur_vh = old_vh.max(0.01);
 
     match mode {
         PreviewDragMode::Move => {
@@ -1309,34 +1321,34 @@ fn apply_transform_drag(
         }
         PreviewDragMode::ResizeBottomRight => {
             if t.lock_aspect && !shift_held {
-                let d = if dx.abs() > dy.abs() {
-                    dx / uv_w
+                let d_scale = if (dx / cur_vw).abs() > (dy / cur_vh).abs() {
+                    dx / cur_vw
                 } else {
-                    dy / uv_h
+                    dy / cur_vh
                 };
-                t.scale = (t.scale + d).clamp(0.08, 2.0);
+                t.scale = (t.scale * (1.0 + d_scale)).clamp(0.08, 3.0);
             } else {
-                let new_fw = (t.effective_width_norm() + dx / uv_w).clamp(0.06, 2.5);
-                let new_fh = (t.effective_height_norm() + dy / uv_h).clamp(0.06, 2.5);
-                t.scale_x = (new_fw / t.scale.max(0.05)).clamp(0.10, 3.0);
-                t.scale_y = (new_fh / t.scale.max(0.05)).clamp(0.10, 3.0);
+                let new_vw = (old_vw + dx).clamp(0.04, 2.5);
+                let new_vh = (old_vh + dy).clamp(0.04, 2.5);
+                t.scale_x = (new_vw / (t.scale * uv_w).max(0.01)).clamp(0.05, 4.0);
+                t.scale_y = (new_vh / (t.scale * uv_h).max(0.01)).clamp(0.05, 4.0);
             }
         }
         PreviewDragMode::ResizeTopLeft => {
             let br_x = old_vx + old_vw;
             let br_y = old_vy + old_vh;
             if t.lock_aspect && !shift_held {
-                let d = if dx.abs() > dy.abs() {
-                    -dx / uv_w
+                let d_scale = if (dx / cur_vw).abs() > (dy / cur_vh).abs() {
+                    -dx / cur_vw
                 } else {
-                    -dy / uv_h
+                    -dy / cur_vh
                 };
-                t.scale = (t.scale + d).clamp(0.08, 2.0);
+                t.scale = (t.scale * (1.0 + d_scale)).clamp(0.08, 3.0);
             } else {
-                let new_fw = (t.effective_width_norm() - dx / uv_w).clamp(0.06, 2.5);
-                let new_fh = (t.effective_height_norm() - dy / uv_h).clamp(0.06, 2.5);
-                t.scale_x = (new_fw / t.scale.max(0.05)).clamp(0.10, 3.0);
-                t.scale_y = (new_fh / t.scale.max(0.05)).clamp(0.10, 3.0);
+                let new_vw = (old_vw - dx).clamp(0.04, 2.5);
+                let new_vh = (old_vh - dy).clamp(0.04, 2.5);
+                t.scale_x = (new_vw / (t.scale * uv_w).max(0.01)).clamp(0.05, 4.0);
+                t.scale_y = (new_vh / (t.scale * uv_h).max(0.01)).clamp(0.05, 4.0);
             }
             let (_, _, new_vw, new_vh) = t.visible_norm_rect();
             t.pos_x = (br_x - new_vw) - t.effective_width_norm() * u0;
@@ -1346,17 +1358,17 @@ fn apply_transform_drag(
             let bl_x = old_vx;
             let bl_y = old_vy + old_vh;
             if t.lock_aspect && !shift_held {
-                let d = if dx.abs() > dy.abs() {
-                    dx / uv_w
+                let d_scale = if (dx / cur_vw).abs() > (dy / cur_vh).abs() {
+                    dx / cur_vw
                 } else {
-                    -dy / uv_h
+                    -dy / cur_vh
                 };
-                t.scale = (t.scale + d).clamp(0.08, 2.0);
+                t.scale = (t.scale * (1.0 + d_scale)).clamp(0.08, 3.0);
             } else {
-                let new_fw = (t.effective_width_norm() + dx / uv_w).clamp(0.06, 2.5);
-                let new_fh = (t.effective_height_norm() - dy / uv_h).clamp(0.06, 2.5);
-                t.scale_x = (new_fw / t.scale.max(0.05)).clamp(0.10, 3.0);
-                t.scale_y = (new_fh / t.scale.max(0.05)).clamp(0.10, 3.0);
+                let new_vw = (old_vw + dx).clamp(0.04, 2.5);
+                let new_vh = (old_vh - dy).clamp(0.04, 2.5);
+                t.scale_x = (new_vw / (t.scale * uv_w).max(0.01)).clamp(0.05, 4.0);
+                t.scale_y = (new_vh / (t.scale * uv_h).max(0.01)).clamp(0.05, 4.0);
             }
             let (_, _, _, new_vh) = t.visible_norm_rect();
             t.pos_x = bl_x - t.effective_width_norm() * u0;
@@ -1366,41 +1378,41 @@ fn apply_transform_drag(
             let tr_x = old_vx + old_vw;
             let tr_y = old_vy;
             if t.lock_aspect && !shift_held {
-                let d = if dx.abs() > dy.abs() {
-                    -dx / uv_w
+                let d_scale = if (dx / cur_vw).abs() > (dy / cur_vh).abs() {
+                    -dx / cur_vw
                 } else {
-                    dy / uv_h
+                    dy / cur_vh
                 };
-                t.scale = (t.scale + d).clamp(0.08, 2.0);
+                t.scale = (t.scale * (1.0 + d_scale)).clamp(0.08, 3.0);
             } else {
-                let new_fw = (t.effective_width_norm() - dx / uv_w).clamp(0.06, 2.5);
-                let new_fh = (t.effective_height_norm() + dy / uv_h).clamp(0.06, 2.5);
-                t.scale_x = (new_fw / t.scale.max(0.05)).clamp(0.10, 3.0);
-                t.scale_y = (new_fh / t.scale.max(0.05)).clamp(0.10, 3.0);
+                let new_vw = (old_vw - dx).clamp(0.04, 2.5);
+                let new_vh = (old_vh + dy).clamp(0.04, 2.5);
+                t.scale_x = (new_vw / (t.scale * uv_w).max(0.01)).clamp(0.05, 4.0);
+                t.scale_y = (new_vh / (t.scale * uv_h).max(0.01)).clamp(0.05, 4.0);
             }
             let (_, _, new_vw, _) = t.visible_norm_rect();
             t.pos_x = (tr_x - new_vw) - t.effective_width_norm() * u0;
             t.pos_y = tr_y - t.effective_height_norm() * v0;
         }
         PreviewDragMode::ResizeRight => {
-            let new_fw = (t.effective_width_norm() + dx / uv_w).clamp(0.06, 2.5);
-            t.scale_x = (new_fw / t.scale.max(0.05)).clamp(0.10, 3.0);
+            let new_vw = (old_vw + dx).clamp(0.04, 2.5);
+            t.scale_x = (new_vw / (t.scale * uv_w).max(0.01)).clamp(0.05, 4.0);
         }
         PreviewDragMode::ResizeLeft => {
             let right_edge = old_vx + old_vw;
-            let new_fw = (t.effective_width_norm() - dx / uv_w).clamp(0.06, 2.5);
-            t.scale_x = (new_fw / t.scale.max(0.05)).clamp(0.10, 3.0);
+            let new_vw = (old_vw - dx).clamp(0.04, 2.5);
+            t.scale_x = (new_vw / (t.scale * uv_w).max(0.01)).clamp(0.05, 4.0);
             let (_, _, new_vw, _) = t.visible_norm_rect();
             t.pos_x = (right_edge - new_vw) - t.effective_width_norm() * u0;
         }
         PreviewDragMode::ResizeBottom => {
-            let new_fh = (t.effective_height_norm() + dy / uv_h).clamp(0.06, 2.5);
-            t.scale_y = (new_fh / t.scale.max(0.05)).clamp(0.10, 3.0);
+            let new_vh = (old_vh + dy).clamp(0.04, 2.5);
+            t.scale_y = (new_vh / (t.scale * uv_h).max(0.01)).clamp(0.05, 4.0);
         }
         PreviewDragMode::ResizeTop => {
             let bottom_edge = old_vy + old_vh;
-            let new_fh = (t.effective_height_norm() - dy / uv_h).clamp(0.06, 2.5);
-            t.scale_y = (new_fh / t.scale.max(0.05)).clamp(0.10, 3.0);
+            let new_vh = (old_vh - dy).clamp(0.04, 2.5);
+            t.scale_y = (new_vh / (t.scale * uv_h).max(0.01)).clamp(0.05, 4.0);
             let (_, _, _, new_vh) = t.visible_norm_rect();
             t.pos_y = (bottom_edge - new_vh) - t.effective_height_norm() * v0;
         }

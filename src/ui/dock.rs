@@ -79,6 +79,50 @@ pub fn render_bottom_studio_dock(ctx: &egui::Context, app: &mut NexoraApp) {
     if (measured_h - app.settings.dock_height).abs() > 1.0 {
         app.settings.dock_height = measured_h.clamp(210.0, 380.0);
     }
+
+    // Splitter bar hit-testing & visual feedback between canvas viewports and bottom dock
+    let dock_top_y = dock_resp.response.rect.min.y;
+    let splitter_hit_rect = Rect::from_min_max(
+        Pos2::new(dock_resp.response.rect.min.x, dock_top_y - 4.0),
+        Pos2::new(dock_resp.response.rect.max.x, dock_top_y + 4.0),
+    );
+
+    let is_resizing_id = egui::Id::new("is_resizing_dock_splitter");
+    let mut is_resizing = ctx.data_mut(|d| d.get_temp::<bool>(is_resizing_id).unwrap_or(false));
+
+    let is_hovered = ctx.pointer_hover_pos().map(|p| splitter_hit_rect.contains(p)).unwrap_or(false);
+    if is_hovered {
+        ctx.set_cursor_icon(egui::CursorIcon::ResizeVertical);
+        if ctx.input(|i| i.pointer.any_down()) {
+            is_resizing = true;
+        }
+    }
+
+    if is_resizing {
+        if ctx.input(|i| i.pointer.any_down()) {
+            ctx.set_cursor_icon(egui::CursorIcon::ResizeVertical);
+        } else {
+            is_resizing = false;
+        }
+    }
+    ctx.data_mut(|d| d.insert_temp(is_resizing_id, is_resizing));
+
+    if is_hovered || is_resizing {
+        ctx.request_repaint();
+        let highlight_col = if is_resizing {
+            p.accent_preview
+        } else {
+            p.accent_primary.gamma_multiply(0.7)
+        };
+        ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("dock_splitter_indicator")))
+            .line_segment(
+                [
+                    Pos2::new(dock_resp.response.rect.min.x, dock_top_y),
+                    Pos2::new(dock_resp.response.rect.max.x, dock_top_y),
+                ],
+                Stroke::new(1.8_f32, highlight_col),
+            );
+    }
 }
 
 struct DockCardRegions {
