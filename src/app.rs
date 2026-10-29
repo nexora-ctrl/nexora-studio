@@ -1,4 +1,4 @@
-use crate::audio::AudioMixerState;
+﻿use crate::audio::AudioMixerState;
 use crate::capture::{CaptureCatalog, CaptureRequestTarget, LiveCaptureEngine};
 use crate::encoder::EncoderConfig;
 use crate::media_library::MediaLibrary;
@@ -611,21 +611,26 @@ impl NexoraApp {
     pub fn advance_presentation_slide(&mut self, delta: i32) -> bool {
         let mut changed = false;
 
-        // 1. First priority: Update PowerPoint source on Program Output (what the audience sees)
-        let prog_ppt_info = {
+        // 1. First priority: Update PowerPoint or PDF source on Program Output (what the audience sees)
+        let prog_pres_info = {
             let mut info = None;
             for src in &self.studio.program_scene_snapshot.sources {
-                if let SourceKind::PowerPointSource { file_path, slide_index, slide_count, .. } = &src.kind {
-                    if *slide_count > 0 {
-                        info = Some((src.id, file_path.clone(), *slide_index, *slide_count));
+                match &src.kind {
+                    SourceKind::PowerPointSource { file_path, slide_index, slide_count, .. } if *slide_count > 0 => {
+                        info = Some((src.id, file_path.clone(), *slide_index, *slide_count, true));
                         break;
                     }
+                    SourceKind::PdfSource { file_path, page_index, page_count, .. } if *page_count > 0 => {
+                        info = Some((src.id, file_path.clone(), *page_index, *page_count, false));
+                        break;
+                    }
+                    _ => {}
                 }
             }
             info
         };
 
-        if let Some((prog_src_id, prog_file_path, cur_idx, total)) = prog_ppt_info {
+        if let Some((prog_src_id, prog_file_path, cur_idx, total, is_ppt)) = prog_pres_info {
             let new_idx = if delta > 0 {
                 (cur_idx + (delta as usize)).min(total.saturating_sub(1))
             } else {
@@ -635,11 +640,15 @@ impl NexoraApp {
             if new_idx != cur_idx {
                 for src in &mut self.studio.program_scene_snapshot.sources {
                     if src.id == prog_src_id || match &src.kind {
-                        SourceKind::PowerPointSource { file_path, .. } => !file_path.is_empty() && file_path == &prog_file_path,
+                        SourceKind::PowerPointSource { file_path, .. } => is_ppt && !file_path.is_empty() && file_path == &prog_file_path,
+                        SourceKind::PdfSource { file_path, .. } => !is_ppt && !file_path.is_empty() && file_path == &prog_file_path,
                         _ => false,
                     } {
                         if let SourceKind::PowerPointSource { slide_index, .. } = &mut src.kind {
                             *slide_index = new_idx;
+                            changed = true;
+                        } else if let SourceKind::PdfSource { page_index, .. } = &mut src.kind {
+                            *page_index = new_idx;
                             changed = true;
                         }
                     }
@@ -649,11 +658,14 @@ impl NexoraApp {
                 for scene in &mut self.studio.scenes {
                     for src in &mut scene.sources {
                         if src.id == prog_src_id || match &src.kind {
-                            SourceKind::PowerPointSource { file_path, .. } => !file_path.is_empty() && file_path == &prog_file_path,
+                            SourceKind::PowerPointSource { file_path, .. } => is_ppt && !file_path.is_empty() && file_path == &prog_file_path,
+                            SourceKind::PdfSource { file_path, .. } => !is_ppt && !file_path.is_empty() && file_path == &prog_file_path,
                             _ => false,
                         } {
                             if let SourceKind::PowerPointSource { slide_index, .. } = &mut src.kind {
                                 *slide_index = new_idx;
+                            } else if let SourceKind::PdfSource { page_index, .. } = &mut src.kind {
+                                *page_index = new_idx;
                             }
                         }
                     }
@@ -665,22 +677,27 @@ impl NexoraApp {
             }
         }
 
-        // 2. Second priority: If Program doesn't have an active PPT, update in Preview scene
-        let prev_ppt_info = {
+        // 2. Second priority: If Program doesn't have an active PPT or PDF, update in Preview scene
+        let prev_pres_info = {
             let mut info = None;
             let scene = self.studio.preview_scene();
             for src in &scene.sources {
-                if let SourceKind::PowerPointSource { file_path, slide_index, slide_count, .. } = &src.kind {
-                    if *slide_count > 0 {
-                        info = Some((src.id, file_path.clone(), *slide_index, *slide_count));
+                match &src.kind {
+                    SourceKind::PowerPointSource { file_path, slide_index, slide_count, .. } if *slide_count > 0 => {
+                        info = Some((src.id, file_path.clone(), *slide_index, *slide_count, true));
                         break;
                     }
+                    SourceKind::PdfSource { file_path, page_index, page_count, .. } if *page_count > 0 => {
+                        info = Some((src.id, file_path.clone(), *page_index, *page_count, false));
+                        break;
+                    }
+                    _ => {}
                 }
             }
             info
         };
 
-        if let Some((prev_src_id, prev_file_path, cur_idx, total)) = prev_ppt_info {
+        if let Some((prev_src_id, prev_file_path, cur_idx, total, is_ppt)) = prev_pres_info {
             let new_idx = if delta > 0 {
                 (cur_idx + (delta as usize)).min(total.saturating_sub(1))
             } else {
@@ -691,11 +708,15 @@ impl NexoraApp {
                 for scene in &mut self.studio.scenes {
                     for src in &mut scene.sources {
                         if src.id == prev_src_id || match &src.kind {
-                            SourceKind::PowerPointSource { file_path, .. } => !file_path.is_empty() && file_path == &prev_file_path,
+                            SourceKind::PowerPointSource { file_path, .. } => is_ppt && !file_path.is_empty() && file_path == &prev_file_path,
+                            SourceKind::PdfSource { file_path, .. } => !is_ppt && !file_path.is_empty() && file_path == &prev_file_path,
                             _ => false,
                         } {
                             if let SourceKind::PowerPointSource { slide_index, .. } = &mut src.kind {
                                 *slide_index = new_idx;
+                                changed = true;
+                            } else if let SourceKind::PdfSource { page_index, .. } = &mut src.kind {
+                                *page_index = new_idx;
                                 changed = true;
                             }
                         }

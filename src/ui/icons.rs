@@ -357,6 +357,10 @@ pub const BRUSH: &str = "\u{ebb8}";
 pub const DEVICE_GAMEPAD: &str = "\u{eb63}";
 /// `ti-presentation` — Image Slide Show
 pub const PRESENTATION: &str = "\u{eb70}";
+/// `ti-pdf` — PDF Document / Presentation
+pub const PDF: &str = "\u{f7ac}";
+/// `ti-file-type-pdf` — PDF File Type Badge
+pub const FILE_TYPE_PDF: &str = "\u{fb10}";
 /// `ti-list` — Scene Source
 pub const LIST: &str = "\u{eb6b}";
 /// `ti-layout-grid` — Grid Mode View

@@ -1612,6 +1612,79 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                         ui.end_row();
                                     }
                                 }
+                                SourceKind::PdfSource {
+                                    document_name,
+                                    file_path,
+                                    page_index,
+                                    page_count,
+                                    pages,
+                                } => {
+                                    if pages.is_empty() && !file_path.is_empty() {
+                                        let exported = crate::platform::get_or_export_pdf_pages(file_path);
+                                        if !exported.is_empty() {
+                                            *page_count = exported.len();
+                                            *pages = exported;
+                                            any_changed = true;
+                                        }
+                                    }
+
+                                    ui.label("Dokumen PDF:");
+                                    ui.horizontal(|ui| {
+                                        let btn_w = 84.0;
+                                        let input_w = (PROP_FIELD_W - btn_w - ui.spacing().item_spacing.x).max(120.0);
+                                        any_changed |= ui
+                                            .add_sized(
+                                                Vec2::new(input_w, PROP_FIELD_H),
+                                                standard_singleline_text(document_name, "Nama dokumen PDF..."),
+                                            )
+                                            .changed();
+                                        if ui
+                                            .add(
+                                                egui::Button::new(format!("{} Browse", icons::FOLDER_OPEN))
+                                                    .min_size(Vec2::new(btn_w, PROP_FIELD_H)),
+                                            )
+                                            .clicked()
+                                        {
+                                            if let Some(path) = crate::platform::pick_pdf_file_dialog() {
+                                                let p_str = path.to_string_lossy().to_string();
+                                                let exported = crate::platform::get_or_export_pdf_pages(&p_str);
+                                                *file_path = p_str;
+                                                *pages = exported.clone();
+                                                *page_count = exported.len();
+                                                *page_index = 0;
+                                                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                                                    *document_name = format!("PDF - {}", stem);
+                                                }
+                                                any_changed = true;
+                                            }
+                                        }
+                                    });
+                                    ui.end_row();
+
+                                    if *page_count > 0 {
+                                        ui.label("Halaman Aktif:");
+                                        ui.horizontal(|ui| {
+                                            let can_prev = *page_index > 0;
+                                            let can_next = *page_index + 1 < *page_count;
+                                            if ui.add_enabled(can_prev, egui::Button::new("◀ Prev")).clicked() {
+                                                *page_index = page_index.saturating_sub(1);
+                                                any_changed = true;
+                                            }
+                                            ui.label(RichText::new(format!("Halaman {} dari {}", *page_index + 1, page_count)).strong());
+                                            if ui.add_enabled(can_next, egui::Button::new("Next ▶")).clicked() {
+                                                *page_index = (*page_index + 1).min(page_count.saturating_sub(1));
+                                                any_changed = true;
+                                            }
+                                        });
+                                        ui.end_row();
+                                    }
+
+                                    if !file_path.is_empty() {
+                                        ui.label("File Path:");
+                                        ui.label(RichText::new(file_path.as_str()).small().color(p.text_muted));
+                                        ui.end_row();
+                                    }
+                                }
                                 SourceKind::TimeSource {
                                     mode,
                                     target_duration_sec,
@@ -1994,18 +2067,18 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                         });
 
                     ui.separator();
-                    ui.allocate_ui_with_layout(
-                        Vec2::new(460.0, 26.0),
-                        egui::Layout::right_to_left(egui::Align::Center),
-                        |ui| {
-                            if ui
-                                .add(egui::Button::new("OK").min_size(Vec2::new(68.0, 24.0)))
-                                .clicked()
-                            {
-                                close_clicked = true;
-                            }
-                        },
-                    );
+                    ui.add_space(4.0);
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui
+                            .add(
+                                egui::Button::new(RichText::new("OK").size(12.0))
+                                    .min_size(Vec2::new(76.0, 24.0)),
+                            )
+                            .clicked()
+                        {
+                            close_clicked = true;
+                        }
+                    });
                 } else {
                     ui.label("No source is currently selected.");
                     if ui.button("Close").clicked() {
@@ -3225,6 +3298,25 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                                     }
                                 });
                             }
+                            crate::studio::source::AddSourceType::Pdf => {
+                                ui.label(RichText::new("Pilih File Dokumen / Presentasi PDF (.pdf):").strong().small());
+                                ui.horizontal(|ui| {
+                                    let mut display_p = app.add_source_file_path.clone();
+                                    if ui.add_sized(Vec2::new(225.0, 24.0), egui::TextEdit::singleline(&mut display_p)).changed() {
+                                        app.add_source_file_path = display_p;
+                                    }
+                                    if ui.button(format!("{} Browse...", icons::FOLDER_OPEN)).clicked() {
+                                        if let Some(path) = crate::platform::pick_pdf_file_dialog() {
+                                            app.add_source_file_path = path.to_string_lossy().to_string();
+                                            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                                                app.add_source_name_buffer = format!("PDF - {}", stem);
+                                            }
+                                        }
+                                    }
+                                });
+                                ui.add_space(4.0);
+                                ui.label(RichText::new("PDF akan dibuka secara otomatis dalam mode Fullscreen (16:9) dengan navigasi halaman.").small().color(p.text_muted));
+                            }
                             crate::studio::source::AddSourceType::BrowserSource => {
                                 ui.label("Web URL:");
                                 ui.add_sized(Vec2::new(340.0, 24.0), egui::TextEdit::singleline(&mut app.add_source_browser_url));
@@ -3474,6 +3566,36 @@ fn validate_and_create_source(app: &mut NexoraApp) -> Option<crate::studio::sour
                     slides,
                 },
             ))
+        }
+        crate::studio::source::AddSourceType::Pdf => {
+            let trimmed_path = app.add_source_file_path.trim();
+            if trimmed_path.is_empty() {
+                app.add_source_error_message = Some("Silakan pilih file PDF terlebih dahulu.".to_string());
+                return None;
+            }
+            if !std::path::Path::new(trimmed_path).exists() {
+                app.add_source_error_message = Some("File PDF tidak ditemukan pada path yang ditentukan.".to_string());
+                return None;
+            }
+            let doc_name = std::path::Path::new(trimmed_path)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or(&name)
+                .to_string();
+            let pages = crate::platform::get_or_export_pdf_pages(trimmed_path);
+            let page_count = pages.len();
+            let mut item = SourceItem::new(
+                name,
+                SourceKind::PdfSource {
+                    document_name: doc_name,
+                    file_path: trimmed_path.to_string(),
+                    page_index: 0,
+                    page_count,
+                    pages,
+                },
+            );
+            item.transform.stretch_to_screen();
+            Some(item)
         }
         crate::studio::source::AddSourceType::BrowserSource => {
             let url = if app.add_source_browser_url.trim().is_empty() {

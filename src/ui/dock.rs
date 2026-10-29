@@ -1,4 +1,4 @@
-use crate::app::NexoraApp;
+﻿use crate::app::NexoraApp;
 use crate::audio::AudioChannel;
 use crate::recording::RecordingStatus;
 use crate::studio::source::{
@@ -1184,6 +1184,11 @@ fn populate_add_source_menu(ui: &mut egui::Ui, action_out: &mut Option<SourceCon
             SourceContextAction::OpenAddSourceDialog(crate::studio::source::AddSourceType::PowerPoint),
         ),
         (
+            icons::PDF,
+            "PDF Document / Presentation",
+            SourceContextAction::OpenAddSourceDialog(crate::studio::source::AddSourceType::Pdf),
+        ),
+        (
             icons::CLOCK,
             "Waktu / Jam & Timer",
             SourceContextAction::OpenAddSourceDialog(crate::studio::source::AddSourceType::TimeSource),
@@ -1587,12 +1592,18 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                         if *slide_count > 0 {
                             *slide_index = (*slide_index + 1).min(slide_count.saturating_sub(1));
                         }
+                    } else if let SourceKind::PdfSource { page_index, page_count, .. } = &mut src.kind {
+                        if *page_count > 0 {
+                            *page_index = (*page_index + 1).min(page_count.saturating_sub(1));
+                        }
                     }
                 }
             } else if ui.input(|i| i.key_pressed(egui::Key::ArrowLeft) || i.key_pressed(egui::Key::PageUp)) {
                 if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
                     if let SourceKind::PowerPointSource { slide_index, .. } = &mut src.kind {
                         *slide_index = slide_index.saturating_sub(1);
+                    } else if let SourceKind::PdfSource { page_index, .. } = &mut src.kind {
+                        *page_index = page_index.saturating_sub(1);
                     }
                 }
             }
@@ -1668,13 +1679,15 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                     let current_filter_kind = src.filter.kind;
                     let is_media = matches!(src.kind, SourceKind::MediaSource { .. });
                     let is_ppt = matches!(src.kind, SourceKind::PowerPointSource { .. });
+                    let is_pdf = matches!(src.kind, SourceKind::PdfSource { .. });
+                    let is_presentation = is_ppt || is_pdf;
 
                     let row_h = 31.0;
                     let (row_rect, _) =
                         ui.allocate_exact_size(Vec2::new(row_w, row_h), Sense::hover());
 
                     // Reserve right-hand zone for action buttons ([Play] [Mute] [Eye] [Lock] or [Prev] [Next] [Eye] [Lock])
-                    let btn_count = if is_media || is_ppt { 4 } else { 2 };
+                    let btn_count = if is_media || is_presentation { 4 } else { 2 };
                     let buttons_zone_w = (btn_count as f32) * 28.0 + 6.0;
                     let select_rect = Rect::from_min_max(
                         row_rect.min,
@@ -1904,6 +1917,39 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                         ) {
                             *is_playing = !*is_playing;
                             vis_changed = true;
+                        }
+                    }
+
+                    if let SourceKind::PdfSource {
+                        page_index,
+                        page_count,
+                        ..
+                    } = &mut src.kind
+                    {
+                        if *page_count > 0 {
+                            let tip_prev = format!("Halaman Sebelumnya (Saat ini: {}/{})", *page_index + 1, page_count);
+                            if paint_icon_action_btn(
+                                &mut btn_ui,
+                                icons::ARROW_LEFT,
+                                None,
+                                &p,
+                                &tip_prev,
+                            ) {
+                                *page_index = page_index.saturating_sub(1);
+                                vis_changed = true;
+                            }
+
+                            let tip_next = format!("Halaman Selanjutnya (Saat ini: {}/{})", *page_index + 1, page_count);
+                            if paint_icon_action_btn(
+                                &mut btn_ui,
+                                icons::ARROW_RIGHT,
+                                None,
+                                &p,
+                                &tip_next,
+                            ) {
+                                *page_index = (*page_index + 1).min(page_count.saturating_sub(1));
+                                vis_changed = true;
+                            }
                         }
                     }
 

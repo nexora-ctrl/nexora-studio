@@ -505,6 +505,16 @@ pub enum SourceKind {
         #[serde(default)]
         slides: Vec<String>,
     },
+    PdfSource {
+        document_name: String,
+        file_path: String,
+        #[serde(default)]
+        page_index: usize,
+        #[serde(default)]
+        page_count: usize,
+        #[serde(default)]
+        pages: Vec<String>,
+    },
     TimeSource {
         #[serde(default)]
         mode: TimeSourceMode,
@@ -591,6 +601,7 @@ impl SourceKind {
             Self::TextGdiPlus { .. } => crate::ui::icons::LETTER_CASE,
             Self::BrowserSource { .. } => crate::ui::icons::WORLD,
             Self::PowerPointSource { .. } => crate::ui::icons::PRESENTATION,
+            Self::PdfSource { .. } => crate::ui::icons::PDF,
             Self::TimeSource { mode, .. } => match mode {
                 TimeSourceMode::RealTimeClock => crate::ui::icons::CLOCK,
                 TimeSourceMode::CountUpStopwatch => crate::ui::icons::STOPWATCH,
@@ -616,6 +627,7 @@ impl SourceKind {
             Self::TextGdiPlus { .. } => "TEXT",
             Self::BrowserSource { .. } => "WEB",
             Self::PowerPointSource { .. } => "PPT",
+            Self::PdfSource { .. } => "PDF",
             Self::TimeSource { .. } => "TIME",
             Self::SceneSource { .. } => "SCENE",
         }
@@ -637,6 +649,7 @@ impl SourceKind {
             Self::TextGdiPlus { .. } => "Text (GDI+)",
             Self::BrowserSource { .. } => "Browser",
             Self::PowerPointSource { .. } => "PowerPoint / PPT Source",
+            Self::PdfSource { .. } => "PDF Document / Presentation",
             Self::TimeSource { .. } => "Waktu / Jam & Timer",
             Self::SceneSource { .. } => "Scene",
         }
@@ -718,6 +731,27 @@ impl SourceKind {
                     presentation_name.clone()
                 }
             }
+            Self::PdfSource {
+                document_name,
+                file_path,
+                page_index,
+                page_count,
+                ..
+            } => {
+                if !file_path.is_empty() {
+                    let fname = std::path::Path::new(file_path)
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or(file_path.as_str());
+                    if *page_count > 0 {
+                        format!("PDF: {} (Hal {}/{})", fname, *page_index + 1, page_count)
+                    } else {
+                        format!("PDF File: {}", fname)
+                    }
+                } else {
+                    document_name.clone()
+                }
+            }
             Self::TimeSource {
                 mode,
                 target_duration_sec,
@@ -747,6 +781,7 @@ pub enum AddSourceType {
     TextGdiPlus,
     ColorSource,
     PowerPoint,
+    Pdf,
     TimeSource,
     BrowserSource,
     WebcamDevice,
@@ -763,6 +798,7 @@ impl AddSourceType {
             AddSourceType::TextGdiPlus,
             AddSourceType::ColorSource,
             AddSourceType::PowerPoint,
+            AddSourceType::Pdf,
             AddSourceType::TimeSource,
             AddSourceType::BrowserSource,
             AddSourceType::WebcamDevice,
@@ -779,6 +815,7 @@ impl AddSourceType {
             Self::TextGdiPlus => "Text (GDI+)",
             Self::ColorSource => "Color Source",
             Self::PowerPoint => "PowerPoint / PPT Source",
+            Self::Pdf => "PDF Document / Presentation",
             Self::TimeSource => "Waktu / Jam & Timer",
             Self::BrowserSource => "Browser Source",
             Self::WebcamDevice => "Video Capture Device",
@@ -795,6 +832,7 @@ impl AddSourceType {
             Self::TextGdiPlus => "Menambahkan teks kustom, animasi berjalan (running text), atau template TV Show.",
             Self::ColorSource => "Menambahkan bidang warna solid sebagai latar belakang (solid background).",
             Self::PowerPoint => "Menampilkan presentasi PowerPoint (memilih jendela slide show atau file presentasi).",
+            Self::Pdf => "Membuka dokumen atau presentasi PDF langsung fullscreen dengan navigasi halaman (Next/Prev, remote clicker, arrow keys).",
             Self::TimeSource => "Menampilkan jam real-time, hitung mundur (countdown), atau hitung maju (stopwatch) dengan berbagai pilihan efek visual dan font.",
             Self::BrowserSource => "Menampilkan halaman website / overlay browser melalui URL.",
             Self::WebcamDevice => "Menangkap kamera webcam fisik (Integrated Camera, USB Cam).",
@@ -811,6 +849,7 @@ impl AddSourceType {
             Self::TextGdiPlus => crate::ui::icons::LETTER_CASE,
             Self::ColorSource => crate::ui::icons::BRUSH,
             Self::PowerPoint => crate::ui::icons::PRESENTATION,
+            Self::Pdf => crate::ui::icons::PDF,
             Self::TimeSource => crate::ui::icons::CLOCK,
             Self::BrowserSource => crate::ui::icons::WORLD,
             Self::WebcamDevice => crate::ui::icons::CAMERA,
@@ -827,6 +866,7 @@ impl AddSourceType {
             Self::TextGdiPlus => "Text",
             Self::ColorSource => "Color Source",
             Self::PowerPoint => "PowerPoint Slide Show",
+            Self::Pdf => "PDF Document",
             Self::TimeSource => "Waktu",
             Self::BrowserSource => "Browser",
             Self::WebcamDevice => "Video Capture Device",
@@ -846,6 +886,7 @@ impl AddSourceType {
             | Self::WebcamDevice
             | Self::ImageSlideShow => ("Ready", true),
             Self::PowerPoint => ("Window/Slide", true),
+            Self::Pdf => ("PDF/Slides", true),
             Self::BrowserSource => ("Web URL", false),
         }
     }

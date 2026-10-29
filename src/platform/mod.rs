@@ -87,6 +87,19 @@ pub fn pick_powerpoint_file_dialog() -> Option<PathBuf> {
     }
 }
 
+/// Opens a native Windows File Open Dialog (`GetOpenFileNameW`) for PDF documents (.pdf)
+pub fn pick_pdf_file_dialog() -> Option<PathBuf> {
+    #[cfg(target_os = "windows")]
+    {
+        let filter = "PDF Documents (*.pdf)\0*.pdf\0All Files (*.*)\0*.*\0\0";
+        win32_file_dialog::open_file_dialog("Select PDF Document", filter)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        None
+    }
+}
+
 /// Exports or retrieves cached high-resolution slide PNGs from a PowerPoint presentation (.pptx or .ppt).
 /// Uses native PowerPoint COM Automation (hidden window, zero dependencies) to export all slides to 1920x1080 PNG images.
 pub fn get_or_export_ppt_slides(file_path: &str) -> Vec<String> {
@@ -161,6 +174,121 @@ pub fn get_or_export_ppt_slides(file_path: &str) -> Vec<String> {
     }
 
     existing_slides
+}
+
+/// Exports or retrieves cached high-resolution slide PNGs from a PDF document (.pdf).
+/// Uses native Windows Runtime `Windows.Data.Pdf.PdfDocument` (100% offline, zero dependencies)
+/// to render every page to a high-res 1920px width PNG image.
+pub fn get_or_export_pdf_pages(file_path: &str) -> Vec<String> {
+    if file_path.trim().is_empty() {
+        return Vec::new();
+    }
+    let p = std::path::Path::new(file_path);
+    if !p.exists() {
+        return Vec::new();
+    }
+
+    let cache_root = if let Some(app_data) = std::env::var_os("APPDATA") {
+        PathBuf::from(app_data).join("Nexora").join("NexoraStudio").join("pdf_cache")
+    } else {
+        std::env::temp_dir().join("nexora_pdf_cache")
+    };
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    use std::hash::{Hash, Hasher};
+    file_path.hash(&mut hasher);
+    if let Ok(meta) = p.metadata() {
+        if let Ok(modified) = meta.modified() {
+            modified.hash(&mut hasher);
+        }
+    }
+    let hash_val = hasher.finish();
+    let sanitized_stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("document")
+        .chars().filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-').take(24).collect::<String>();
+    let out_dir = cache_root.join(format!("{}_{:016x}", sanitized_stem, hash_val));
+
+    let mut existing_pages = collect_sorted_slide_files(&out_dir);
+    if !existing_pages.is_empty() {
+        return existing_pages;
+    }
+
+    let _ = std::fs::create_dir_all(&out_dir);
+
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(rendered) = render_pdf_to_images(file_path, &out_dir) {
+            if !rendered.is_empty() {
+                return rendered;
+            }
+        }
+        existing_pages = collect_sorted_slide_files(&out_dir);
+    }
+
+    existing_pages
+}
+
+#[cfg(target_os = "windows")]
+fn render_pdf_to_images(file_path: &str, out_dir: &std::path::Path) -> windows::core::Result<Vec<String>> {
+    use windows::core::HSTRING;
+    use windows::Data::Pdf::{PdfDocument, PdfPageRenderOptions};
+    use windows::Storage::{StorageFile, StorageFolder, CreationCollisionOption, FileAccessMode};
+
+    let abs_path = std::fs::canonicalize(file_path).unwrap_or_else(|_| PathBuf::from(file_path));
+    let mut abs_str = abs_path.to_string_lossy().to_string();
+    if abs_str.starts_with(r"\\?\") {
+        abs_str = abs_str[4..].to_string();
+    }
+
+    let h_file_path = HSTRING::from(abs_str);
+    let storage_file = StorageFile::GetFileFromPathAsync(&h_file_path)?.join()?;
+    let doc = PdfDocument::LoadFromFileAsync(&storage_file)?.join()?;
+    let page_count = doc.PageCount()?;
+
+    let abs_out = std::fs::canonicalize(out_dir).unwrap_or_else(|_| out_dir.to_path_buf());
+    let mut abs_out_str = abs_out.to_string_lossy().to_string();
+    if abs_out_str.starts_with(r"\\?\") {
+        abs_out_str = abs_out_str[4..].to_string();
+    }
+    let h_out_dir = HSTRING::from(abs_out_str);
+    let folder = StorageFolder::GetFolderFromPathAsync(&h_out_dir)?.join()?;
+
+    let mut result = Vec::with_capacity(page_count as usize);
+
+    for i in 0..page_count {
+        let page = doc.GetPage(i)?;
+        let file_name = format!("page_{:04}.png", i + 1);
+        let out_file = folder.CreateFileAsync(&HSTRING::from(&file_name), CreationCollisionOption::ReplaceExisting)?.join()?;
+        let stream = out_file.OpenAsync(FileAccessMode::ReadWrite)?.join()?;
+
+        let options = PdfPageRenderOptions::new()?;
+        options.SetDestinationWidth(1920)?;
+
+        page.RenderWithOptionsToStreamAsync(&stream, &options)?.join()?;
+        let _ = stream.Close();
+
+        let full_out_path = out_dir.join(&file_name).to_string_lossy().to_string();
+        result.push(full_out_path);
+    }
+
+    Ok(result)
+}
+
+#[cfg(test)]
+mod pdf_tests {
+    use super::*;
+
+    #[test]
+    fn test_pdf_export_sample() {
+        let sample = r"C:\Users\JUNIOR-JR\.gemini\antigravity\brain\8e2f5c0f-b265-414e-8c15-540a1b15796a\scratch\sample_valid.pdf";
+        let out_dir = std::env::temp_dir().join("test_pdf_out");
+        let _ = std::fs::create_dir_all(&out_dir);
+        let res = render_pdf_to_images(sample, &out_dir);
+        println!("Render result: {:?}", res);
+        assert!(res.is_ok(), "Failed: {:?}", res);
+        let pages = res.unwrap();
+        assert!(!pages.is_empty(), "Expected at least 1 page");
+        println!("Rendered page file: {}", pages[0]);
+    }
 }
 
 fn collect_sorted_slide_files(dir: &std::path::Path) -> Vec<String> {
