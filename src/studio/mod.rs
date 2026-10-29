@@ -274,6 +274,33 @@ impl StudioState {
                         }
                     }
                 }
+
+                if let SourceKind::PdfSource {
+                    file_path,
+                    pages,
+                    ..
+                } = &src.kind
+                {
+                    if let Some(prog_src) = self
+                        .program_scene_snapshot
+                        .sources
+                        .iter_mut()
+                        .find(|ps| ps.id == src.id || match &ps.kind {
+                            SourceKind::PdfSource { file_path: p_fp, .. } => !p_fp.is_empty() && p_fp == file_path,
+                            _ => false,
+                        })
+                    {
+                        if let SourceKind::PdfSource {
+                            pages: p_pages,
+                            ..
+                        } = &mut prog_src.kind
+                        {
+                            if p_pages.is_empty() && !pages.is_empty() {
+                                *p_pages = pages.clone();
+                            }
+                        }
+                    }
+                }
             }
         }
     }

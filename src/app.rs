@@ -1,4 +1,4 @@
-﻿use crate::audio::AudioMixerState;
+use crate::audio::AudioMixerState;
 use crate::capture::{CaptureCatalog, CaptureRequestTarget, LiveCaptureEngine};
 use crate::encoder::EncoderConfig;
 use crate::media_library::MediaLibrary;
@@ -445,8 +445,9 @@ impl NexoraApp {
         for scene in &mut self.studio.scenes {
             for src in &mut scene.sources {
                 match &mut src.kind {
-                    SourceKind::PowerPointSource { file_path, window_hwnd, slides, slide_count, .. } => {
-                        if *window_hwnd == 0 && slides.is_empty() && !file_path.trim().is_empty() {
+                    SourceKind::PowerPointSource { file_path, window_hwnd, slides, slide_count, load_attempted, .. } => {
+                        if *window_hwnd == 0 && slides.is_empty() && !file_path.trim().is_empty() && !*load_attempted {
+                            *load_attempted = true;
                             let exported = crate::platform::get_or_export_ppt_slides(file_path);
                             if !exported.is_empty() {
                                 *slide_count = exported.len();
@@ -454,8 +455,9 @@ impl NexoraApp {
                             }
                         }
                     }
-                    SourceKind::PdfSource { file_path, pages, page_count, .. } => {
-                        if pages.is_empty() && !file_path.trim().is_empty() {
+                    SourceKind::PdfSource { file_path, pages, page_count, load_attempted, .. } => {
+                        if pages.is_empty() && !file_path.trim().is_empty() && !*load_attempted {
+                            *load_attempted = true;
                             let exported = crate::platform::get_or_export_pdf_pages(file_path);
                             if !exported.is_empty() {
                                 *page_count = exported.len();
@@ -630,22 +632,32 @@ impl NexoraApp {
     }
 
     /// Advances or rewinds the active presentation slide by delta (+1 = next, -1 = prev).
-    /// Updates the slide on Program Output (and matching sources across scenes) so the audience immediately sees the change!
+    /// Priority order:
+    /// 1. Program Output (LIVE) if it contains a PowerPoint or PDF presentation.
+    /// 2. Active Preview scene if Program has no presentation.
+    /// 3. Any scene in the project containing PPT or PDF (allows advancing slides even while switching/previewing other scenes).
+    /// All instances of the presentation are automatically synchronized across Program, Preview, and all scenes.
     pub fn advance_presentation_slide(&mut self, delta: i32) -> bool {
         let mut changed = false;
 
-        // 1. First priority: Update PowerPoint or PDF source on Program Output (what the audience sees)
+        // 1. First priority: Update PowerPoint or PDF source on Program Output (what the audience sees live)
         let prog_pres_info = {
             let mut info = None;
             for src in &self.studio.program_scene_snapshot.sources {
                 match &src.kind {
-                    SourceKind::PowerPointSource { file_path, slide_index, slide_count, .. } if *slide_count > 0 => {
-                        info = Some((src.id, file_path.clone(), *slide_index, *slide_count, true));
-                        break;
+                    SourceKind::PowerPointSource { file_path, slide_index, slide_count, slides, .. } => {
+                        let total = if *slide_count > 0 { *slide_count } else { slides.len() };
+                        if total > 0 {
+                            info = Some((src.id, file_path.clone(), *slide_index, total, true));
+                            break;
+                        }
                     }
-                    SourceKind::PdfSource { file_path, page_index, page_count, .. } if *page_count > 0 => {
-                        info = Some((src.id, file_path.clone(), *page_index, *page_count, false));
-                        break;
+                    SourceKind::PdfSource { file_path, page_index, page_count, pages, .. } => {
+                        let total = if *page_count > 0 { *page_count } else { pages.len() };
+                        if total > 0 {
+                            info = Some((src.id, file_path.clone(), *page_index, total, false));
+                            break;
+                        }
                     }
                     _ => {}
                 }
@@ -706,13 +718,19 @@ impl NexoraApp {
             let scene = self.studio.preview_scene();
             for src in &scene.sources {
                 match &src.kind {
-                    SourceKind::PowerPointSource { file_path, slide_index, slide_count, .. } if *slide_count > 0 => {
-                        info = Some((src.id, file_path.clone(), *slide_index, *slide_count, true));
-                        break;
+                    SourceKind::PowerPointSource { file_path, slide_index, slide_count, slides, .. } => {
+                        let total = if *slide_count > 0 { *slide_count } else { slides.len() };
+                        if total > 0 {
+                            info = Some((src.id, file_path.clone(), *slide_index, total, true));
+                            break;
+                        }
                     }
-                    SourceKind::PdfSource { file_path, page_index, page_count, .. } if *page_count > 0 => {
-                        info = Some((src.id, file_path.clone(), *page_index, *page_count, false));
-                        break;
+                    SourceKind::PdfSource { file_path, page_index, page_count, pages, .. } => {
+                        let total = if *page_count > 0 { *page_count } else { pages.len() };
+                        if total > 0 {
+                            info = Some((src.id, file_path.clone(), *page_index, total, false));
+                            break;
+                        }
                     }
                     _ => {}
                 }
@@ -745,10 +763,89 @@ impl NexoraApp {
                         }
                     }
                 }
-
                 self.studio.sync_media_transport_to_program();
                 if self.studio.auto_sync_program {
                     self.studio.sync_if_linked();
+                }
+            }
+            if changed {
+                self.sync_active_capture_requests();
+                return true;
+            }
+        }
+
+        // 3. Third priority: If neither Program nor active Preview scene has PPT/PDF (e.g. user switched Preview to an empty scene),
+        // search across all scenes in the project so the presenter can still advance slides from any scene!
+        let any_pres_info = {
+            let mut info = None;
+            for scene in &self.studio.scenes {
+                for src in &scene.sources {
+                    match &src.kind {
+                        SourceKind::PowerPointSource { file_path, slide_index, slide_count, slides, .. } => {
+                            let total = if *slide_count > 0 { *slide_count } else { slides.len() };
+                            if total > 0 {
+                                info = Some((src.id, file_path.clone(), *slide_index, total, true));
+                                break;
+                            }
+                        }
+                        SourceKind::PdfSource { file_path, page_index, page_count, pages, .. } => {
+                            let total = if *page_count > 0 { *page_count } else { pages.len() };
+                            if total > 0 {
+                                info = Some((src.id, file_path.clone(), *page_index, total, false));
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                if info.is_some() {
+                    break;
+                }
+            }
+            info
+        };
+
+        if let Some((src_id, target_file_path, cur_idx, total, is_ppt)) = any_pres_info {
+            let new_idx = if delta > 0 {
+                (cur_idx + (delta as usize)).min(total.saturating_sub(1))
+            } else {
+                cur_idx.saturating_sub((-delta) as usize)
+            };
+
+            if new_idx != cur_idx {
+                for scene in &mut self.studio.scenes {
+                    for src in &mut scene.sources {
+                        if src.id == src_id || match &src.kind {
+                            SourceKind::PowerPointSource { file_path, .. } => is_ppt && !file_path.is_empty() && file_path == &target_file_path,
+                            SourceKind::PdfSource { file_path, .. } => !is_ppt && !file_path.is_empty() && file_path == &target_file_path,
+                            _ => false,
+                        } {
+                            if let SourceKind::PowerPointSource { slide_index, .. } = &mut src.kind {
+                                *slide_index = new_idx;
+                                changed = true;
+                            } else if let SourceKind::PdfSource { page_index, .. } = &mut src.kind {
+                                *page_index = new_idx;
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+
+                // If Program has matching source, update it too
+                for src in &mut self.studio.program_scene_snapshot.sources {
+                    if src.id == src_id || match &src.kind {
+                        SourceKind::PowerPointSource { file_path, .. } => is_ppt && !file_path.is_empty() && file_path == &target_file_path,
+                        SourceKind::PdfSource { file_path, .. } => !is_ppt && !file_path.is_empty() && file_path == &target_file_path,
+                        _ => false,
+                    } {
+                        if let SourceKind::PowerPointSource { slide_index, .. } = &mut src.kind {
+                            *slide_index = new_idx;
+                            changed = true;
+                        } else if let SourceKind::PdfSource { page_index, .. } = &mut src.kind {
+                            *page_index = new_idx;
+                            changed = true;
+                        }
+                    }
                 }
             }
             if changed {
@@ -1488,6 +1585,7 @@ impl eframe::App for NexoraApp {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        crate::platform::signal_app_shutting_down();
         self.media_audio_engine.shutdown_all();
         // Update the active layout preset with the final state and save all settings & project files
         let active_name = self.settings.active_layout_name.clone();

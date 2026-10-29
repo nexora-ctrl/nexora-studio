@@ -403,12 +403,94 @@ fn render_single_viewport_card(
                         .color(p.text_primary),
                 );
 
+                let maybe_pres = {
+                    let mut res = None;
+                    let target_scene = match role {
+                        ViewportRole::Preview => app.studio.preview_scene(),
+                        ViewportRole::Program => app.studio.program_scene(),
+                    };
+                    for s in &target_scene.sources {
+                        if !s.visible {
+                            continue;
+                        }
+                        match &s.kind {
+                            SourceKind::PowerPointSource { slide_index, slide_count, slides, .. } => {
+                                let total = if *slide_count > 0 { *slide_count } else { slides.len() };
+                                if total > 0 {
+                                    res = Some((*slide_index, total, "Slide"));
+                                    break;
+                                }
+                            }
+                            SourceKind::PdfSource { page_index, page_count, pages, .. } => {
+                                let total = if *page_count > 0 { *page_count } else { pages.len() };
+                                if total > 0 {
+                                    res = Some((*page_index, total, "Halaman"));
+                                    break;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    if res.is_none() && role == ViewportRole::Program {
+                        for sc in &app.studio.scenes {
+                            for s in &sc.sources {
+                                if !s.visible {
+                                    continue;
+                                }
+                                match &s.kind {
+                                    SourceKind::PowerPointSource { slide_index, slide_count, slides, .. } => {
+                                        let total = if *slide_count > 0 { *slide_count } else { slides.len() };
+                                        if total > 0 {
+                                            res = Some((*slide_index, total, "Slide"));
+                                            break;
+                                        }
+                                    }
+                                    SourceKind::PdfSource { page_index, page_count, pages, .. } => {
+                                        let total = if *page_count > 0 { *page_count } else { pages.len() };
+                                        if total > 0 {
+                                            res = Some((*page_index, total, "Halaman"));
+                                            break;
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            if res.is_some() {
+                                break;
+                            }
+                        }
+                    }
+                    res
+                };
+
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label(
                         RichText::new(format!("{} layer(s)", source_count))
                             .small()
                             .color(p.text_muted),
                     );
+
+                    if let Some((cur_idx, total_count, pres_label)) = maybe_pres {
+                        ui.add_space(8.0);
+                        let next_btn = egui::Button::new(RichText::new("Next ▶").size(11.0))
+                            .min_size(Vec2::new(48.0, 19.0));
+                        if ui.add(next_btn).clicked() {
+                            app.advance_presentation_slide(1);
+                        }
+
+                        ui.label(
+                            RichText::new(format!("{} {}/{}", pres_label, cur_idx + 1, total_count))
+                                .size(11.0)
+                                .color(p.accent_preview)
+                                .strong(),
+                        );
+
+                        let prev_btn = egui::Button::new(RichText::new("◀ Prev").size(11.0))
+                            .min_size(Vec2::new(48.0, 19.0));
+                        if ui.add(prev_btn).clicked() {
+                            app.advance_presentation_slide(-1);
+                        }
+                    }
                 });
             });
 
@@ -1719,11 +1801,22 @@ pub(crate) fn render_source_item_on_canvas(
             }
         }
         SourceKind::PdfSource {
+            file_path,
             pages,
             page_index,
             ..
         } => {
-            if let Some(current_page) = pages.get(*page_index) {
+            let valid_page = if let Some(p_str) = pages.get(*page_index) {
+                if std::path::Path::new(p_str).exists() {
+                    Some(p_str.clone())
+                } else {
+                    crate::platform::ensure_pdf_page_rendered(file_path, *page_index)
+                }
+            } else {
+                crate::platform::ensure_pdf_page_rendered(file_path, *page_index)
+            };
+
+            if let Some(ref current_page) = valid_page {
                 let key = format!("IMG:{}", current_page);
                 app.capture_engine.get_or_update_filtered_texture(egui_ctx, &key, &src.filter)
             } else {

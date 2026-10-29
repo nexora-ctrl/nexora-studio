@@ -504,6 +504,8 @@ pub enum SourceKind {
         slide_count: usize,
         #[serde(default)]
         slides: Vec<String>,
+        #[serde(skip)]
+        load_attempted: bool,
     },
     PdfSource {
         document_name: String,
@@ -514,6 +516,8 @@ pub enum SourceKind {
         page_count: usize,
         #[serde(default)]
         pages: Vec<String>,
+        #[serde(skip)]
+        load_attempted: bool,
     },
     TimeSource {
         #[serde(default)]

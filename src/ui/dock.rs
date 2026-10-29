@@ -1587,25 +1587,9 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
             } else if ui.input(|i| i.key_pressed(egui::Key::F2)) {
                 pending_action = Some(SourceContextAction::Rename(sel_id));
             } else if ui.input(|i| i.key_pressed(egui::Key::ArrowRight) || i.key_pressed(egui::Key::PageDown)) {
-                if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
-                    if let SourceKind::PowerPointSource { slide_index, slide_count, .. } = &mut src.kind {
-                        if *slide_count > 0 {
-                            *slide_index = (*slide_index + 1).min(slide_count.saturating_sub(1));
-                        }
-                    } else if let SourceKind::PdfSource { page_index, page_count, .. } = &mut src.kind {
-                        if *page_count > 0 {
-                            *page_index = (*page_index + 1).min(page_count.saturating_sub(1));
-                        }
-                    }
-                }
+                app.advance_presentation_slide(1);
             } else if ui.input(|i| i.key_pressed(egui::Key::ArrowLeft) || i.key_pressed(egui::Key::PageUp)) {
-                if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
-                    if let SourceKind::PowerPointSource { slide_index, .. } = &mut src.kind {
-                        *slide_index = slide_index.saturating_sub(1);
-                    } else if let SourceKind::PdfSource { page_index, .. } = &mut src.kind {
-                        *page_index = page_index.saturating_sub(1);
-                    }
-                }
+                app.advance_presentation_slide(-1);
             }
         }
     }
@@ -1648,6 +1632,7 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                 let cur_sel = scene.selected_source_id;
                 let mut new_selected = cur_sel;
                 let mut vis_changed = false;
+                let mut pending_slide_delta: Option<i32> = None;
 
                 if scene.sources.is_empty() {
                     let empty_resp = ui.selectable_label(
@@ -1923,11 +1908,13 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                     if let SourceKind::PdfSource {
                         page_index,
                         page_count,
+                        pages,
                         ..
                     } = &mut src.kind
                     {
-                        if *page_count > 0 {
-                            let tip_prev = format!("Halaman Sebelumnya (Saat ini: {}/{})", *page_index + 1, page_count);
+                        let total = if *page_count > 0 { *page_count } else { pages.len() };
+                        if total > 0 {
+                            let tip_prev = format!("Halaman Sebelumnya (Saat ini: {}/{})", *page_index + 1, total);
                             if paint_icon_action_btn(
                                 &mut btn_ui,
                                 icons::ARROW_LEFT,
@@ -1935,11 +1922,10 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                                 &p,
                                 &tip_prev,
                             ) {
-                                *page_index = page_index.saturating_sub(1);
-                                vis_changed = true;
+                                pending_slide_delta = Some(-1);
                             }
 
-                            let tip_next = format!("Halaman Selanjutnya (Saat ini: {}/{})", *page_index + 1, page_count);
+                            let tip_next = format!("Halaman Selanjutnya (Saat ini: {}/{})", *page_index + 1, total);
                             if paint_icon_action_btn(
                                 &mut btn_ui,
                                 icons::ARROW_RIGHT,
@@ -1947,8 +1933,7 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                                 &p,
                                 &tip_next,
                             ) {
-                                *page_index = (*page_index + 1).min(page_count.saturating_sub(1));
-                                vis_changed = true;
+                                pending_slide_delta = Some(1);
                             }
                         }
                     }
@@ -1956,11 +1941,13 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                     if let SourceKind::PowerPointSource {
                         slide_index,
                         slide_count,
+                        slides,
                         ..
                     } = &mut src.kind
                     {
-                        if *slide_count > 0 {
-                            let tip_prev = format!("Slide Sebelumnya (Saat ini: {}/{})", *slide_index + 1, slide_count);
+                        let total = if *slide_count > 0 { *slide_count } else { slides.len() };
+                        if total > 0 {
+                            let tip_prev = format!("Slide Sebelumnya (Saat ini: {}/{})", *slide_index + 1, total);
                             if paint_icon_action_btn(
                                 &mut btn_ui,
                                 icons::ARROW_LEFT,
@@ -1968,11 +1955,10 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                                 &p,
                                 &tip_prev,
                             ) {
-                                *slide_index = slide_index.saturating_sub(1);
-                                vis_changed = true;
+                                pending_slide_delta = Some(-1);
                             }
 
-                            let tip_next = format!("Slide Selanjutnya (Saat ini: {}/{})", *slide_index + 1, slide_count);
+                            let tip_next = format!("Slide Selanjutnya (Saat ini: {}/{})", *slide_index + 1, total);
                             if paint_icon_action_btn(
                                 &mut btn_ui,
                                 icons::ARROW_RIGHT,
@@ -1980,8 +1966,7 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                                 &p,
                                 &tip_next,
                             ) {
-                                *slide_index = (*slide_index + 1).min(slide_count.saturating_sub(1));
-                                vis_changed = true;
+                                pending_slide_delta = Some(1);
                             }
                         }
                     }
@@ -2031,6 +2016,9 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                     .unwrap_or_default();
 
                 scene.selected_source_id = new_selected;
+                if let Some(delta) = pending_slide_delta {
+                    app.advance_presentation_slide(delta);
+                }
                 if vis_changed {
                     app.studio.sync_media_transport_to_program();
                     app.studio.sync_if_linked();

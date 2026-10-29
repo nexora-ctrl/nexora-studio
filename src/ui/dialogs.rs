@@ -1522,6 +1522,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                     slide_index,
                                     slide_count,
                                     slides,
+                                    ..
                                 } => {
                                     if slides.is_empty() && !file_path.is_empty() && *window_hwnd == 0 {
                                         let exported = crate::platform::get_or_export_ppt_slides(file_path);
@@ -1621,6 +1622,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                     page_index,
                                     page_count,
                                     pages,
+                                    ..
                                 } => {
                                     if pages.is_empty() && !file_path.is_empty() {
                                         let exported = crate::platform::get_or_export_pdf_pages(file_path);
@@ -2079,19 +2081,23 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                         });
 
                     ui.separator();
-                    ui.add_space(4.0);
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let ok_btn = egui::Button::new(
-                            RichText::new("OK")
-                                .size(12.0)
-                                .color(egui::Color32::WHITE),
-                        )
-                        .fill(p.accent_preview)
-                        .min_size(Vec2::new(80.0, 26.0));
-                        if ui.add(ok_btn).clicked() {
-                            close_clicked = true;
-                        }
-                    });
+                    ui.add_space(6.0);
+                    ui.allocate_ui_with_layout(
+                        Vec2::new(ui.available_width(), 26.0),
+                        egui::Layout::right_to_left(egui::Align::Center),
+                        |ui| {
+                            let ok_btn = egui::Button::new(
+                                RichText::new("OK")
+                                    .size(12.0)
+                                    .color(egui::Color32::WHITE),
+                            )
+                            .fill(p.accent_primary)
+                            .min_size(Vec2::new(84.0, 26.0));
+                            if ui.add(ok_btn).clicked() {
+                                close_clicked = true;
+                            }
+                        },
+                    );
                 } else {
                     ui.label("No source is currently selected.");
                     if ui.button("Close").clicked() {
@@ -3390,27 +3396,38 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                         ui.separator();
                         ui.add_space(6.0);
 
-                        // Action buttons
-                        ui.horizontal(|ui| {
-                            let add_btn = egui::Button::new(RichText::new(format!("{} Add Source", icons::PLUS)).strong().color(egui::Color32::WHITE))
+                        // Action buttons (aligned right with precision)
+                        ui.allocate_ui_with_layout(
+                            Vec2::new(ui.available_width(), 28.0),
+                            egui::Layout::right_to_left(egui::Align::Center),
+                            |ui| {
+                                let add_btn = egui::Button::new(
+                                    RichText::new(format!("{} Add Source", icons::PLUS))
+                                        .strong()
+                                        .color(egui::Color32::WHITE),
+                                )
                                 .fill(p.accent_primary)
                                 .min_size(Vec2::new(125.0, 28.0));
 
-                            if ui.add(add_btn).clicked() {
-                                if let Some(item) = validate_and_create_source(app) {
-                                    app.studio.preview_scene_mut().add_source(item);
-                                    app.studio.sync_if_linked();
-                                    if app.add_source_open_properties {
-                                        app.show_source_properties_dialog = true;
+                                if ui.add(add_btn).clicked() {
+                                    if let Some(item) = validate_and_create_source(app) {
+                                        app.studio.preview_scene_mut().add_source(item);
+                                        app.studio.sync_if_linked();
+                                        if app.add_source_open_properties {
+                                            app.show_source_properties_dialog = true;
+                                        }
+                                        app.show_add_source_dialog = false;
                                     }
+                                }
+
+                                if ui
+                                    .add(egui::Button::new("Batal").min_size(Vec2::new(80.0, 28.0)))
+                                    .clicked()
+                                {
                                     app.show_add_source_dialog = false;
                                 }
-                            }
-
-                            if ui.add(egui::Button::new("Batal").min_size(Vec2::new(80.0, 28.0))).clicked() {
-                                app.show_add_source_dialog = false;
-                            }
-                        });
+                            },
+                        );
                     },
                 );
             });
@@ -3579,6 +3596,7 @@ fn validate_and_create_source(app: &mut NexoraApp) -> Option<crate::studio::sour
                     slide_index: 0,
                     slide_count,
                     slides,
+                    load_attempted: true,
                 },
             ))
         }
@@ -3607,6 +3625,7 @@ fn validate_and_create_source(app: &mut NexoraApp) -> Option<crate::studio::sour
                     page_index: 0,
                     page_count,
                     pages,
+                    load_attempted: true,
                 },
             );
             item.transform.stretch_to_screen();

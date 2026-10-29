@@ -371,7 +371,36 @@ impl LiveCaptureEngine {
             }
         }
 
-        self.textures.get(&composite_key).map(|(_, h)| h.clone())
+        if let Some((_, h)) = self.textures.get(&composite_key) {
+            return Some(h.clone());
+        }
+
+        // Direct fallback for local image files (PDF/PPT slides & static images) with active filter
+        if let Some(path_str) = base_key.strip_prefix("IMG:") {
+            if let Ok(img) = image::open(path_str) {
+                let (orig_w, orig_h) = (img.width(), img.height());
+                let resized = if orig_w > 1920 || orig_h > 1080 {
+                    img.resize(1920, 1080, image::imageops::FilterType::Triangle)
+                } else {
+                    img
+                };
+                let mut rgba = resized.to_rgba8().into_raw();
+                let (w, h) = (resized.width() as usize, resized.height() as usize);
+                if w > 0 && h > 0 {
+                    apply_key_filter_to_rgba(&mut rgba, filter);
+                    let color_image = egui::ColorImage::from_rgba_unmultiplied([w, h], &rgba);
+                    let handle = ctx.load_texture(
+                        format!("capture_tex_{}", composite_key),
+                        color_image,
+                        egui::TextureOptions::LINEAR,
+                    );
+                    self.textures.insert(composite_key.clone(), (1, handle.clone()));
+                    return Some(handle);
+                }
+            }
+        }
+
+        None
     }
 
     /// Samples the real RGB pixel value of the latest captured frame at normalized (u, v) coordinates (0.0..=1.0)

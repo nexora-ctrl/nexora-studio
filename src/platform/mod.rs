@@ -100,6 +100,46 @@ pub fn pick_pdf_file_dialog() -> Option<PathBuf> {
     }
 }
 
+static ACTIVE_PDF_EXPORTS: std::sync::LazyLock<Mutex<std::collections::HashSet<String>>> =
+    std::sync::LazyLock::new(|| Mutex::new(std::collections::HashSet::new()));
+static IS_APP_SHUTTING_DOWN: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+pub fn signal_app_shutting_down() {
+    IS_APP_SHUTTING_DOWN.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+pub fn is_app_shutting_down() -> bool {
+    IS_APP_SHUTTING_DOWN.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Computes a 100% deterministic, process-stable 64-bit hash (FNV-1a)
+/// for cache directory naming across all app sessions without seed randomization.
+fn compute_stable_file_hash(file_path: &str, p: &Path) -> u64 {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for &b in file_path.as_bytes() {
+        hash ^= b as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    if let Ok(meta) = p.metadata() {
+        if let Ok(modified) = meta.modified() {
+            if let Ok(duration) = modified.duration_since(std::time::UNIX_EPOCH) {
+                let secs = duration.as_secs();
+                for &b in &secs.to_le_bytes() {
+                    hash ^= b as u64;
+                    hash = hash.wrapping_mul(0x100000001b3);
+                }
+            }
+        }
+        let len = meta.len();
+        for &b in &len.to_le_bytes() {
+            hash ^= b as u64;
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+    }
+    hash
+}
+
 /// Exports or retrieves cached high-resolution slide PNGs from a PowerPoint presentation (.pptx or .ppt).
 /// Uses native PowerPoint COM Automation (hidden window, zero dependencies) to export all slides to 1920x1080 PNG images.
 pub fn get_or_export_ppt_slides(file_path: &str) -> Vec<String> {
@@ -118,16 +158,8 @@ pub fn get_or_export_ppt_slides(file_path: &str) -> Vec<String> {
         std::env::temp_dir().join("nexora_ppt_cache")
     };
 
-    // Create unique hash/subfolder based on file path and file modification time
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    use std::hash::{Hash, Hasher};
-    file_path.hash(&mut hasher);
-    if let Ok(meta) = p.metadata() {
-        if let Ok(modified) = meta.modified() {
-            modified.hash(&mut hasher);
-        }
-    }
-    let hash_val = hasher.finish();
+    // Create unique hash/subfolder based on file path and file modification time (process-stable)
+    let hash_val = compute_stable_file_hash(file_path, p);
     let sanitized_stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("presentation")
         .chars().filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-').take(24).collect::<String>();
     let out_dir = cache_root.join(format!("{}_{:016x}", sanitized_stem, hash_val));
@@ -195,15 +227,7 @@ pub fn get_or_export_pdf_pages(file_path: &str) -> Vec<String> {
         std::env::temp_dir().join("nexora_pdf_cache")
     };
 
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    use std::hash::{Hash, Hasher};
-    file_path.hash(&mut hasher);
-    if let Ok(meta) = p.metadata() {
-        if let Ok(modified) = meta.modified() {
-            modified.hash(&mut hasher);
-        }
-    }
-    let hash_val = hasher.finish();
+    let hash_val = compute_stable_file_hash(file_path, p);
     let sanitized_stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("document")
         .chars().filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-').take(24).collect::<String>();
     let out_dir = cache_root.join(format!("{}_{:016x}", sanitized_stem, hash_val));
@@ -246,17 +270,27 @@ pub fn get_or_export_pdf_pages(file_path: &str) -> Vec<String> {
                                 all_pages.push(p.to_string_lossy().to_string());
                             }
 
-                            // If subsequent pages are not rendered yet, spawn background thread
-                            // so UI never freezes or stutters!
-                            if missing_any && count > 1 {
-                                let f_str = file_path.to_string();
-                                let o_dir = out_dir.clone();
-                                std::thread::Builder::new()
-                                    .name("nexora_pdf_bg_worker".into())
-                                    .spawn(move || {
-                                        render_pdf_remaining_pages(&f_str, &o_dir, 1, count);
-                                    })
-                                    .ok();
+                            // If subsequent pages are not rendered yet, spawn background thread (deduplicated)
+                            if missing_any && count > 1 && !is_app_shutting_down() {
+                                let already_running = if let Ok(mut guard) = ACTIVE_PDF_EXPORTS.lock() {
+                                    !guard.insert(file_path.to_string())
+                                } else {
+                                    false
+                                };
+
+                                if !already_running {
+                                    let f_str = file_path.to_string();
+                                    let o_dir = out_dir.clone();
+                                    std::thread::Builder::new()
+                                        .name("nexora_pdf_bg_worker".into())
+                                        .spawn(move || {
+                                            render_pdf_remaining_pages(&f_str, &o_dir, 1, count);
+                                            if let Ok(mut guard) = ACTIVE_PDF_EXPORTS.lock() {
+                                                guard.remove(&f_str);
+                                            }
+                                        })
+                                        .ok();
+                                }
                             }
 
                             return all_pages;
@@ -268,6 +302,70 @@ pub fn get_or_export_pdf_pages(file_path: &str) -> Vec<String> {
     }
 
     collect_sorted_slide_files(&out_dir)
+}
+
+/// Ensures a specific PDF page index (0-based) is rendered to PNG on-demand if not already cached.
+/// Returns the absolute path of the rendered PNG image.
+pub fn ensure_pdf_page_rendered(file_path: &str, page_index: usize) -> Option<String> {
+    if file_path.trim().is_empty() {
+        return None;
+    }
+    let p = std::path::Path::new(file_path);
+    if !p.exists() {
+        return None;
+    }
+
+    let cache_root = if let Some(app_data) = std::env::var_os("APPDATA") {
+        PathBuf::from(app_data).join("Nexora").join("NexoraStudio").join("pdf_cache")
+    } else {
+        std::env::temp_dir().join("nexora_pdf_cache")
+    };
+
+    let hash_val = compute_stable_file_hash(file_path, p);
+    let sanitized_stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("document")
+        .chars().filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-').take(24).collect::<String>();
+    let out_dir = cache_root.join(format!("{}_{:016x}", sanitized_stem, hash_val));
+    let target_file = out_dir.join(format!("page_{:04}.png", page_index + 1));
+    if target_file.exists() {
+        return Some(target_file.to_string_lossy().to_string());
+    }
+
+    let _ = std::fs::create_dir_all(&out_dir);
+
+    #[cfg(target_os = "windows")]
+    {
+        use windows::core::HSTRING;
+        use windows::Data::Pdf::PdfDocument;
+        use windows::Storage::{StorageFile, StorageFolder};
+
+        let abs_path = std::fs::canonicalize(file_path).unwrap_or_else(|_| PathBuf::from(file_path));
+        let mut abs_str = abs_path.to_string_lossy().to_string();
+        if abs_str.starts_with(r"\\?\") {
+            abs_str = abs_str[4..].to_string();
+        }
+        let Ok(storage_file) = StorageFile::GetFileFromPathAsync(&HSTRING::from(abs_str)).and_then(|op| op.join()) else {
+            return None;
+        };
+        let Ok(doc) = PdfDocument::LoadFromFileAsync(&storage_file).and_then(|op| op.join()) else {
+            return None;
+        };
+
+        let abs_out = std::fs::canonicalize(&out_dir).unwrap_or_else(|_| out_dir.clone());
+        let mut abs_out_str = abs_out.to_string_lossy().to_string();
+        if abs_out_str.starts_with(r"\\?\") {
+            abs_out_str = abs_out_str[4..].to_string();
+        }
+        let Ok(folder) = StorageFolder::GetFolderFromPathAsync(&HSTRING::from(abs_out_str)).and_then(|op| op.join()) else {
+            return None;
+        };
+
+        render_pdf_page_index(&doc, &folder, &out_dir, page_index as u32).ok()
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        None
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -309,6 +407,27 @@ fn render_pdf_page_index(
 
 #[cfg(target_os = "windows")]
 fn render_pdf_remaining_pages(file_path: &str, out_dir: &std::path::Path, start_idx: u32, total: u32) {
+    if is_app_shutting_down() {
+        return;
+    }
+
+    unsafe {
+        let _ = windows::Win32::System::Com::CoInitializeEx(
+            None,
+            windows::Win32::System::Com::COINIT_MULTITHREADED,
+        );
+    }
+
+    struct ComGuard;
+    impl Drop for ComGuard {
+        fn drop(&mut self) {
+            unsafe {
+                windows::Win32::System::Com::CoUninitialize();
+            }
+        }
+    }
+    let _com_guard = ComGuard;
+
     use windows::core::HSTRING;
     use windows::Data::Pdf::PdfDocument;
     use windows::Storage::{StorageFile, StorageFolder};
@@ -335,6 +454,9 @@ fn render_pdf_remaining_pages(file_path: &str, out_dir: &std::path::Path, start_
     };
 
     for i in start_idx..total {
+        if is_app_shutting_down() {
+            break;
+        }
         let _ = render_pdf_page_index(&doc, &folder, out_dir, i);
     }
 }
