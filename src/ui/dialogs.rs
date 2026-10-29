@@ -3774,7 +3774,7 @@ pub fn render_virtual_camera_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
         .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
         .default_width(300.0)
         .max_width(310.0)
-        .max_height(185.0)
+        .max_height(210.0)
         .show(ctx, |ui| {
             block_window_body_drag(ui);
             const VCAM_FIELD_W: f32 = 280.0;
@@ -3833,7 +3833,18 @@ pub fn render_virtual_camera_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                 });
             }
 
-            ui.add_space(10.0);
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Driver:").size(11.0).color(p.text_muted));
+                ui.label(
+                    RichText::new("NEXORA Virtual Camera (Terdaftar)")
+                        .size(11.0)
+                        .strong()
+                        .color(p.meter_ok),
+                );
+            });
+
+            ui.add_space(6.0);
             ui.separator();
             ui.add_space(6.0);
 

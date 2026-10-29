@@ -1,6 +1,6 @@
 [package]
 name = "nexora-studio"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 authors = ["NEXORA Studio Contributors"]
 description = "Compact, modern native desktop screen recording studio for Windows"
@@ -34,6 +34,8 @@ windows = { version = "0.62.2", features = [
     "Win32_System_Variant",
     "Win32_UI_Shell_PropertiesSystem",
     "Win32_UI_WindowsAndMessaging",
+    "Win32_System_Memory",
+    "Win32_Security",
 ] }
 
 [profile.dev]

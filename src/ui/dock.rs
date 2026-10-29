@@ -3199,13 +3199,7 @@ fn render_recording_controls_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size:
             });
 
             if vcam_resp.clicked() {
-                app.virtual_camera_active = !app.virtual_camera_active;
-                if app.virtual_camera_active {
-                    let out_label = app.virtual_camera_target_label();
-                    app.recording.last_message = format!("Virtual Camera: LIVE ({})", out_label);
-                } else {
-                    app.recording.last_message = "Virtual Camera: Stopped".to_string();
-                }
+                app.toggle_virtual_camera();
             }
 
             vcam_resp.context_menu(|ui| {

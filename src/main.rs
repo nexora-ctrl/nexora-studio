@@ -11,6 +11,7 @@ pub mod recording;
 pub mod settings;
 pub mod studio;
 pub mod ui;
+pub mod virtual_camera;
 
 use app::NexoraApp;
 use egui::ViewportBuilder;
@@ -228,5 +229,6 @@ mod tests {
         assert_eq!(VirtualCameraOutputType::Preview.label(), "Preview");
         assert_eq!(VirtualCameraOutputType::Scene.label(), "Scene");
     }
+
 }
 

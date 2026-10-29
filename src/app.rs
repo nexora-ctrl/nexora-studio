@@ -134,6 +134,7 @@ pub struct NexoraApp {
     pub initial_maximized_applied: bool,
     pub copied_source: Option<crate::studio::source::SourceItem>,
     pub virtual_camera_active: bool,
+    pub virtual_camera_service: Option<crate::virtual_camera::VirtualCameraService>,
     pub virtual_camera_output_type: VirtualCameraOutputType,
     pub virtual_camera_scene_id: Option<uuid::Uuid>,
     pub show_virtual_camera_dialog: bool,
@@ -147,11 +148,13 @@ pub struct NexoraApp {
     last_change_time: f64,
     last_autosave_hash: u64,
     last_autosave_check: f64,
+    last_vcam_capture_time: f64,
 }
 
 impl NexoraApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         crate::ui::icons::install_tabler_icons(&cc.egui_ctx);
+        crate::virtual_camera::ensure_nexora_virtual_cam_registered();
         let mut settings = AppSettings::load_or_default();
         apply_studio_theme(&cc.egui_ctx, settings.theme);
 
@@ -290,6 +293,7 @@ impl NexoraApp {
             initial_maximized_applied: false,
             copied_source: None,
             virtual_camera_active: false,
+            virtual_camera_service: None,
             virtual_camera_output_type: VirtualCameraOutputType::Program,
             virtual_camera_scene_id: None,
             show_virtual_camera_dialog: false,
@@ -303,6 +307,7 @@ impl NexoraApp {
             last_change_time: 0.0,
             last_autosave_hash: 0,
             last_autosave_check: 0.0,
+            last_vcam_capture_time: 0.0,
         };
 
         if loaded_from_disk {
@@ -1068,6 +1073,70 @@ impl NexoraApp {
         }
     }
 
+    /// Takes any `Event::Screenshot` delivered this frame, crops the target canvas
+    /// (Program / Preview / Scene) in physical pixels and hands it to the Virtual Camera thread.
+    fn forward_virtual_camera_screenshot(&mut self, ctx: &egui::Context) {
+        let shot = ctx.input(|i| {
+            i.raw.events.iter().rev().find_map(|e| match e {
+                egui::Event::Screenshot { image, .. } => Some(std::sync::Arc::clone(image)),
+                _ => None,
+            })
+        });
+        let Some(image) = shot else { return };
+        if !self.virtual_camera_active {
+            return;
+        }
+
+        // Choose which on-screen canvas represents the selected output
+        let use_preview = match self.virtual_camera_output_type {
+            VirtualCameraOutputType::Program => false,
+            VirtualCameraOutputType::Preview => true,
+            VirtualCameraOutputType::Scene => {
+                let target = self.virtual_camera_scene_id;
+                target.is_some()
+                    && target == Some(self.studio.preview_scene_id)
+                    && target != Some(self.studio.program_scene_id)
+            }
+        };
+        let rect = if use_preview {
+            self.preview_canvas_rect.or(self.program_canvas_rect)
+        } else {
+            self.program_canvas_rect.or(self.preview_canvas_rect)
+        };
+        let Some(rect) = rect else { return };
+
+        // Convert logical points -> physical pixels, inset slightly to skip canvas border strokes
+        let ppp = ctx.pixels_per_point();
+        let inset = 2.0 * ppp;
+        let img_w = image.width() as f32;
+        let img_h = image.height() as f32;
+        let x0 = (rect.min.x * ppp + inset).clamp(0.0, img_w);
+        let y0 = (rect.min.y * ppp + inset).clamp(0.0, img_h);
+        let x1 = (rect.max.x * ppp - inset).clamp(0.0, img_w);
+        let y1 = (rect.max.y * ppp - inset).clamp(0.0, img_h);
+        if x1 - x0 < 2.0 || y1 - y0 < 2.0 {
+            return;
+        }
+        let crop = [x0 as usize, y0 as usize, (x1 - x0) as usize, (y1 - y0) as usize];
+        if let Some(svc) = self.virtual_camera_service.as_mut() {
+            svc.push_canvas_screenshot(image, crop);
+        }
+    }
+
+    pub fn toggle_virtual_camera(&mut self) {
+        self.virtual_camera_active = !self.virtual_camera_active;
+        if self.virtual_camera_active {
+            self.virtual_camera_service = Some(crate::virtual_camera::VirtualCameraService::start());
+            let out_label = self.virtual_camera_target_label();
+            self.recording.last_message = format!("Virtual Camera: LIVE ({})", out_label);
+        } else {
+            if let Some(mut svc) = self.virtual_camera_service.take() {
+                svc.stop();
+            }
+            self.recording.last_message = "Virtual Camera: Stopped".to_string();
+        }
+    }
+
     pub fn open_add_scene_dialog(&mut self) {
         self.add_scene_name_buffer = self.studio.generate_unique_scene_name();
         self.show_add_scene_dialog = true;
@@ -1234,6 +1303,9 @@ impl eframe::App for NexoraApp {
         self.audio_mixer.tick_meters(time_sec);
         self.sync_active_capture_requests();
 
+        // Virtual Camera: forward the rendered canvas pixels (from last frame's screenshot) to the vcam thread
+        self.forward_virtual_camera_screenshot(ctx);
+
         // Track window size, position, Maximized state, and keyboard shortcuts (Ctrl+S, Ctrl+Z, Ctrl+Y)
         ctx.input(|i| {
             let vp = i.viewport();
@@ -1359,6 +1431,12 @@ impl eframe::App for NexoraApp {
             if current_hash != self.last_autosave_hash {
                 self.save_all_state();
             }
+        }
+
+        // Virtual Camera: request a viewport screenshot (~30 fps) so the real canvas output feeds the camera
+        if self.virtual_camera_active && time_sec - self.last_vcam_capture_time >= 1.0 / 30.0 {
+            self.last_vcam_capture_time = time_sec;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
         }
 
         // Request smooth repaint for live audio meters, timer, and canvas telemetry
