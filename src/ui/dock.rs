@@ -328,6 +328,7 @@ fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                 let mut rename_scene_target = None;
                 let mut duplicate_scene_target = None;
                 let mut delete_scene_target = None;
+                let mut add_new_scene_requested = false;
 
                 let preview_id = app.studio.preview_scene_id;
                 let program_id = app.studio.program_scene_id;
@@ -582,6 +583,13 @@ fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                         }
                         ui.separator();
                         if ui
+                            .button(format!("{} Add Scene...", icons::PLUS))
+                            .clicked()
+                        {
+                            add_new_scene_requested = true;
+                            ui.close_menu();
+                        }
+                        if ui
                             .button(format!("{} Rename Scene...", icons::EDIT))
                             .clicked()
                         {
@@ -634,6 +642,9 @@ fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                 if let Some(id) = delete_scene_target {
                     app.studio.delete_scene(id);
                 }
+                if add_new_scene_requested {
+                    app.open_add_scene_dialog();
+                }
             });
     });
 
@@ -646,8 +657,7 @@ fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
             .on_hover_text("Add Scene")
             .clicked()
         {
-            let next_idx = app.studio.scenes.len() + 1;
-            app.studio.add_scene(format!("Scene {}", next_idx));
+            app.open_add_scene_dialog();
         }
 
         let can_delete = app.studio.scenes.len() > 1;
@@ -702,7 +712,9 @@ fn color_tag_tint(tag: SourceColorTag) -> Option<Color32> {
 }
 
 #[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
 enum SourceContextAction {
+    OpenAddSourceDialog(crate::studio::source::AddSourceType),
     AddApplicationAudio,
     AddAudioInput,
     AddAudioOutput,
@@ -713,6 +725,7 @@ enum SourceContextAction {
     AddImage,
     AddImageSlideShow,
     AddMedia,
+    AddPowerPoint,
     AddSceneSource,
     AddTextGdiPlus,
     AddTvTextTemplate(TvTextTemplate),
@@ -723,11 +736,19 @@ enum SourceContextAction {
     MoveTop(Uuid),
     MoveBottom(Uuid),
     ResetTransform(Uuid),
+    RotateCw90(Uuid),
+    RotateCcw90(Uuid),
+    Rotate180(Uuid),
+    FlipHorizontal(Uuid),
+    FlipVertical(Uuid),
     FitToScreen(Uuid),
+    StretchToScreen(Uuid),
+    CenterOnScreen(Uuid),
+    CenterVertically(Uuid),
+    CenterHorizontally(Uuid),
     PipBottomRight(Uuid),
     PipBottomLeft(Uuid),
     PipTopRight(Uuid),
-    CenterOnScreen(Uuid),
     ToggleLock(Uuid),
     SetColor(Uuid, SourceColorTag),
     SetFilterKind(Uuid, crate::studio::source::KeyFilterKind),
@@ -739,15 +760,81 @@ enum SourceContextAction {
 }
 
 fn populate_add_source_menu(ui: &mut egui::Ui, action_out: &mut Option<SourceContextAction>) {
-    ui.set_min_width(245.0);
+    ui.set_min_width(250.0);
     ui.label(RichText::new("Add Source").small().strong());
+    ui.separator();
+
+    if ui.button(format!("{}  Buka Dialog Add Source Lengkap...", icons::PLUS)).clicked() {
+        *action_out = Some(SourceContextAction::OpenAddSourceDialog(crate::studio::source::AddSourceType::DisplayCapture));
+        ui.close_menu();
+    }
     ui.separator();
 
     let entries: &[(&str, &str, SourceContextAction)] = &[
         (
-            icons::VOLUME,
-            "Application Audio Capture (BETA)",
-            SourceContextAction::AddApplicationAudio,
+            icons::DEVICE_DESKTOP,
+            "Display Capture",
+            SourceContextAction::OpenAddSourceDialog(crate::studio::source::AddSourceType::DisplayCapture),
+        ),
+        (
+            icons::APP_WINDOW,
+            "Window Capture",
+            SourceContextAction::OpenAddSourceDialog(crate::studio::source::AddSourceType::WindowCapture),
+        ),
+        (
+            icons::PHOTO,
+            "Image",
+            SourceContextAction::OpenAddSourceDialog(crate::studio::source::AddSourceType::Image),
+        ),
+        (
+            icons::PLAYER_PLAY,
+            "Media (Video / MP3 / Audio)",
+            SourceContextAction::OpenAddSourceDialog(crate::studio::source::AddSourceType::MediaSource),
+        ),
+        (
+            icons::PRESENTATION,
+            "PowerPoint / PPT Source",
+            SourceContextAction::OpenAddSourceDialog(crate::studio::source::AddSourceType::PowerPoint),
+        ),
+        (
+            icons::CLOCK,
+            "Waktu / Jam & Timer",
+            SourceContextAction::OpenAddSourceDialog(crate::studio::source::AddSourceType::TimeSource),
+        ),
+        (
+            icons::LETTER_CASE,
+            "Text (GDI+)",
+            SourceContextAction::OpenAddSourceDialog(crate::studio::source::AddSourceType::TextGdiPlus),
+        ),
+        (
+            icons::BRUSH,
+            "Color",
+            SourceContextAction::OpenAddSourceDialog(crate::studio::source::AddSourceType::ColorSource),
+        ),
+        (
+            icons::WORLD,
+            "Browser",
+            SourceContextAction::OpenAddSourceDialog(crate::studio::source::AddSourceType::BrowserSource),
+        ),
+        (
+            icons::CAMERA,
+            "Video Capture Device",
+            SourceContextAction::OpenAddSourceDialog(crate::studio::source::AddSourceType::WebcamDevice),
+        ),
+        (
+            icons::PRESENTATION,
+            "Image Slide Show",
+            SourceContextAction::OpenAddSourceDialog(crate::studio::source::AddSourceType::ImageSlideShow),
+        ),
+        (
+            icons::DEVICE_GAMEPAD,
+            "Game Capture",
+            SourceContextAction::AddGameCapture,
+        ),
+        (
+            icons::LIST,
+            "Scene",
+            SourceContextAction::AddSceneSource,
         ),
         (
             icons::MICROPHONE,
@@ -759,70 +846,111 @@ fn populate_add_source_menu(ui: &mut egui::Ui, action_out: &mut Option<SourceCon
             "Audio Output Capture",
             SourceContextAction::AddAudioOutput,
         ),
-        (icons::WORLD, "Browser", SourceContextAction::AddBrowser),
-        (icons::BRUSH, "Color", SourceContextAction::AddColor),
         (
-            icons::DEVICE_DESKTOP,
-            "Display Capture",
-            SourceContextAction::AddDisplay,
-        ),
-        (
-            icons::DEVICE_GAMEPAD,
-            "Game Capture",
-            SourceContextAction::AddGameCapture,
-        ),
-        (icons::PHOTO, "Image", SourceContextAction::AddImage),
-        (
-            icons::PRESENTATION,
-            "Image Slide Show",
-            SourceContextAction::AddImageSlideShow,
-        ),
-        (
-            icons::PLAYER_PLAY,
-            "Media (Video / MP3 / Audio)",
-            SourceContextAction::AddMedia,
-        ),
-        (icons::LIST, "Scene", SourceContextAction::AddSceneSource),
-        (
-            icons::LETTER_CASE,
-            "Text (GDI+)",
-            SourceContextAction::AddTextGdiPlus,
-        ),
-        (
-            icons::CAMERA,
-            "Video Capture Device",
-            SourceContextAction::AddCamera,
-        ),
-        (
-            icons::APP_WINDOW,
-            "Window Capture",
-            SourceContextAction::AddWindow,
+            icons::VOLUME,
+            "Application Audio Capture (BETA)",
+            SourceContextAction::AddApplicationAudio,
         ),
     ];
 
-    for (icon, label, act) in entries {
-        if ui.button(format!("{}  {}", icon, label)).clicked() {
-            *action_out = Some(*act);
-            ui.close_menu();
+    let scroll_id = ui.id().with("add_source_menu_scroll_offset");
+    let max_scroll_id = ui.id().with("add_source_menu_max_scroll");
+    let mut current_offset = ui.data_mut(|d| d.get_temp::<f32>(scroll_id).unwrap_or(0.0));
+    let max_scroll = ui.data_mut(|d| d.get_temp::<f32>(max_scroll_id).unwrap_or(400.0));
+    const MENU_MAX_H: f32 = 300.0;
+
+    // 1. Tangkap input mouse wheel untuk scroll menu naik/turun
+    let wheel_delta = ui.input(|i| {
+        let s = i.smooth_scroll_delta.y;
+        let r = i.raw_scroll_delta.y;
+        if s.abs() > 0.1 {
+            s
+        } else if r.abs() > 0.1 {
+            r
+        } else {
+            0.0
+        }
+    });
+    if wheel_delta.abs() > 0.1 {
+        current_offset = (current_offset - wheel_delta * 1.5).clamp(0.0, max_scroll);
+        ui.ctx().request_repaint();
+    }
+
+    // 2. Up arrow hover/click bar jika menu sedang ter-scroll ke bawah
+    if current_offset > 2.0 {
+        let (up_rect, up_resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 18.0), Sense::click());
+        let up_hovered = up_resp.hovered();
+        let bg_fill = if up_hovered { ui.visuals().widgets.hovered.bg_fill } else { ui.visuals().widgets.inactive.bg_fill.gamma_multiply(0.25) };
+        ui.painter().rect_filled(up_rect, CornerRadius::same(3), bg_fill);
+        let arrow_col = if up_hovered { ui.visuals().hyperlink_color } else { ui.visuals().text_color() };
+        ui.painter().text(up_rect.center(), egui::Align2::CENTER_CENTER, icons::CHEVRON_UP, egui::FontId::proportional(14.0), arrow_col);
+        if up_hovered {
+            current_offset = (current_offset - 12.0).max(0.0);
+            ui.ctx().request_repaint();
+        }
+        if up_resp.clicked() {
+            current_offset = (current_offset - 50.0).max(0.0);
+            ui.ctx().request_repaint();
         }
     }
 
-    ui.separator();
-    ui.menu_button(
-        format!("{}  TV Text Show Templates", icons::PRESENTATION),
-        |ui| {
-            ui.set_min_width(240.0);
-            for tpl in TvTextTemplate::all() {
-                if ui
-                    .button(format!("{}  {}", icons::LETTER_CASE, tpl.label()))
-                    .clicked()
-                {
-                    *action_out = Some(SourceContextAction::AddTvTextTemplate(*tpl));
+    let scroll_out = egui::ScrollArea::vertical()
+        .id_salt("add_source_menu_scroll_area")
+        .max_height(MENU_MAX_H)
+        .vertical_scroll_offset(current_offset)
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            for (icon, label, act) in entries {
+                if ui.button(format!("{}  {}", icon, label)).clicked() {
+                    *action_out = Some(*act);
                     ui.close_menu();
                 }
             }
-        },
-    );
+
+            ui.separator();
+            ui.menu_button(
+                format!("{}  TV Text Show Templates", icons::PRESENTATION),
+                |ui| {
+                    ui.set_min_width(240.0);
+                    for tpl in TvTextTemplate::all() {
+                        if ui
+                            .button(format!("{}  {}", icons::LETTER_CASE, tpl.label()))
+                            .clicked()
+                        {
+                            *action_out = Some(SourceContextAction::AddTvTextTemplate(*tpl));
+                            ui.close_menu();
+                        }
+                    }
+                },
+            );
+        });
+
+    let actual_offset = scroll_out.state.offset.y;
+    let actual_max = (scroll_out.content_size.y - MENU_MAX_H).max(0.0);
+    current_offset = actual_offset;
+
+    // 3. Down arrow hover/click bar jika masih ada konten tertutup di bawah
+    if current_offset < actual_max - 2.0 {
+        let (down_rect, down_resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 18.0), Sense::click());
+        let down_hovered = down_resp.hovered();
+        let bg_fill = if down_hovered { ui.visuals().widgets.hovered.bg_fill } else { ui.visuals().widgets.inactive.bg_fill.gamma_multiply(0.25) };
+        ui.painter().rect_filled(down_rect, CornerRadius::same(3), bg_fill);
+        let arrow_col = if down_hovered { ui.visuals().hyperlink_color } else { ui.visuals().text_color() };
+        ui.painter().text(down_rect.center(), egui::Align2::CENTER_CENTER, icons::CHEVRON_DOWN, egui::FontId::proportional(14.0), arrow_col);
+        if down_hovered {
+            current_offset = (current_offset + 12.0).min(actual_max);
+            ui.ctx().request_repaint();
+        }
+        if down_resp.clicked() {
+            current_offset = (current_offset + 50.0).min(actual_max);
+            ui.ctx().request_repaint();
+        }
+    }
+
+    ui.data_mut(|d| {
+        d.insert_temp(scroll_id, current_offset);
+        d.insert_temp(max_scroll_id, actual_max);
+    });
 }
 
 fn populate_source_context_menu(
@@ -903,23 +1031,52 @@ fn populate_source_context_menu(
     });
 
     ui.menu_button(format!("{}  Transform", icons::TRANSFORM), |ui| {
-        ui.set_min_width(180.0);
-        if ui
-            .button(format!("{}  Reset Transform", icons::REFRESH))
-            .clicked()
-        {
-            *action_out = Some(SourceContextAction::ResetTransform(src_id));
+        ui.set_min_width(220.0);
+        if ui.button("Rotate 90 degrees CW").clicked() {
+            *action_out = Some(SourceContextAction::RotateCw90(src_id));
             ui.close_menu();
         }
-        if ui
-            .button(format!("{}  Fit to Screen (16:9)", icons::MAXIMIZE))
-            .clicked()
-        {
+        if ui.button("Rotate 90 degrees CCW").clicked() {
+            *action_out = Some(SourceContextAction::RotateCcw90(src_id));
+            ui.close_menu();
+        }
+        if ui.button("Rotate 180 degrees").clicked() {
+            *action_out = Some(SourceContextAction::Rotate180(src_id));
+            ui.close_menu();
+        }
+        ui.separator();
+        if ui.button("Flip Horizontal").clicked() {
+            *action_out = Some(SourceContextAction::FlipHorizontal(src_id));
+            ui.close_menu();
+        }
+        if ui.button("Flip Vertical").clicked() {
+            *action_out = Some(SourceContextAction::FlipVertical(src_id));
+            ui.close_menu();
+        }
+        ui.separator();
+        if ui.add(egui::Button::new("Fit to screen").shortcut_text("Ctrl+F")).clicked() {
             *action_out = Some(SourceContextAction::FitToScreen(src_id));
             ui.close_menu();
         }
-        if ui.button("Center on Screen").clicked() {
+        if ui.add(egui::Button::new("Stretch to screen").shortcut_text("Ctrl+S")).clicked() {
+            *action_out = Some(SourceContextAction::StretchToScreen(src_id));
+            ui.close_menu();
+        }
+        if ui.add(egui::Button::new("Center to screen").shortcut_text("Ctrl+D")).clicked() {
             *action_out = Some(SourceContextAction::CenterOnScreen(src_id));
+            ui.close_menu();
+        }
+        if ui.button("Center Vertically").clicked() {
+            *action_out = Some(SourceContextAction::CenterVertically(src_id));
+            ui.close_menu();
+        }
+        if ui.button("Center Horizontally").clicked() {
+            *action_out = Some(SourceContextAction::CenterHorizontally(src_id));
+            ui.close_menu();
+        }
+        ui.separator();
+        if ui.add(egui::Button::new(format!("{}  Reset Transform", icons::REFRESH)).shortcut_text("Ctrl+R")).clicked() {
+            *action_out = Some(SourceContextAction::ResetTransform(src_id));
             ui.close_menu();
         }
         ui.separator();
@@ -997,13 +1154,27 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
     let p = ThemePalette::for_mode(app.settings.theme);
     let mut pending_action: Option<SourceContextAction> = None;
 
-    // Keyboard shortcuts for selected source (Delete / F2) when no text input is focused
-    if !ui.ctx().wants_keyboard_input() {
+    // Keyboard shortcuts for selected source (Delete / F2 / Left-Right slide navigation) when no modal or text input is active
+    if !ui.ctx().wants_keyboard_input() && !app.is_any_modal_open() {
         if let Some(sel_id) = app.studio.preview_scene().selected_source_id {
             if ui.input(|i| i.key_pressed(egui::Key::Delete)) {
                 pending_action = Some(SourceContextAction::Remove(sel_id));
             } else if ui.input(|i| i.key_pressed(egui::Key::F2)) {
                 pending_action = Some(SourceContextAction::Rename(sel_id));
+            } else if ui.input(|i| i.key_pressed(egui::Key::ArrowRight) || i.key_pressed(egui::Key::PageDown)) {
+                if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
+                    if let SourceKind::PowerPointSource { slide_index, slide_count, .. } = &mut src.kind {
+                        if *slide_count > 0 {
+                            *slide_index = (*slide_index + 1).min(slide_count.saturating_sub(1));
+                        }
+                    }
+                }
+            } else if ui.input(|i| i.key_pressed(egui::Key::ArrowLeft) || i.key_pressed(egui::Key::PageUp)) {
+                if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
+                    if let SourceKind::PowerPointSource { slide_index, .. } = &mut src.kind {
+                        *slide_index = slide_index.saturating_sub(1);
+                    }
+                }
             }
         }
     }
@@ -1070,13 +1241,14 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                     let current_color = src.color_tag;
                     let current_filter_kind = src.filter.kind;
                     let is_media = matches!(src.kind, SourceKind::MediaSource { .. });
+                    let is_ppt = matches!(src.kind, SourceKind::PowerPointSource { .. });
 
                     let row_h = 31.0;
                     let (row_rect, _) =
                         ui.allocate_exact_size(Vec2::new(row_w, row_h), Sense::hover());
 
-                    // Reserve right-hand zone for action buttons ([Play] [Mute] [Eye] [Lock])
-                    let btn_count = if is_media { 4 } else { 2 };
+                    // Reserve right-hand zone for action buttons ([Play] [Mute] [Eye] [Lock] or [Prev] [Next] [Eye] [Lock])
+                    let btn_count = if is_media || is_ppt { 4 } else { 2 };
                     let buttons_zone_w = (btn_count as f32) * 28.0 + 6.0;
                     let select_rect = Rect::from_min_max(
                         row_rect.min,
@@ -1307,6 +1479,76 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                             vis_changed = true;
                         }
                     }
+
+                    if let SourceKind::PowerPointSource {
+                        slide_index,
+                        slide_count,
+                        ..
+                    } = &mut src.kind
+                    {
+                        if *slide_count > 0 {
+                            let tip_prev = format!("Slide Sebelumnya (Saat ini: {}/{})", *slide_index + 1, slide_count);
+                            if paint_icon_action_btn(
+                                &mut btn_ui,
+                                icons::ARROW_LEFT,
+                                None,
+                                &p,
+                                &tip_prev,
+                            ) {
+                                *slide_index = slide_index.saturating_sub(1);
+                                vis_changed = true;
+                            }
+
+                            let tip_next = format!("Slide Selanjutnya (Saat ini: {}/{})", *slide_index + 1, slide_count);
+                            if paint_icon_action_btn(
+                                &mut btn_ui,
+                                icons::ARROW_RIGHT,
+                                None,
+                                &p,
+                                &tip_next,
+                            ) {
+                                *slide_index = (*slide_index + 1).min(slide_count.saturating_sub(1));
+                                vis_changed = true;
+                            }
+                        }
+                    }
+
+                    if let SourceKind::TimeSource {
+                        mode,
+                        is_running,
+                        elapsed_sec,
+                        ..
+                    } = &mut src.kind
+                    {
+                        if *mode != crate::studio::source::TimeSourceMode::RealTimeClock {
+                            let (play_ic, play_tip) = if *is_running {
+                                (icons::PLAYER_PAUSE, "Jeda / Pause Timer")
+                            } else {
+                                (icons::PLAYER_PLAY, "Mulai / Lanjutkan Timer")
+                            };
+                            if paint_icon_action_btn(
+                                &mut btn_ui,
+                                play_ic,
+                                None,
+                                &p,
+                                play_tip,
+                            ) {
+                                *is_running = !*is_running;
+                                vis_changed = true;
+                            }
+
+                            if paint_icon_action_btn(
+                                &mut btn_ui,
+                                icons::REFRESH,
+                                None,
+                                &p,
+                                "Reset Timer ke 00:00",
+                            ) {
+                                *elapsed_sec = 0.0;
+                                vis_changed = true;
+                            }
+                        }
+                    }
                 }
                 let sel_filter_k = scene
                     .sources
@@ -1348,15 +1590,26 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
     });
 
     regions.with_footer(ui, |ui| {
-        let add_resp = ui.menu_button(
-            RichText::new(format!(" {} ", icons::PLUS)).small(),
+        let add_btn = ui.add(
+            egui::Button::new(
+                RichText::new(format!("{} Add Source", icons::PLUS)).strong().size(11.5)
+            )
+            .min_size(Vec2::new(96.0, 24.0))
+        )
+        .on_hover_text("Add Source: Buka dialog penambahan layer source lengkap");
+        if add_btn.clicked() {
+            pending_action = Some(SourceContextAction::OpenAddSourceDialog(crate::studio::source::AddSourceType::DisplayCapture));
+        }
+
+        let add_menu_resp = ui.menu_button(
+            RichText::new(icons::CHEVRON_DOWN).small(),
             |ui| {
                 populate_add_source_menu(ui, &mut pending_action);
             },
         );
-        add_resp
+        add_menu_resp
             .response
-            .on_hover_text("Add Source (Display, Window, Camera, Image)");
+            .on_hover_text("Pilih jenis source langsung dari daftar menu pop-up");
 
         if ui
             .add_enabled(
@@ -1440,6 +1693,12 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
 
 fn execute_source_context_action(app: &mut NexoraApp, action: SourceContextAction) {
     match action {
+        SourceContextAction::OpenAddSourceDialog(st) => {
+            app.open_add_source_dialog(st);
+        }
+        SourceContextAction::AddPowerPoint => {
+            app.open_add_source_dialog(crate::studio::source::AddSourceType::PowerPoint);
+        }
         SourceContextAction::AddDisplay => {
             app.capture_catalog.refresh_from_system();
             let (mon_id, mon_name, mon_res) = if let Some(d) = app.capture_catalog.displays.first()
@@ -1753,11 +2012,83 @@ fn execute_source_context_action(app: &mut NexoraApp, action: SourceContextActio
             scene.move_selected_source_to_bottom();
             app.studio.sync_if_linked();
         }
-        SourceContextAction::ResetTransform(id) | SourceContextAction::FitToScreen(id) => {
+        SourceContextAction::ResetTransform(id) => {
             let scene = app.studio.preview_scene_mut();
             scene.selected_source_id = Some(id);
             if let Some(src) = scene.selected_source_mut() {
-                src.transform.reset_full_canvas();
+                src.transform.reset_transform();
+            }
+            app.studio.sync_if_linked();
+        }
+        SourceContextAction::FitToScreen(id) => {
+            let scene = app.studio.preview_scene_mut();
+            scene.selected_source_id = Some(id);
+            if let Some(src) = scene.selected_source_mut() {
+                src.transform.fit_to_screen();
+            }
+            app.studio.sync_if_linked();
+        }
+        SourceContextAction::RotateCw90(id) => {
+            let scene = app.studio.preview_scene_mut();
+            scene.selected_source_id = Some(id);
+            if let Some(src) = scene.selected_source_mut() {
+                src.transform.rotate_cw_90();
+            }
+            app.studio.sync_if_linked();
+        }
+        SourceContextAction::RotateCcw90(id) => {
+            let scene = app.studio.preview_scene_mut();
+            scene.selected_source_id = Some(id);
+            if let Some(src) = scene.selected_source_mut() {
+                src.transform.rotate_ccw_90();
+            }
+            app.studio.sync_if_linked();
+        }
+        SourceContextAction::Rotate180(id) => {
+            let scene = app.studio.preview_scene_mut();
+            scene.selected_source_id = Some(id);
+            if let Some(src) = scene.selected_source_mut() {
+                src.transform.rotate_180();
+            }
+            app.studio.sync_if_linked();
+        }
+        SourceContextAction::FlipHorizontal(id) => {
+            let scene = app.studio.preview_scene_mut();
+            scene.selected_source_id = Some(id);
+            if let Some(src) = scene.selected_source_mut() {
+                src.transform.flip_horizontal();
+            }
+            app.studio.sync_if_linked();
+        }
+        SourceContextAction::FlipVertical(id) => {
+            let scene = app.studio.preview_scene_mut();
+            scene.selected_source_id = Some(id);
+            if let Some(src) = scene.selected_source_mut() {
+                src.transform.flip_vertical();
+            }
+            app.studio.sync_if_linked();
+        }
+        SourceContextAction::StretchToScreen(id) => {
+            let scene = app.studio.preview_scene_mut();
+            scene.selected_source_id = Some(id);
+            if let Some(src) = scene.selected_source_mut() {
+                src.transform.stretch_to_screen();
+            }
+            app.studio.sync_if_linked();
+        }
+        SourceContextAction::CenterVertically(id) => {
+            let scene = app.studio.preview_scene_mut();
+            scene.selected_source_id = Some(id);
+            if let Some(src) = scene.selected_source_mut() {
+                src.transform.center_vertically();
+            }
+            app.studio.sync_if_linked();
+        }
+        SourceContextAction::CenterHorizontally(id) => {
+            let scene = app.studio.preview_scene_mut();
+            scene.selected_source_id = Some(id);
+            if let Some(src) = scene.selected_source_mut() {
+                src.transform.center_horizontally();
             }
             app.studio.sync_if_linked();
         }

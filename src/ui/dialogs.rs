@@ -1,12 +1,13 @@
 use crate::app::NexoraApp;
 use crate::settings::{BitratePreset, MediaDecodeScale, ThemeMode, VideoPreset};
 use crate::studio::source::{
-    MediaColorRange, SlideTransitionEffect, SourceColorTag, SourceKind, TextAnimationEffect,
-    TvBannerStyle, TvTextTemplate,
+    MediaColorRange, SlideTransitionEffect, SourceColorTag, SourceItem, SourceKind,
+    TextAnimationEffect, TimeFontFamily, TimeSourceMode, TimeVisualEffect, TvBannerStyle,
+    TvTextTemplate,
 };
 use crate::ui::icons;
 use crate::ui::theme::{apply_studio_theme, ThemePalette};
-use egui::{RichText, Stroke, Vec2};
+use egui::{Pos2, RichText, Stroke, Vec2};
 use std::path::PathBuf;
 
 pub fn render_library_drawer_if_open(ctx: &egui::Context, app: &mut NexoraApp) {
@@ -335,6 +336,80 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
         }
     }
 
+    // 1b. Add Scene Modal Dialog (Before creating scene, user can enter name or keep default)
+    if app.show_add_scene_dialog {
+        let mut open = app.show_add_scene_dialog;
+        let mut confirm_add = false;
+        let mut cancel_add = false;
+
+        egui::Window::new(format!("{} Add Scene", icons::PLUS))
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .default_width(320.0)
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .show(ctx, |ui| {
+                block_window_body_drag(ui);
+                ui.add_space(4.0);
+                ui.label(RichText::new("Masukkan nama scene baru:").strong());
+                ui.label(
+                    RichText::new("Tekan OK untuk menggunakan nama default, atau ketik nama scene kustom.")
+                        .size(11.0)
+                        .color(ui.visuals().weak_text_color()),
+                );
+                ui.add_space(6.0);
+
+                let focus_id = ui.id().with("add_scene_focus_init");
+                let should_focus = ui.data_mut(|d| d.get_temp::<bool>(focus_id).unwrap_or(true));
+
+                let text_resp = ui.add(
+                    egui::TextEdit::singleline(&mut app.add_scene_name_buffer)
+                        .desired_width(290.0)
+                        .hint_text("Nama scene..."),
+                );
+
+                if should_focus {
+                    text_resp.request_focus();
+                    ui.data_mut(|d| d.insert_temp(focus_id, false));
+                }
+
+                if text_resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    confirm_add = true;
+                }
+                if text_resp.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    confirm_add = true;
+                }
+
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 8.0;
+                    if ui
+                        .add(egui::Button::new(RichText::new("  OK  ").strong()).min_size(Vec2::new(65.0, 24.0)))
+                        .clicked()
+                    {
+                        confirm_add = true;
+                    }
+                    if ui
+                        .add(egui::Button::new("Batal").min_size(Vec2::new(65.0, 24.0)))
+                        .clicked()
+                    {
+                        cancel_add = true;
+                    }
+                });
+            });
+
+        if confirm_add {
+            let mut final_name = app.add_scene_name_buffer.trim().to_string();
+            if final_name.is_empty() {
+                final_name = app.studio.generate_unique_scene_name();
+            }
+            app.studio.add_scene(final_name);
+            app.show_add_scene_dialog = false;
+        } else if cancel_add || !open || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            app.show_add_scene_dialog = false;
+        }
+    }
+
     // 2. Rename Scene Modal Dialog
     if app.show_rename_scene_dialog {
         let mut open = app.show_rename_scene_dialog;
@@ -433,6 +508,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
             .max_width(495.0)
             .show(ctx, |ui| {
                 block_window_body_drag(ui);
+                let p = ThemePalette::for_mode(app.settings.theme);
                 const PROP_FIELD_W: f32 = 280.0;
                 ui.set_width(475.0);
                 ui.set_max_width(475.0);
@@ -1337,6 +1413,261 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                     any_changed |= ui.text_edit_singleline(scene_name).changed();
                                     ui.end_row();
                                 }
+                                SourceKind::PowerPointSource {
+                                    presentation_name,
+                                    file_path,
+                                    window_hwnd,
+                                    slide_index,
+                                    slide_count,
+                                    slides,
+                                } => {
+                                    if slides.is_empty() && !file_path.is_empty() && *window_hwnd == 0 {
+                                        let exported = crate::platform::get_or_export_ppt_slides(file_path);
+                                        if !exported.is_empty() {
+                                            *slide_count = exported.len();
+                                            *slides = exported;
+                                            any_changed = true;
+                                        }
+                                    }
+
+                                    ui.label("Presentasi:");
+                                    ui.horizontal(|ui| {
+                                        any_changed |= ui.add_sized(Vec2::new(PROP_FIELD_W - 90.0, 24.0), egui::TextEdit::singleline(presentation_name)).changed();
+                                        if ui.button(format!("{} Browse", icons::FOLDER_OPEN)).clicked() {
+                                            if let Some(path) = crate::platform::pick_powerpoint_file_dialog() {
+                                                let p_str = path.to_string_lossy().to_string();
+                                                let exported = crate::platform::get_or_export_ppt_slides(&p_str);
+                                                *file_path = p_str;
+                                                *slides = exported.clone();
+                                                *slide_count = exported.len();
+                                                *slide_index = 0;
+                                                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                                                    *presentation_name = format!("PPT - {}", stem);
+                                                }
+                                                any_changed = true;
+                                            }
+                                        }
+                                    });
+                                    ui.end_row();
+
+                                    if *slide_count > 0 {
+                                        ui.label("Slide Aktif:");
+                                        ui.horizontal(|ui| {
+                                            let can_prev = *slide_index > 0;
+                                            let can_next = *slide_index + 1 < *slide_count;
+                                            if ui.add_enabled(can_prev, egui::Button::new("◀ Prev")).clicked() {
+                                                *slide_index = slide_index.saturating_sub(1);
+                                                any_changed = true;
+                                            }
+                                            ui.label(RichText::new(format!("Slide {} dari {}", *slide_index + 1, slide_count)).strong());
+                                            if ui.add_enabled(can_next, egui::Button::new("Next ▶")).clicked() {
+                                                *slide_index = (*slide_index + 1).min(slide_count.saturating_sub(1));
+                                                any_changed = true;
+                                            }
+                                        });
+                                        ui.end_row();
+                                    }
+
+                                    ui.label("PowerPoint Window:");
+                                    let windows = app.capture_catalog.windows.clone();
+                                    let current_hwnd = *window_hwnd;
+                                    let current_title = windows.iter().find(|w| w.hwnd == current_hwnd).map(|w| w.title.as_str()).unwrap_or_else(|| {
+                                        if current_hwnd == 0 { "Deteksi Jendela Presentasi Otomatis" } else { "Jendela Tidak Ditemukan" }
+                                    });
+                                    egui::ComboBox::from_id_salt("prop_ppt_win_combo")
+                                        .selected_text(current_title)
+                                        .width(PROP_FIELD_W)
+                                        .truncate()
+                                        .show_ui(ui, |ui| {
+                                            if ui.selectable_value(window_hwnd, 0, "Deteksi Jendela Presentasi Otomatis").clicked() {
+                                                any_changed = true;
+                                            }
+                                            for w in &windows {
+                                                if ui.selectable_value(window_hwnd, w.hwnd, format!("[{}] {}", w.executable, w.title)).clicked() {
+                                                    *presentation_name = w.title.clone();
+                                                    any_changed = true;
+                                                }
+                                            }
+                                        });
+                                    ui.end_row();
+
+                                    if !file_path.is_empty() {
+                                        ui.label("File Path:");
+                                        ui.label(RichText::new(file_path.as_str()).small().color(p.text_muted));
+                                        ui.end_row();
+                                    }
+                                }
+                                SourceKind::TimeSource {
+                                    mode,
+                                    target_duration_sec,
+                                    elapsed_sec,
+                                    is_running,
+                                    effect,
+                                    font_size,
+                                    font_family,
+                                    text_color_rgba,
+                                    bg_color_rgba,
+                                    accent_color_rgba,
+                                    show_hours,
+                                    blink_colon: _,
+                                    use_24h_format,
+                                    badge_text,
+                                    finish_text,
+                                } => {
+                                    ui.label("Mode Waktu:");
+                                    egui::ComboBox::from_id_salt("prop_time_mode")
+                                        .selected_text(mode.label())
+                                        .width(PROP_FIELD_W)
+                                        .show_ui(ui, |ui| {
+                                            for m in TimeSourceMode::all() {
+                                                any_changed |= ui.selectable_value(mode, *m, m.label()).changed();
+                                            }
+                                        });
+                                    ui.end_row();
+
+                                    ui.label("Kontrol Waktu:");
+                                    ui.horizontal(|ui| {
+                                        let (run_icon, run_label) = if *is_running {
+                                            (icons::PLAYER_PAUSE, "Jeda")
+                                        } else {
+                                            (icons::PLAYER_PLAY, "Mulai")
+                                        };
+                                        if ui.button(format!("{} {}", run_icon, run_label)).clicked() {
+                                            *is_running = !*is_running;
+                                            any_changed = true;
+                                        }
+                                        if ui.button(format!("{} Reset", icons::REFRESH)).clicked() {
+                                            *elapsed_sec = 0.0;
+                                            any_changed = true;
+                                        }
+
+                                        if *mode != TimeSourceMode::RealTimeClock {
+                                            if ui.button("-1m").on_hover_text("Mundurkan waktu 1 menit").clicked() {
+                                                if *mode == TimeSourceMode::CountdownTimer {
+                                                    *elapsed_sec = (*elapsed_sec + 60.0).min(*target_duration_sec as f32);
+                                                } else {
+                                                    *elapsed_sec = (*elapsed_sec - 60.0).max(0.0);
+                                                }
+                                                any_changed = true;
+                                            }
+                                            if ui.button("+1m").on_hover_text("Majukan waktu 1 menit").clicked() {
+                                                if *mode == TimeSourceMode::CountdownTimer {
+                                                    *elapsed_sec = (*elapsed_sec - 60.0).max(0.0);
+                                                } else {
+                                                    *elapsed_sec += 60.0;
+                                                }
+                                                any_changed = true;
+                                            }
+                                            if ui.button("-10s").on_hover_text("Mundurkan 10 detik").clicked() {
+                                                if *mode == TimeSourceMode::CountdownTimer {
+                                                    *elapsed_sec = (*elapsed_sec + 10.0).min(*target_duration_sec as f32);
+                                                } else {
+                                                    *elapsed_sec = (*elapsed_sec - 10.0).max(0.0);
+                                                }
+                                                any_changed = true;
+                                            }
+                                            if ui.button("+10s").on_hover_text("Majukan 10 detik").clicked() {
+                                                if *mode == TimeSourceMode::CountdownTimer {
+                                                    *elapsed_sec = (*elapsed_sec - 10.0).max(0.0);
+                                                } else {
+                                                    *elapsed_sec += 10.0;
+                                                }
+                                                any_changed = true;
+                                            }
+                                        }
+                                    });
+                                    ui.end_row();
+
+                                    if *mode == TimeSourceMode::CountdownTimer {
+                                        ui.label("Durasi Target:");
+                                        ui.horizontal(|ui| {
+                                            let mut h = *target_duration_sec / 3600;
+                                            let mut m = (*target_duration_sec % 3600) / 60;
+                                            let mut s = *target_duration_sec % 60;
+
+                                            let mut changed_dur = false;
+                                            ui.label("Jam:");
+                                            changed_dur |= ui.add(egui::DragValue::new(&mut h).range(0..=23)).changed();
+                                            ui.label("Mnt:");
+                                            changed_dur |= ui.add(egui::DragValue::new(&mut m).range(0..=59)).changed();
+                                            ui.label("Dtk:");
+                                            changed_dur |= ui.add(egui::DragValue::new(&mut s).range(0..=59)).changed();
+
+                                            if changed_dur {
+                                                *target_duration_sec = h * 3600 + m * 60 + s;
+                                                any_changed = true;
+                                            }
+                                        });
+                                        ui.end_row();
+
+                                        ui.label("Teks Waktu Habis:");
+                                        any_changed |= ui.add_sized(Vec2::new(PROP_FIELD_W, 24.0), egui::TextEdit::singleline(finish_text).hint_text("WAKTU HABIS! / SELESAI")).changed();
+                                        ui.end_row();
+                                    }
+
+                                    ui.label("Gaya Efek Visual:");
+                                    egui::ComboBox::from_id_salt("prop_time_effect")
+                                        .selected_text(effect.label())
+                                        .width(PROP_FIELD_W)
+                                        .show_ui(ui, |ui| {
+                                            for eff in TimeVisualEffect::all() {
+                                                any_changed |= ui.selectable_value(effect, *eff, eff.label()).changed();
+                                            }
+                                        });
+                                    ui.end_row();
+
+                                    ui.label("Teks Badge (Label):");
+                                    any_changed |= ui.add_sized(Vec2::new(PROP_FIELD_W, 24.0), egui::TextEdit::singleline(badge_text).hint_text("LIVE / CLOCK / COUNTDOWN")).changed();
+                                    ui.end_row();
+
+                                    ui.label("Jenis Font (Type):");
+                                    egui::ComboBox::from_id_salt("prop_time_font_family")
+                                        .selected_text(font_family.label())
+                                        .width(PROP_FIELD_W)
+                                        .show_ui(ui, |ui| {
+                                            for ff in TimeFontFamily::all() {
+                                                any_changed |= ui.selectable_value(font_family, *ff, ff.label()).changed();
+                                            }
+                                        });
+                                    ui.end_row();
+
+                                    ui.label("Ukuran Font:");
+                                    any_changed |= ui.add(egui::Slider::new(font_size, 16.0..=140.0).suffix(" px")).changed();
+                                    ui.end_row();
+
+                                    ui.label("Format Waktu:");
+                                    ui.horizontal(|ui| {
+                                        any_changed |= ui.checkbox(show_hours, "Tampilkan Jam").changed();
+                                        if *mode == TimeSourceMode::RealTimeClock {
+                                            any_changed |= ui.checkbox(use_24h_format, "24 Jam").changed();
+                                        }
+                                    });
+                                    ui.end_row();
+
+                                    ui.label("Warna Teks:");
+                                    ui.horizontal(|ui| {
+                                        any_changed |= ui.color_edit_button_srgba_unmultiplied(text_color_rgba).changed();
+                                        let [r, g, b, _] = *text_color_rgba;
+                                        ui.label(format!("#{:02X}{:02X}{:02X}", r, g, b));
+                                    });
+                                    ui.end_row();
+
+                                    ui.label("Warna Background:");
+                                    ui.horizontal(|ui| {
+                                        any_changed |= ui.color_edit_button_srgba_unmultiplied(bg_color_rgba).changed();
+                                        let [r, g, b, a] = *bg_color_rgba;
+                                        ui.label(format!("#{:02X}{:02X}{:02X} (Alpha: {})", r, g, b, a));
+                                    });
+                                    ui.end_row();
+
+                                    ui.label("Warna Aksen / Border:");
+                                    ui.horizontal(|ui| {
+                                        any_changed |= ui.color_edit_button_srgba_unmultiplied(accent_color_rgba).changed();
+                                        let [r, g, b, _] = *accent_color_rgba;
+                                        ui.label(format!("#{:02X}{:02X}{:02X}", r, g, b));
+                                    });
+                                    ui.end_row();
+                                }
                             }
                         });
 
@@ -1356,7 +1687,35 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                             .clicked()
                         };
                         if preset_btn(ui, "Fit to Screen") {
-                            src.transform.reset_full_canvas();
+                            src.transform.fit_to_screen();
+                            any_changed = true;
+                        }
+                        if preset_btn(ui, "Stretch") {
+                            src.transform.stretch_to_screen();
+                            any_changed = true;
+                        }
+                        if preset_btn(ui, "Center") {
+                            src.transform.center_to_screen();
+                            any_changed = true;
+                        }
+                        if preset_btn(ui, "Rotate 90° CW") {
+                            src.transform.rotate_cw_90();
+                            any_changed = true;
+                        }
+                        if preset_btn(ui, "Rotate 90° CCW") {
+                            src.transform.rotate_ccw_90();
+                            any_changed = true;
+                        }
+                        if preset_btn(ui, "Rotate 180°") {
+                            src.transform.rotate_180();
+                            any_changed = true;
+                        }
+                        if preset_btn(ui, "Flip H") {
+                            src.transform.flip_horizontal();
+                            any_changed = true;
+                        }
+                        if preset_btn(ui, "Flip V") {
+                            src.transform.flip_vertical();
                             any_changed = true;
                         }
                         if preset_btn(ui, "PiP Bottom-Right") {
@@ -1369,10 +1728,6 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                         }
                         if preset_btn(ui, "PiP Top-Right") {
                             src.transform.preset_pip_top_right();
-                            any_changed = true;
-                        }
-                        if preset_btn(ui, "Center") {
-                            src.transform.preset_center();
                             any_changed = true;
                         }
                     });
@@ -2195,6 +2550,9 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
         }
     }
 
+    // 8. OBS-Style Modern Add Source Modal Dialog
+    render_add_source_dialog(ctx, app);
+
     // 6. Dedicated Native OS Fullscreen / Windowed Projector (Multi-Monitor OBS Style)
     if app.show_projector_window {
         let target = app.projector_target.clone().unwrap_or(crate::app::ProjectorTarget {
@@ -2334,6 +2692,40 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                         );
                     }
 
+                    // Presenter pointer click navigation on projector screen
+                    if response.clicked() {
+                        if let Some(pos) = response.interact_pointer_pos() {
+                            let rel_x = (pos.x - rect.min.x) / rect.width().max(1.0);
+                            if rel_x < 0.20 {
+                                app.advance_presentation_slide(-1);
+                            } else {
+                                app.advance_presentation_slide(1);
+                            }
+                        }
+                    }
+
+                    // Keyboard slide navigation on projector screen (Wireless Presenter Remote)
+                    let proj_next = vp_ctx.input(|i| {
+                        !i.modifiers.ctrl && !i.modifiers.alt && (
+                            i.key_pressed(egui::Key::ArrowRight)
+                                || i.key_pressed(egui::Key::PageDown)
+                                || i.key_pressed(egui::Key::Space)
+                                || i.key_pressed(egui::Key::Enter)
+                        )
+                    });
+                    let proj_prev = vp_ctx.input(|i| {
+                        !i.modifiers.ctrl && !i.modifiers.alt && (
+                            i.key_pressed(egui::Key::ArrowLeft)
+                                || i.key_pressed(egui::Key::PageUp)
+                                || i.key_pressed(egui::Key::Backspace)
+                        )
+                    });
+                    if proj_next {
+                        app.advance_presentation_slide(1);
+                    } else if proj_prev {
+                        app.advance_presentation_slide(-1);
+                    }
+
                     response.context_menu(|ui| {
                         ui.set_min_width(180.0);
                         if ui.button("Close Projector (Esc)").clicked() {
@@ -2349,6 +2741,612 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
         if should_close {
             app.show_projector_window = false;
             app.projector_target = None;
+        }
+    }
+}
+
+pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
+    if !app.show_add_source_dialog {
+        return;
+    }
+
+    let mut open = app.show_add_source_dialog;
+    let p = ThemePalette::for_mode(app.settings.theme);
+
+    egui::Window::new(format!("{} Add Source", icons::PLUS))
+        .id(egui::Id::new("nexora_add_source_modal_win"))
+        .open(&mut open)
+        .collapsible(false)
+        .resizable(false)
+        .default_width(650.0)
+        .max_width(650.0)
+        .show(ctx, |ui| {
+            block_window_body_drag(ui);
+            ui.set_width(630.0);
+            ui.set_max_width(630.0);
+
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new("Pilih jenis source dan konfigurasikan layer untuk ditambahkan ke scene:")
+                        .small()
+                        .color(p.text_secondary),
+                );
+            });
+            ui.add_space(6.0);
+
+            let cur_selected = app.add_source_selected_type;
+            let mut newly_selected = None;
+
+            ui.horizontal(|ui| {
+                // Left Column: Source Selection List
+                ui.allocate_ui_with_layout(
+                    Vec2::new(260.0, 370.0),
+                    egui::Layout::top_down(egui::Align::Min),
+                    |ui| {
+                        ui.set_width(260.0);
+                        ui.label(
+                            RichText::new("JENIS SOURCE (TIPE LAYER)")
+                                .small()
+                                .strong()
+                                .color(p.text_muted),
+                        );
+                        ui.add_space(4.0);
+
+                        egui::ScrollArea::vertical()
+                            .id_salt("add_source_types_scroll")
+                            .max_height(340.0)
+                            .show(ui, |ui| {
+                                for st in crate::studio::source::AddSourceType::all() {
+                                    let is_active = cur_selected == *st;
+                                    let (badge, is_ready) = st.status_tag();
+
+                                    let (rect, resp) = ui.allocate_exact_size(
+                                        Vec2::new(ui.available_width() - 4.0, 44.0),
+                                        egui::Sense::click(),
+                                    );
+
+                                    let bg = if is_active {
+                                        p.accent_primary.gamma_multiply(0.20)
+                                    } else if resp.hovered() {
+                                        p.bg_elevated
+                                    } else {
+                                        p.bg_panel
+                                    };
+                                    let stroke = if is_active {
+                                        Stroke::new(1.5_f32, p.accent_primary)
+                                    } else {
+                                        Stroke::new(1.0_f32, p.border_subtle)
+                                    };
+
+                                    ui.painter().rect(rect, 4.0, bg, stroke, egui::StrokeKind::Inside);
+
+                                    // Icon in left column
+                                    ui.painter().text(
+                                        Pos2::new(rect.min.x + 10.0, rect.min.y + 22.0),
+                                        egui::Align2::LEFT_CENTER,
+                                        st.icon(),
+                                        egui::FontId::proportional(16.0),
+                                        if is_active { p.accent_primary } else { p.text_primary },
+                                    );
+
+                                    // Title
+                                    ui.painter().text(
+                                        Pos2::new(rect.min.x + 36.0, rect.min.y + 14.0),
+                                        egui::Align2::LEFT_CENTER,
+                                        st.title(),
+                                        egui::FontId::proportional(12.0),
+                                        p.text_primary,
+                                    );
+
+                                    // Status Badge on the right
+                                    let badge_color = if is_ready { p.meter_ok } else { p.pause_amber };
+                                    ui.painter().text(
+                                        Pos2::new(rect.max.x - 8.0, rect.min.y + 14.0),
+                                        egui::Align2::RIGHT_CENTER,
+                                        badge,
+                                        egui::FontId::proportional(9.5),
+                                        badge_color,
+                                    );
+
+                                    // Brief single-line summary
+                                    let desc_short: String = st.description().chars().take(34).collect();
+                                    ui.painter().text(
+                                        Pos2::new(rect.min.x + 36.0, rect.min.y + 29.0),
+                                        egui::Align2::LEFT_CENTER,
+                                        format!("{}...", desc_short),
+                                        egui::FontId::proportional(10.0),
+                                        p.text_muted,
+                                    );
+
+                                    if resp.clicked() {
+                                        newly_selected = Some(*st);
+                                    }
+                                }
+                            });
+                    },
+                );
+
+                ui.separator();
+
+                // Right Column: Configuration & Properties for Selected Type
+                ui.allocate_ui_with_layout(
+                    Vec2::new(350.0, 370.0),
+                    egui::Layout::top_down(egui::Align::Min),
+                    |ui| {
+                        ui.set_width(350.0);
+                        ui.label(
+                            RichText::new("PENGATURAN SOURCE")
+                                .small()
+                                .strong()
+                                .color(p.text_muted),
+                        );
+                        ui.add_space(4.0);
+
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(cur_selected.icon()).size(20.0).color(p.accent_primary));
+                            ui.heading(cur_selected.title());
+                        });
+
+                        ui.label(RichText::new(cur_selected.description()).small().color(p.text_secondary));
+                        ui.add_space(6.0);
+                        ui.separator();
+                        ui.add_space(6.0);
+
+                        // Source Name Input
+                        ui.label(RichText::new("Nama Source:").strong().size(12.0));
+                        ui.add_sized(
+                            Vec2::new(340.0, 24.0),
+                            egui::TextEdit::singleline(&mut app.add_source_name_buffer),
+                        );
+                        ui.add_space(6.0);
+
+                        // Contextual settings per source type
+                        match cur_selected {
+                            crate::studio::source::AddSourceType::DisplayCapture => {
+                                ui.label("Pilih Layar Monitor:");
+                                let displays = app.capture_catalog.displays.clone();
+                                if displays.is_empty() {
+                                    ui.label(RichText::new("Tidak ada monitor terdeteksi. Menggunakan Primary Display.").small().color(p.text_muted));
+                                } else {
+                                    let selected_id = if app.add_source_file_path.is_empty() {
+                                        displays.first().map(|d| d.id.clone()).unwrap_or_default()
+                                    } else {
+                                        app.add_source_file_path.clone()
+                                    };
+                                    let current_name = displays.iter().find(|d| d.id == selected_id).map(|d| d.name.as_str()).unwrap_or("Pilih Monitor");
+                                    egui::ComboBox::from_id_salt("add_disp_combo")
+                                        .selected_text(current_name)
+                                        .width(330.0)
+                                        .show_ui(ui, |ui| {
+                                            for d in &displays {
+                                                if ui.selectable_value(&mut app.add_source_file_path, d.id.clone(), format!("{} ({}x{})", d.name, d.width, d.height)).clicked() {
+                                                    // updated
+                                                }
+                                            }
+                                        });
+                                }
+                            }
+                            crate::studio::source::AddSourceType::WindowCapture => {
+                                ui.label("Pilih Jendela Aplikasi:");
+                                let windows = app.capture_catalog.windows.clone();
+                                if windows.is_empty() {
+                                    ui.label(RichText::new("Tidak ada jendela aplikasi terbuka terdeteksi.").small().color(p.text_muted));
+                                } else {
+                                    let selected_hwnd: u64 = app.add_source_file_path.parse().unwrap_or(0);
+                                    let current_title = windows.iter().find(|w| w.hwnd == selected_hwnd).map(|w| w.title.as_str()).unwrap_or_else(|| {
+                                        windows.first().map(|w| w.title.as_str()).unwrap_or("Pilih Jendela")
+                                    });
+                                    egui::ComboBox::from_id_salt("add_win_combo")
+                                        .selected_text(current_title.chars().take(40).collect::<String>())
+                                        .width(330.0)
+                                        .show_ui(ui, |ui| {
+                                            for w in &windows {
+                                                let mut cur_val = selected_hwnd;
+                                                if ui.selectable_value(&mut cur_val, w.hwnd, format!("[{}] {}", w.executable, w.title)).clicked() {
+                                                    app.add_source_file_path = w.hwnd.to_string();
+                                                }
+                                            }
+                                        });
+                                }
+                            }
+                            crate::studio::source::AddSourceType::Image => {
+                                ui.label("Pilih File Gambar:");
+                                ui.horizontal(|ui| {
+                                    ui.add_sized(Vec2::new(225.0, 24.0), egui::TextEdit::singleline(&mut app.add_source_file_path).hint_text("Path file gambar..."));
+                                    if ui.button(format!("{} Browse...", icons::FOLDER_OPEN)).clicked() {
+                                        if let Some(path) = crate::platform::pick_image_file_dialog() {
+                                            app.add_source_file_path = path.to_string_lossy().to_string();
+                                            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                                                app.add_source_name_buffer = stem.to_string();
+                                            }
+                                            app.add_source_error_message = None;
+                                        }
+                                    }
+                                });
+                                ui.label(RichText::new("Format yang didukung: .png, .jpg, .jpeg, .bmp, .webp, .gif").small().color(p.text_muted));
+                            }
+                            crate::studio::source::AddSourceType::MediaSource => {
+                                ui.label("Pilih File Video atau Audio:");
+                                ui.horizontal(|ui| {
+                                    ui.add_sized(Vec2::new(225.0, 24.0), egui::TextEdit::singleline(&mut app.add_source_file_path).hint_text("Path file video/audio..."));
+                                    if ui.button(format!("{} Browse...", icons::FOLDER_OPEN)).clicked() {
+                                        if let Some(path) = crate::platform::pick_media_file_dialog() {
+                                            app.add_source_file_path = path.to_string_lossy().to_string();
+                                            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                                                app.add_source_name_buffer = stem.to_string();
+                                            }
+                                            app.add_source_error_message = None;
+                                        }
+                                    }
+                                });
+                                ui.label(RichText::new("Format yang didukung: .mp4, .mkv, .mov, .avi, .webm, .mp3, .wav").small().color(p.text_muted));
+                            }
+                            crate::studio::source::AddSourceType::TextGdiPlus => {
+                                ui.label("Isi Teks:");
+                                ui.add_sized(Vec2::new(340.0, 24.0), egui::TextEdit::singleline(&mut app.add_source_text_content));
+                                ui.add_space(4.0);
+                                ui.label(RichText::new("Teks berjalan (marquee) dan template TV show dapat disesuaikan di Properties.").small().color(p.text_muted));
+                            }
+                            crate::studio::source::AddSourceType::ColorSource => {
+                                ui.label("Warna Solid Background:");
+                                ui.horizontal(|ui| {
+                                    ui.color_edit_button_srgba_unmultiplied(&mut app.add_source_color_rgba);
+                                    let [r, g, b, _] = app.add_source_color_rgba;
+                                    ui.label(RichText::new(format!("#{:02X}{:02X}{:02X}", r, g, b)).strong());
+                                });
+                                ui.add_space(4.0);
+                                ui.label(RichText::new("Dimensi canvas default 1920×1080 (16:9 fullscreen).").small().color(p.text_muted));
+                            }
+                            crate::studio::source::AddSourceType::PowerPoint => {
+                                ui.label(RichText::new("Opsi 1: Tangkap Jendela PowerPoint Slide Show").strong().small());
+                                let windows = app.capture_catalog.windows.clone();
+                                let ppt_window = windows.iter().find(|w| w.title.to_lowercase().contains("powerpoint") || w.executable.to_lowercase().contains("powerpnt"));
+                                if let Some(w) = ppt_window {
+                                    ui.label(RichText::new(format!("✓ Terdeteksi: [{}] {}", w.executable, w.title)).small().color(p.meter_ok));
+                                    if app.add_source_file_path.is_empty() {
+                                        app.add_source_file_path = w.hwnd.to_string();
+                                    }
+                                } else {
+                                    ui.label(RichText::new("Jalankan PowerPoint mode Slide Show untuk tangkapan interaktif.").small().color(p.text_muted));
+                                }
+
+                                ui.add_space(4.0);
+                                ui.label(RichText::new("Opsi 2: Atau Pilih File Presentasi (.pptx / .ppt):").strong().small());
+                                ui.horizontal(|ui| {
+                                    let mut display_p = if app.add_source_file_path.parse::<u64>().is_ok() { String::new() } else { app.add_source_file_path.clone() };
+                                    if ui.add_sized(Vec2::new(225.0, 24.0), egui::TextEdit::singleline(&mut display_p)).changed() {
+                                        app.add_source_file_path = display_p;
+                                    }
+                                    if ui.button(format!("{} Browse...", icons::FOLDER_OPEN)).clicked() {
+                                        if let Some(path) = crate::platform::pick_powerpoint_file_dialog() {
+                                            app.add_source_file_path = path.to_string_lossy().to_string();
+                                            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                                                app.add_source_name_buffer = format!("PPT - {}", stem);
+                                            }
+                                        }
+                                    }
+                                });
+                            }
+                            crate::studio::source::AddSourceType::BrowserSource => {
+                                ui.label("Web URL:");
+                                ui.add_sized(Vec2::new(340.0, 24.0), egui::TextEdit::singleline(&mut app.add_source_browser_url));
+                                ui.add_space(4.0);
+                                ui.label(RichText::new("Menyediakan URL dan dimensi rendering web untuk overlay siaran.").small().color(p.text_muted));
+                            }
+                            crate::studio::source::AddSourceType::WebcamDevice => {
+                                ui.label("Pilih Perangkat Kamera:");
+                                let cameras = app.capture_catalog.cameras.clone();
+                                if cameras.is_empty() {
+                                    ui.label(RichText::new("Tidak ada webcam online terdeteksi.").small().color(p.text_muted));
+                                } else {
+                                    let selected_id = if app.add_source_file_path.is_empty() {
+                                        cameras.first().map(|c| c.id.clone()).unwrap_or_default()
+                                    } else {
+                                        app.add_source_file_path.clone()
+                                    };
+                                    let current_name = cameras.iter().find(|c| c.id == selected_id).map(|c| c.name.as_str()).unwrap_or("Pilih Kamera");
+                                    egui::ComboBox::from_id_salt("add_cam_combo")
+                                        .selected_text(current_name)
+                                        .width(330.0)
+                                        .show_ui(ui, |ui| {
+                                            for c in &cameras {
+                                                if ui.selectable_value(&mut app.add_source_file_path, c.id.clone(), c.name.clone()).clicked() {
+                                                    // updated
+                                                }
+                                            }
+                                        });
+                                }
+                            }
+                            crate::studio::source::AddSourceType::ImageSlideShow => {
+                                ui.label("Image Slide Show");
+                                ui.label(RichText::new("Slide Show dibuat dengan efek transisi fade. Foto-foto dapat ditambahkan dan diurutkan melalui tombol 'Manage Slide Show Images' di Properties.").small().color(p.text_muted));
+                            }
+                            crate::studio::source::AddSourceType::TimeSource => {
+                                ui.label(RichText::new("Pilihan Mode & Gaya Waktu:").strong().small());
+                                ui.label(RichText::new("• Waktu Sekarang (Jam Real-time sinkron waktu Windows)").small());
+                                ui.label(RichText::new("• Hitung Maju (Stopwatch jam, menit, detik)").small());
+                                ui.label(RichText::new("• Hitung Mundur (Countdown timer presentasi/acara)").small());
+                                ui.add_space(4.0);
+                                ui.label(RichText::new("Tersedia 4 gaya visual: Digital Neon, TV Broadcast Badge, Minimalis Bersih, dan Glassmorphism Card.").small().color(p.text_muted));
+                                ui.label(RichText::new("Font type, ukuran font (bisa diperbesar bebas), warna, serta tombol kontrol maju/mundur waktu dapat diatur di Properties.").small().color(p.text_muted));
+                            }
+                        }
+
+                        ui.add_space(8.0);
+                        ui.checkbox(&mut app.add_source_open_properties, "Buka pengaturan lanjutan (Properties) setelah ditambahkan");
+
+                        // Error message
+                        if let Some(err) = &app.add_source_error_message {
+                            ui.add_space(4.0);
+                            ui.colored_label(p.rec_red, format!("⚠ {}", err));
+                        }
+
+                        ui.add_space(10.0);
+                        ui.separator();
+                        ui.add_space(6.0);
+
+                        // Action buttons
+                        ui.horizontal(|ui| {
+                            let add_btn = egui::Button::new(RichText::new(format!("{} Add Source", icons::PLUS)).strong().color(egui::Color32::WHITE))
+                                .fill(p.accent_primary)
+                                .min_size(Vec2::new(125.0, 28.0));
+
+                            if ui.add(add_btn).clicked() {
+                                if let Some(item) = validate_and_create_source(app) {
+                                    app.studio.preview_scene_mut().add_source(item);
+                                    app.studio.sync_if_linked();
+                                    if app.add_source_open_properties {
+                                        app.show_source_properties_dialog = true;
+                                    }
+                                    app.show_add_source_dialog = false;
+                                }
+                            }
+
+                            if ui.add(egui::Button::new("Batal").min_size(Vec2::new(80.0, 28.0))).clicked() {
+                                app.show_add_source_dialog = false;
+                            }
+                        });
+                    },
+                );
+            });
+
+            if let Some(new_st) = newly_selected {
+                app.add_source_selected_type = new_st;
+                let prefix = new_st.default_name_prefix();
+                app.add_source_name_buffer = app.studio.preview_scene().generate_unique_source_name(prefix);
+                app.add_source_error_message = None;
+            }
+        });
+
+    if !open {
+        app.show_add_source_dialog = false;
+    }
+}
+
+fn validate_and_create_source(app: &mut NexoraApp) -> Option<crate::studio::source::SourceItem> {
+    let name = app.add_source_name_buffer.trim().to_string();
+    if name.is_empty() {
+        app.add_source_error_message = Some("Nama source tidak boleh kosong.".to_string());
+        return None;
+    }
+
+    match app.add_source_selected_type {
+        crate::studio::source::AddSourceType::DisplayCapture => {
+            let displays = &app.capture_catalog.displays;
+            let (mon_id, mon_name, res) = if let Some(d) = displays.iter().find(|d| d.id == app.add_source_file_path).or_else(|| displays.first()) {
+                (d.id.clone(), d.name.clone(), (d.width, d.height))
+            } else {
+                ("MONITOR_0".to_string(), "Primary Monitor".to_string(), (1920, 1080))
+            };
+            Some(SourceItem::new(
+                name,
+                SourceKind::DisplayCapture {
+                    monitor_id: mon_id,
+                    monitor_name: mon_name,
+                    resolution: res,
+                    capture_cursor: true,
+                },
+            ))
+        }
+        crate::studio::source::AddSourceType::WindowCapture => {
+            let windows = &app.capture_catalog.windows;
+            let target_hwnd: u64 = app.add_source_file_path.parse().unwrap_or(0);
+            let (hwnd, title, exe) = if let Some(w) = windows.iter().find(|w| w.hwnd == target_hwnd).or_else(|| windows.first()) {
+                (w.hwnd, w.title.clone(), w.executable.clone())
+            } else {
+                (0x0001_0420, "Window Application".to_string(), "App.exe".to_string())
+            };
+            Some(SourceItem::new(
+                name,
+                SourceKind::WindowCapture {
+                    window_hwnd: hwnd,
+                    window_title: title,
+                    executable_name: exe,
+                    capture_cursor: true,
+                },
+            ))
+        }
+        crate::studio::source::AddSourceType::Image => {
+            let trimmed_path = app.add_source_file_path.trim();
+            if trimmed_path.is_empty() {
+                app.add_source_error_message = Some("Silakan pilih file gambar terlebih dahulu.".to_string());
+                return None;
+            }
+            if !std::path::Path::new(trimmed_path).exists() {
+                app.add_source_error_message = Some("File gambar tidak ditemukan pada path yang ditentukan.".to_string());
+                return None;
+            }
+            Some(SourceItem::new(
+                name,
+                SourceKind::ImageSource {
+                    file_path: trimmed_path.to_string(),
+                    opacity: 1.0,
+                },
+            ))
+        }
+        crate::studio::source::AddSourceType::MediaSource => {
+            let trimmed_path = app.add_source_file_path.trim();
+            if trimmed_path.is_empty() {
+                app.add_source_error_message = Some("Silakan pilih file media/video terlebih dahulu.".to_string());
+                return None;
+            }
+            if !std::path::Path::new(trimmed_path).exists() {
+                app.add_source_error_message = Some("File media tidak ditemukan pada path yang ditentukan.".to_string());
+                return None;
+            }
+            Some(SourceItem::new(
+                name,
+                SourceKind::MediaSource {
+                    is_local_file: true,
+                    file_path: trimmed_path.to_string(),
+                    loop_playback: true,
+                    restart_on_activate: true,
+                    use_hardware_decoding: true,
+                    hide_when_ended: false,
+                    close_when_inactive: false,
+                    speed_percent: 100,
+                    volume: 1.0,
+                    muted: false,
+                    is_playing: true,
+                    color_range: crate::studio::source::MediaColorRange::Auto,
+                    restart_nonce: 0,
+                },
+            ))
+        }
+        crate::studio::source::AddSourceType::TextGdiPlus => {
+            let text = if app.add_source_text_content.trim().is_empty() {
+                "NEXORA Studio Live".to_string()
+            } else {
+                app.add_source_text_content.clone()
+            };
+            Some(SourceItem::new(
+                name,
+                SourceKind::TextGdiPlus {
+                    text,
+                    font_size: 32.0,
+                    color_rgba: [255, 255, 255, 255],
+                    effect: crate::studio::source::TextAnimationEffect::Static,
+                    scroll_speed: 95.0,
+                    loop_animation: true,
+                    loop_gap_px: 80.0,
+                    banner_style: crate::studio::source::TvBannerStyle::PlainText,
+                    bg_color_rgba: [15, 23, 42, 225],
+                    accent_color_rgba: [220, 38, 38, 255],
+                    badge_text: String::new(),
+                    text_shadow: true,
+                },
+            ))
+        }
+        crate::studio::source::AddSourceType::ColorSource => {
+            Some(SourceItem::new(
+                name,
+                SourceKind::ColorSource {
+                    color_rgba: app.add_source_color_rgba,
+                    width: 1920,
+                    height: 1080,
+                },
+            ))
+        }
+        crate::studio::source::AddSourceType::PowerPoint => {
+            let path_or_hwnd = app.add_source_file_path.trim();
+            let hwnd: u64 = path_or_hwnd.parse().unwrap_or(0);
+            let (file_path, window_hwnd, pres_name) = if hwnd != 0 {
+                let win_title = app.capture_catalog.windows.iter().find(|w| w.hwnd == hwnd).map(|w| w.title.clone()).unwrap_or_else(|| "PowerPoint Slide Show".to_string());
+                (String::new(), hwnd, win_title)
+            } else if !path_or_hwnd.is_empty() {
+                (path_or_hwnd.to_string(), 0, name.clone())
+            } else {
+                (String::new(), 0, "PowerPoint Slide Show".to_string())
+            };
+
+            let mut slides = Vec::new();
+            if window_hwnd == 0 && !file_path.is_empty() {
+                slides = crate::platform::get_or_export_ppt_slides(&file_path);
+            }
+            let slide_count = slides.len();
+
+            Some(SourceItem::new(
+                name,
+                SourceKind::PowerPointSource {
+                    presentation_name: pres_name,
+                    file_path,
+                    window_hwnd,
+                    slide_index: 0,
+                    slide_count,
+                    slides,
+                },
+            ))
+        }
+        crate::studio::source::AddSourceType::BrowserSource => {
+            let url = if app.add_source_browser_url.trim().is_empty() {
+                "https://obsproject.com/browser-source".to_string()
+            } else {
+                app.add_source_browser_url.trim().to_string()
+            };
+            Some(SourceItem::new(
+                name,
+                SourceKind::BrowserSource {
+                    url,
+                    width: 800,
+                    height: 600,
+                    fps: 30,
+                },
+            ))
+        }
+        crate::studio::source::AddSourceType::WebcamDevice => {
+            let cameras = &app.capture_catalog.cameras;
+            let (cid, cname) = if let Some(c) = cameras.iter().find(|c| c.id == app.add_source_file_path).or_else(|| cameras.first()) {
+                (c.id.clone(), c.name.clone())
+            } else {
+                ("CAM_0".to_string(), "Integrated Camera".to_string())
+            };
+            Some(SourceItem::new(
+                name,
+                SourceKind::WebcamDevice {
+                    device_id: cid,
+                    device_name: cname,
+                    resolution: (1280, 720),
+                },
+            ))
+        }
+        crate::studio::source::AddSourceType::ImageSlideShow => {
+            Some(SourceItem::new(
+                name,
+                SourceKind::ImageSlideShow {
+                    files: Vec::new(),
+                    slide_time_ms: 4500,
+                    transition_duration_ms: 600,
+                    loop_slides: true,
+                    transition_effect: crate::studio::source::SlideTransitionEffect::CrossFade,
+                },
+            ))
+        }
+        crate::studio::source::AddSourceType::TimeSource => {
+            let mut item = SourceItem::new(
+                name,
+                SourceKind::TimeSource {
+                    mode: crate::studio::source::TimeSourceMode::RealTimeClock,
+                    target_duration_sec: 300,
+                    elapsed_sec: 0.0,
+                    is_running: true,
+                    effect: crate::studio::source::TimeVisualEffect::DigitalNeon,
+                    font_size: 52.0,
+                    font_family: crate::studio::source::TimeFontFamily::Monospace,
+                    text_color_rgba: [255, 255, 255, 255],
+                    bg_color_rgba: [15, 23, 42, 220],
+                    accent_color_rgba: [0, 210, 255, 255],
+                    show_hours: true,
+                    blink_colon: false,
+                    use_24h_format: true,
+                    badge_text: String::new(),
+                    finish_text: String::new(),
+                },
+            );
+            item.transform.pos_x = 0.04;
+            item.transform.pos_y = 0.04;
+            item.transform.scale_x = 0.30;
+            item.transform.scale_y = 0.15;
+            Some(item)
         }
     }
 }

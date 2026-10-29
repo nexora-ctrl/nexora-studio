@@ -68,10 +68,11 @@ mod tests {
         let mut studio = StudioState::default();
         assert!(!studio.has_pending_preview_changes());
 
-        // Add a new scene in Preview
+        // Add a new scene in Preview (sources must be empty by default)
         let new_scene_id = studio.add_scene("Scene 3 - Demo".to_string());
         assert_eq!(studio.preview_scene_id, new_scene_id);
         assert_ne!(studio.program_scene_id, new_scene_id);
+        assert!(studio.preview_scene().sources.is_empty(), "New scene must have empty sources by default");
         assert!(studio.has_pending_preview_changes());
 
         // Apply Preview -> Program transition
@@ -127,6 +128,21 @@ mod tests {
         assert_eq!(restored.dock_height, 280.0);
         assert_eq!(restored.active_layout_name, "Setup Presentasi");
         assert_eq!(restored.saved_layout_presets.len(), 1);
+    }
+
+    #[test]
+    fn scene_naming_and_empty_sources_by_default() {
+        let mut studio = StudioState::default();
+        let name1 = studio.generate_unique_scene_name();
+        assert_eq!(name1, "Scene 3");
+
+        let id = studio.add_scene(name1);
+        let scene = studio.scenes.iter().find(|s| s.id == id).expect("scene exists");
+        assert_eq!(scene.name, "Scene 3");
+        assert!(scene.sources.is_empty(), "New scene sources must be empty");
+
+        let name2 = studio.generate_unique_scene_name();
+        assert_eq!(name2, "Scene 4");
     }
 
     #[test]

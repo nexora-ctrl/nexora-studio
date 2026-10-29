@@ -108,6 +108,21 @@ impl Scene {
         self.sources.iter_mut().find(|s| s.id == id)
     }
 
+    pub fn generate_unique_source_name(&self, prefix: &str) -> String {
+        let existing: std::collections::HashSet<&str> = self.sources.iter().map(|s| s.name.as_str()).collect();
+        if !existing.contains(prefix) {
+            return prefix.to_string();
+        }
+        let mut i = 2;
+        loop {
+            let candidate = format!("{} {}", prefix, i);
+            if !existing.contains(candidate.as_str()) {
+                return candidate;
+            }
+            i += 1;
+        }
+    }
+
     pub fn add_source(&mut self, item: SourceItem) {
         self.selected_source_id = Some(item.id);
         // Insert at index 0 (top of the Source panel = front/foreground layer on canvas)

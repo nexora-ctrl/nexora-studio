@@ -40,11 +40,30 @@ Sebelum melakukan perubahan kode, **baca peta arsitektur lengkap di [`ARCHITECTU
      - Semua jendela modal (`Settings`, `Properties`, `Filters`, `Manage Slide Show Images`, `Rename`, `Save Layout Preset`) wajib memanggil `block_window_body_drag(ui)` di awal isi modal. Window hanya boleh digeser/dipindahkan melalui **Title Bar** saja untuk menjaga konsistensi dan mencegah pergeseran window yang tidak disengaja saat berinteraksi dengan widget/form.
    - **Standar Ikon Kursor & Drag-Drop:**
      - Kursor standar saat hovering/klik biasa adalah panah default (`CursorIcon::Default`).
-     - Kursor arah resize hanya muncul saat kursor berada tepat di atas 8 handle sudut/sisi layer yang sedang aktif dan tidak terkunci.
+     - Kursor arah resize langsung aktif secara instan (zero-latency) dengan prioritas 4 sudut diagonal (margin 12px) dan 4 sisi horizontal/vertikal (margin 7px) tanpa jeda/telat.
      - Kursor drag (`CursorIcon::Grabbing`) hanya aktif ketika mouse sedang benar-benar ditahan dan digeser (*actively dragging*), tidak boleh muncul sembarangan di seluruh area kanvas.
      - Jika modal dialog sedang terbuka (`app.is_any_modal_open()`), kanvas tidak boleh merebut kursor atau memicu resize/drag.
    - **Screen Color Picker / Pipet Warna Layar:**
      - Fitur pemilih warna pada filter (`Chroma Key`, `Color Key`) menyediakan tombol `Pipet Layar` (`COLOR_PICKER`) yang memungkinkan pengambilan sampel warna RGB asli dari area layar manapun secara real-time via Win32 API (`GetPixel`), dilengkapi floating pill pembesar dan pembatalan mudah via tombol `Esc` atau klik kanan.
    - **Projector Layar Kedua:**
      - Klik kanan kanvas -> `Open Preview/Program Projector` langsung melakukan *auto-fullscreen* ke monitor yang dipilih dan langsung tertutup saat tombol **`Esc`** ditekan.
+   - **Fitur Add Source & Dialog Konfigurasi Layer:**
+     - Tombol `+ Add Source` pada footer panel Sources membuka dialog modal modern 2 kolom (`render_add_source_dialog`), sedangkan menu pop-up (`▾` dan klik kanan) menggunakan format satu baris ringkas (*single-line*) bersih dengan scroll roda mouse (*mouse wheel*) serta auto-scroll indikator panah Tabler Icons (`icons::CHEVRON_UP` & `icons::CHEVRON_DOWN`).
+     - Mendukung beragam jenis source termasuk **PowerPoint / PPT Source** (ekspor otomatis slide 1080p via COM dengan navigasi slide pointer / remote) serta **Waktu / Jam & Timer (`TimeSource`)**:
+       - Multi-mode: Waktu Sekarang (Jam Real-Time sinkron waktu Windows), Hitung Maju (Stopwatch), dan Hitung Mundur (Countdown Timer).
+       - Efek Visual: `DigitalNeon` (glow frame LED), `TvCornerBadge` (kapsul broadcast TV), `MinimalistClean` (transparan melayang dengan soft shadow), dan `DarkGlassCard` (glassmorphism modern dengan pulsing indicator dot).
+       - Kontrol Waktu Interaktif: Start/Pause, Reset, tombol penyesuaian cepat `+1m`/`-1m`/`+10s`/`-10s` (bisa memajukan & memundurkan waktu), serta tombol quick play/pause & reset langsung di kartu row Sources dock.
+       - Tipografi & Skalabilitas: Font type (`Monospace`, `Proportional`, `Serif`), font size slider (`16px..140px`), opsi format (tampilkan jam, titik dua solid `: ` tanpa kedip, format 24 jam), dan penyesuaian warna teks/background/aksen penuh.
+     - Setiap source yang ditambahkan melalui dialog divalidasi namanya (harus unik dan tidak boleh kosong, otomatis diisi prefix unik seperti `Display Capture 2`), file diperiksa keberadaannya secara native via dialog picker, lalu disisipkan ke scene preview aktif pada index 0 (layer foreground terdepan).
+   - **Alur Tambah Scene (Add Scene) & Default Empty Sources:**
+     - Tombol + pada footer panel Scenes dan klik kanan -> Add Scene... memunculkan dialog modal konfirmasi nama scene baru terlebih dahulu (*Add Scene dialog*).
+     - Input nama scene otomatis di-prefill dengan nama default unik (misal Scene 3). Pengguna dapat langsung menekan Enter atau mengklik OK untuk memakai nama default, atau mengetik nama kustom terlebih dahulu.
+     - Scene baru yang ditambahkan selalu memiliki daftar layer/source yang **KOSONG** secara default (sources: Vec::new()) tanpa menambahkan layer default apapun.
+   - **Menu Transform & Manipulasi Kanvas Langsung (OBS-Style):**
+     - Klik kanan pada layer di Preview canvas atau panel Sources menampilkan submenu **Transform ▸**:
+       - Rotasi: `Rotate 90 degrees CW`, `Rotate 90 degrees CCW`, `Rotate 180 degrees`.
+       - Balik: `Flip Horizontal`, `Flip Vertical`.
+       - Penyesuaian Kanvas: `Fit to screen` (`Ctrl+F`), `Stretch to screen` (`Ctrl+S`), `Center to screen` (`Ctrl+D`), `Center Vertically`, `Center Horizontally`.
+       - Reset: `Reset Transform` (`Ctrl+R`).
+     - Manipulasi langsung di canvas dapat dilakukan menggunakan tombol pintas keyboard di atas layer terpilih (`Ctrl+F`, `Ctrl+S`, `Ctrl+D`, `Ctrl+R`) serta klik kanan langsung pada objek layer untuk memilih dan membuka menu Transform.
    - **Larangan Mutlak:** Dilarang menambahkan fitur *live streaming* / RTMP / cloud / login.

@@ -3,7 +3,7 @@ use crate::recording::RecordingStatus;
 use crate::studio::scene::Scene;
 use crate::studio::source::{
     SlideTransitionEffect, SourceItem, SourceKind, SourceTransform, TextAnimationEffect,
-    TvBannerStyle,
+    TimeFontFamily, TimeSourceMode, TimeVisualEffect, TvBannerStyle,
 };
 use crate::ui::icons;
 use crate::ui::theme::ThemePalette;
@@ -475,91 +475,25 @@ fn render_single_viewport_card(
                 let shift_held = ui.input(|i| i.modifiers.shift);
                 let pointer_pos = response.interact_pointer_pos().or_else(|| ui.input(|i| i.pointer.hover_pos()));
 
+                // Smooth real-time redraw saat mouse bergerak di canvas Preview
+                if response.hovered() && ui.input(|i| i.pointer.is_moving()) {
+                    ui.ctx().request_repaint();
+                }
+
                 // Compute current selected source's screen rect for handle hit-testing
                 let selected_screen_rect = scene_clone
                     .selected_source()
                     .filter(|s| s.visible)
                     .map(|s| compute_layer_screen_rect(canvas_rect, &s.transform));
 
-                // Update cursor icon:
-                // - standard default cursor for clicking and hovering layer body
-                // - directional resize cursors ONLY when hovering handles of an unlocked selected source
-                // - grabbing cursor ONLY when actively dragging layer
-                if let Some(ptr) = pointer_pos {
-                    if app.preview_drag_mode == PreviewDragMode::None {
-                        if let Some(sel_src) = scene_clone.selected_source() {
-                            if !sel_src.locked {
-                                if let Some(sel_rect) = selected_screen_rect {
-                                    let hover_mode = hit_test_handles(sel_rect, ptr, alt_held);
-                                    match hover_mode {
-                                        PreviewDragMode::ResizeTopLeft | PreviewDragMode::ResizeBottomRight => {
-                                            ui.ctx().set_cursor_icon(CursorIcon::ResizeNwSe);
-                                        }
-                                        PreviewDragMode::ResizeTopRight | PreviewDragMode::ResizeBottomLeft => {
-                                            ui.ctx().set_cursor_icon(CursorIcon::ResizeNeSw);
-                                        }
-                                        PreviewDragMode::ResizeTop
-                                        | PreviewDragMode::ResizeBottom
-                                        | PreviewDragMode::CropTop
-                                        | PreviewDragMode::CropBottom => {
-                                            ui.ctx().set_cursor_icon(CursorIcon::ResizeVertical);
-                                        }
-                                        PreviewDragMode::ResizeLeft
-                                        | PreviewDragMode::ResizeRight
-                                        | PreviewDragMode::CropLeft
-                                        | PreviewDragMode::CropRight => {
-                                            ui.ctx().set_cursor_icon(CursorIcon::ResizeHorizontal);
-                                        }
-                                        PreviewDragMode::Move => {
-                                            // Normal hover over layer body: standard click cursor
-                                            ui.ctx().set_cursor_icon(CursorIcon::Default);
-                                        }
-                                        PreviewDragMode::None => {
-                                            ui.ctx().set_cursor_icon(CursorIcon::Default);
-                                        }
-                                    }
-                                }
-                            } else {
-                                ui.ctx().set_cursor_icon(CursorIcon::Default);
-                            }
-                        } else {
-                            ui.ctx().set_cursor_icon(CursorIcon::Default);
-                        }
-                    } else if app.preview_drag_mode == PreviewDragMode::Move {
-                        // Actively dragging layer
-                        ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
-                    } else {
-                        // Actively resizing/cropping layer: maintain corresponding resize cursor
-                        match app.preview_drag_mode {
-                            PreviewDragMode::ResizeTopLeft | PreviewDragMode::ResizeBottomRight => {
-                                ui.ctx().set_cursor_icon(CursorIcon::ResizeNwSe);
-                            }
-                            PreviewDragMode::ResizeTopRight | PreviewDragMode::ResizeBottomLeft => {
-                                ui.ctx().set_cursor_icon(CursorIcon::ResizeNeSw);
-                            }
-                            PreviewDragMode::ResizeTop
-                            | PreviewDragMode::ResizeBottom
-                            | PreviewDragMode::CropTop
-                            | PreviewDragMode::CropBottom => {
-                                ui.ctx().set_cursor_icon(CursorIcon::ResizeVertical);
-                            }
-                            PreviewDragMode::ResizeLeft
-                            | PreviewDragMode::ResizeRight
-                            | PreviewDragMode::CropLeft
-                            | PreviewDragMode::CropRight => {
-                                ui.ctx().set_cursor_icon(CursorIcon::ResizeHorizontal);
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-
-                // Click or drag start: hit-test handles of selected source first, then top-most visible layer
-                if response.clicked() || response.drag_started() {
+                // Click, right-click, or drag start: hit-test handles of selected source first, then top-most visible layer
+                if response.clicked() || response.drag_started() || response.secondary_clicked() {
                     if let Some(ptr) = pointer_pos {
                         let mut matched_handle = PreviewDragMode::None;
-                        if let Some(sel_rect) = selected_screen_rect {
-                            matched_handle = hit_test_handles(sel_rect, ptr, alt_held);
+                        if !response.secondary_clicked() {
+                            if let Some(sel_rect) = selected_screen_rect {
+                                matched_handle = hit_test_handles(sel_rect, ptr, alt_held);
+                            }
                         }
 
                         if matched_handle != PreviewDragMode::None && matched_handle != PreviewDragMode::Move {
@@ -590,8 +524,12 @@ fn render_single_viewport_card(
                             }
                             if let Some(id) = hit_id {
                                 app.studio.preview_scene_mut().selected_source_id = Some(id);
-                                app.preview_drag_mode = PreviewDragMode::Move;
-                            } else {
+                                if !response.secondary_clicked() {
+                                    app.preview_drag_mode = PreviewDragMode::Move;
+                                } else {
+                                    app.preview_drag_mode = PreviewDragMode::None;
+                                }
+                            } else if !response.secondary_clicked() {
                                 app.preview_drag_mode = PreviewDragMode::None;
                             }
                         }
@@ -637,6 +575,137 @@ fn render_single_viewport_card(
 
                 if response.drag_stopped() {
                     app.preview_drag_mode = PreviewDragMode::None;
+                }
+
+                // Update cursor icon secara instan (zero latency) berdasarkan hover / active drag state terkini
+                if let Some(ptr) = pointer_pos {
+                    if app.preview_drag_mode == PreviewDragMode::None {
+                        if let Some(sel_src) = scene_clone.selected_source() {
+                            if !sel_src.locked {
+                                if let Some(sel_rect) = selected_screen_rect {
+                                    let hover_mode = hit_test_handles(sel_rect, ptr, alt_held);
+                                    match hover_mode {
+                                        PreviewDragMode::ResizeTopLeft | PreviewDragMode::ResizeBottomRight => {
+                                            ui.ctx().set_cursor_icon(CursorIcon::ResizeNwSe);
+                                        }
+                                        PreviewDragMode::ResizeTopRight | PreviewDragMode::ResizeBottomLeft => {
+                                            ui.ctx().set_cursor_icon(CursorIcon::ResizeNeSw);
+                                        }
+                                        PreviewDragMode::ResizeTop
+                                        | PreviewDragMode::ResizeBottom
+                                        | PreviewDragMode::CropTop
+                                        | PreviewDragMode::CropBottom => {
+                                            ui.ctx().set_cursor_icon(CursorIcon::ResizeVertical);
+                                        }
+                                        PreviewDragMode::ResizeLeft
+                                        | PreviewDragMode::ResizeRight
+                                        | PreviewDragMode::CropLeft
+                                        | PreviewDragMode::CropRight => {
+                                            ui.ctx().set_cursor_icon(CursorIcon::ResizeHorizontal);
+                                        }
+                                        PreviewDragMode::Move => {
+                                            ui.ctx().set_cursor_icon(CursorIcon::Default);
+                                        }
+                                        PreviewDragMode::None => {
+                                            ui.ctx().set_cursor_icon(CursorIcon::Default);
+                                        }
+                                    }
+                                }
+                            } else {
+                                ui.ctx().set_cursor_icon(CursorIcon::Default);
+                            }
+                        } else {
+                            ui.ctx().set_cursor_icon(CursorIcon::Default);
+                        }
+                    } else if app.preview_drag_mode == PreviewDragMode::Move {
+                        ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
+                    } else {
+                        match app.preview_drag_mode {
+                            PreviewDragMode::ResizeTopLeft | PreviewDragMode::ResizeBottomRight => {
+                                ui.ctx().set_cursor_icon(CursorIcon::ResizeNwSe);
+                            }
+                            PreviewDragMode::ResizeTopRight | PreviewDragMode::ResizeBottomLeft => {
+                                ui.ctx().set_cursor_icon(CursorIcon::ResizeNeSw);
+                            }
+                            PreviewDragMode::ResizeTop
+                            | PreviewDragMode::ResizeBottom
+                            | PreviewDragMode::CropTop
+                            | PreviewDragMode::CropBottom => {
+                                ui.ctx().set_cursor_icon(CursorIcon::ResizeVertical);
+                            }
+                            PreviewDragMode::ResizeLeft
+                            | PreviewDragMode::ResizeRight
+                            | PreviewDragMode::CropLeft
+                            | PreviewDragMode::CropRight => {
+                                ui.ctx().set_cursor_icon(CursorIcon::ResizeHorizontal);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+
+                // Keyboard hotkeys for transforming selected source in Preview canvas
+                if role == ViewportRole::Preview
+                    && !ui.ctx().wants_keyboard_input()
+                    && !app.is_any_modal_open()
+                {
+                    let ctrl = ui.input(|i| i.modifiers.ctrl);
+                    if ctrl {
+                        if ui.input(|i| i.key_pressed(egui::Key::F)) {
+                            if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
+                                src.transform.fit_to_screen();
+                                app.studio.sync_if_linked();
+                            }
+                        } else if ui.input(|i| i.key_pressed(egui::Key::S)) {
+                            if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
+                                src.transform.stretch_to_screen();
+                                app.studio.sync_if_linked();
+                            }
+                        } else if ui.input(|i| i.key_pressed(egui::Key::D)) {
+                            if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
+                                src.transform.center_to_screen();
+                                app.studio.sync_if_linked();
+                            }
+                        } else if ui.input(|i| i.key_pressed(egui::Key::R)) {
+                            if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
+                                src.transform.reset_transform();
+                                app.studio.sync_if_linked();
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Presenter pointer click navigation in Program (Output) Viewport
+            if role == ViewportRole::Program
+                && canvas_rect.width() > 10.0
+                && canvas_rect.height() > 10.0
+                && !app.is_any_modal_open()
+                && !app.eyedropper_active
+            {
+                let has_ppt = scene_clone.sources.iter().any(|s| s.visible && matches!(s.kind, SourceKind::PowerPointSource { .. }));
+                if has_ppt {
+                    if response.clicked() {
+                        if let Some(pos) = response.interact_pointer_pos() {
+                            let rel_x = (pos.x - canvas_rect.min.x) / canvas_rect.width();
+                            if rel_x < 0.20 {
+                                app.advance_presentation_slide(-1);
+                            } else {
+                                app.advance_presentation_slide(1);
+                            }
+                        }
+                    }
+
+                    if response.hovered() {
+                        let scroll_y = ui.input(|i| i.raw_scroll_delta.y);
+                        if scroll_y.abs() > 15.0 {
+                            if scroll_y < 0.0 {
+                                app.advance_presentation_slide(1);
+                            } else {
+                                app.advance_presentation_slide(-1);
+                            }
+                        }
+                    }
                 }
             }
 
@@ -904,6 +973,138 @@ fn render_single_viewport_card(
             response.context_menu(|ui| {
                 ui.set_min_width(220.0);
 
+                if role == ViewportRole::Preview {
+                    let maybe_sel_src = app.studio.preview_scene().selected_source().cloned();
+                    if let Some(sel_src) = maybe_sel_src {
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(sel_src.kind.tabler_icon()).size(14.0).color(p.accent_primary));
+                            ui.label(RichText::new(&sel_src.name).strong());
+                        });
+                        ui.separator();
+
+                        ui.menu_button(format!("{}  Transform", icons::TRANSFORM), |ui| {
+                            ui.set_min_width(220.0);
+                            if ui.button("Rotate 90 degrees CW").clicked() {
+                                if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
+                                    src.transform.rotate_cw_90();
+                                }
+                                app.studio.sync_if_linked();
+                                ui.close_menu();
+                            }
+                            if ui.button("Rotate 90 degrees CCW").clicked() {
+                                if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
+                                    src.transform.rotate_ccw_90();
+                                }
+                                app.studio.sync_if_linked();
+                                ui.close_menu();
+                            }
+                            if ui.button("Rotate 180 degrees").clicked() {
+                                if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
+                                    src.transform.rotate_180();
+                                }
+                                app.studio.sync_if_linked();
+                                ui.close_menu();
+                            }
+                            ui.separator();
+                            if ui.button("Flip Horizontal").clicked() {
+                                if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
+                                    src.transform.flip_horizontal();
+                                }
+                                app.studio.sync_if_linked();
+                                ui.close_menu();
+                            }
+                            if ui.button("Flip Vertical").clicked() {
+                                if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
+                                    src.transform.flip_vertical();
+                                }
+                                app.studio.sync_if_linked();
+                                ui.close_menu();
+                            }
+                            ui.separator();
+                            if ui.add(egui::Button::new("Fit to screen").shortcut_text("Ctrl+F")).clicked() {
+                                if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
+                                    src.transform.fit_to_screen();
+                                }
+                                app.studio.sync_if_linked();
+                                ui.close_menu();
+                            }
+                            if ui.add(egui::Button::new("Stretch to screen").shortcut_text("Ctrl+S")).clicked() {
+                                if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
+                                    src.transform.stretch_to_screen();
+                                }
+                                app.studio.sync_if_linked();
+                                ui.close_menu();
+                            }
+                            if ui.add(egui::Button::new("Center to screen").shortcut_text("Ctrl+D")).clicked() {
+                                if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
+                                    src.transform.center_to_screen();
+                                }
+                                app.studio.sync_if_linked();
+                                ui.close_menu();
+                            }
+                            if ui.button("Center Vertically").clicked() {
+                                if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
+                                    src.transform.center_vertically();
+                                }
+                                app.studio.sync_if_linked();
+                                ui.close_menu();
+                            }
+                            if ui.button("Center Horizontally").clicked() {
+                                if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
+                                    src.transform.center_horizontally();
+                                }
+                                app.studio.sync_if_linked();
+                                ui.close_menu();
+                            }
+                            ui.separator();
+                            if ui.add(egui::Button::new(format!("{}  Reset Transform", icons::REFRESH)).shortcut_text("Ctrl+R")).clicked() {
+                                if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
+                                    src.transform.reset_transform();
+                                }
+                                app.studio.sync_if_linked();
+                                ui.close_menu();
+                            }
+                        });
+
+                        ui.menu_button(format!("{}  Order", icons::ARROWS_UP_DOWN), |ui| {
+                            ui.set_min_width(180.0);
+                            if ui.button(format!("{}  Move Up", icons::ARROW_UP)).clicked() {
+                                app.studio.preview_scene_mut().move_selected_source_up();
+                                app.studio.sync_if_linked();
+                                ui.close_menu();
+                            }
+                            if ui.button(format!("{}  Move Down", icons::ARROW_DOWN)).clicked() {
+                                app.studio.preview_scene_mut().move_selected_source_down();
+                                app.studio.sync_if_linked();
+                                ui.close_menu();
+                            }
+                            ui.separator();
+                            if ui.button("Move to Top (Front)").clicked() {
+                                app.studio.preview_scene_mut().move_selected_source_to_top();
+                                app.studio.sync_if_linked();
+                                ui.close_menu();
+                            }
+                            if ui.button("Move to Bottom (Back)").clicked() {
+                                app.studio.preview_scene_mut().move_selected_source_to_bottom();
+                                app.studio.sync_if_linked();
+                                ui.close_menu();
+                            }
+                        });
+
+                        if ui.button(format!("{}  Filters...", icons::FILTER)).clicked() {
+                            app.show_source_filters_dialog = true;
+                            ui.close_menu();
+                        }
+
+                        if ui.button(format!("{}  Properties", icons::SETTINGS)).clicked() {
+                            app.show_source_properties_dialog = true;
+                            ui.close_menu();
+                        }
+
+                        ui.separator();
+                    }
+                }
+
                 let projector_label = match role {
                     ViewportRole::Preview => "Open Preview Projector",
                     ViewportRole::Program => "Open Program Projector",
@@ -1021,67 +1222,67 @@ fn compute_layer_screen_rect(canvas_rect: Rect, transform: &SourceTransform) -> 
 }
 
 fn hit_test_handles(layer_rect: Rect, ptr: Pos2, alt_crop_mode: bool) -> PreviewDragMode {
-    let r = 9.0_f32;
+    let corner_margin = 12.0_f32;
+    let edge_margin = 7.0_f32;
 
     let tl = layer_rect.left_top();
     let tr = layer_rect.right_top();
     let bl = layer_rect.left_bottom();
     let br = layer_rect.right_bottom();
 
-    let top_mid = Pos2::new(layer_rect.center().x, layer_rect.min.y);
-    let bot_mid = Pos2::new(layer_rect.center().x, layer_rect.max.y);
-    let left_mid = Pos2::new(layer_rect.min.x, layer_rect.center().y);
-    let right_mid = Pos2::new(layer_rect.max.x, layer_rect.center().y);
-
-    if alt_crop_mode {
-        if ptr.distance(left_mid) <= r
-            || ( (ptr.x - layer_rect.min.x).abs() <= r && ptr.y >= layer_rect.min.y && ptr.y <= layer_rect.max.y )
-        {
-            return PreviewDragMode::CropLeft;
-        }
-        if ptr.distance(right_mid) <= r
-            || ( (ptr.x - layer_rect.max.x).abs() <= r && ptr.y >= layer_rect.min.y && ptr.y <= layer_rect.max.y )
-        {
-            return PreviewDragMode::CropRight;
-        }
-        if ptr.distance(top_mid) <= r
-            || ( (ptr.y - layer_rect.min.y).abs() <= r && ptr.x >= layer_rect.min.x && ptr.x <= layer_rect.max.x )
-        {
-            return PreviewDragMode::CropTop;
-        }
-        if ptr.distance(bot_mid) <= r
-            || ( (ptr.y - layer_rect.max.y).abs() <= r && ptr.x >= layer_rect.min.x && ptr.x <= layer_rect.max.x )
-        {
-            return PreviewDragMode::CropBottom;
-        }
-    }
-
-    if ptr.distance(tl) <= r {
+    // 1. Prioritas Utama: 4 Sudut (Corner Handles) selalu diuji pertama kali
+    if (ptr.x - tl.x).abs() <= corner_margin && (ptr.y - tl.y).abs() <= corner_margin {
         return PreviewDragMode::ResizeTopLeft;
     }
-    if ptr.distance(tr) <= r {
+    if (ptr.x - tr.x).abs() <= corner_margin && (ptr.y - tr.y).abs() <= corner_margin {
         return PreviewDragMode::ResizeTopRight;
     }
-    if ptr.distance(bl) <= r {
+    if (ptr.x - bl.x).abs() <= corner_margin && (ptr.y - bl.y).abs() <= corner_margin {
         return PreviewDragMode::ResizeBottomLeft;
     }
-    if ptr.distance(br) <= r {
+    if (ptr.x - br.x).abs() <= corner_margin && (ptr.y - br.y).abs() <= corner_margin {
         return PreviewDragMode::ResizeBottomRight;
     }
 
-    if ptr.distance(top_mid) <= r {
-        return PreviewDragMode::ResizeTop;
-    }
-    if ptr.distance(bot_mid) <= r {
-        return PreviewDragMode::ResizeBottom;
-    }
-    if ptr.distance(left_mid) <= r {
-        return PreviewDragMode::ResizeLeft;
-    }
-    if ptr.distance(right_mid) <= r {
-        return PreviewDragMode::ResizeRight;
+    // 2. Prioritas Kedua: 4 Sisi / Edge Handles (Atas, Bawah, Kiri, Kanan)
+    let in_x_range = ptr.x >= (layer_rect.min.x - corner_margin) && ptr.x <= (layer_rect.max.x + corner_margin);
+    let in_y_range = ptr.y >= (layer_rect.min.y - corner_margin) && ptr.y <= (layer_rect.max.y + corner_margin);
+
+    if in_x_range {
+        if (ptr.y - layer_rect.min.y).abs() <= edge_margin {
+            return if alt_crop_mode {
+                PreviewDragMode::CropTop
+            } else {
+                PreviewDragMode::ResizeTop
+            };
+        }
+        if (ptr.y - layer_rect.max.y).abs() <= edge_margin {
+            return if alt_crop_mode {
+                PreviewDragMode::CropBottom
+            } else {
+                PreviewDragMode::ResizeBottom
+            };
+        }
     }
 
+    if in_y_range {
+        if (ptr.x - layer_rect.min.x).abs() <= edge_margin {
+            return if alt_crop_mode {
+                PreviewDragMode::CropLeft
+            } else {
+                PreviewDragMode::ResizeLeft
+            };
+        }
+        if (ptr.x - layer_rect.max.x).abs() <= edge_margin {
+            return if alt_crop_mode {
+                PreviewDragMode::CropRight
+            } else {
+                PreviewDragMode::ResizeRight
+            };
+        }
+    }
+
+    // 3. Prioritas Ketiga: Badan layer dalam (Move / Drag)
     if layer_rect.contains(ptr) {
         return PreviewDragMode::Move;
     }
@@ -1346,6 +1547,31 @@ pub(crate) fn render_source_item_on_canvas(
             let key = format!("IMG:{}", file_path);
             app.capture_engine.get_or_update_filtered_texture(egui_ctx, &key, &src.filter)
         }
+        SourceKind::PowerPointSource {
+            window_hwnd,
+            file_path,
+            slides,
+            slide_index,
+            ..
+        } => {
+            if *window_hwnd != 0 {
+                let key = format!("WIN:{}:true", window_hwnd);
+                app.capture_engine.get_or_update_texture(egui_ctx, &key)
+            } else if let Some(current_slide) = slides.get(*slide_index) {
+                let key = format!("IMG:{}", current_slide);
+                app.capture_engine.get_or_update_filtered_texture(egui_ctx, &key, &src.filter)
+            } else if !file_path.is_empty() {
+                let exported = crate::platform::get_or_export_ppt_slides(file_path);
+                if let Some(first) = exported.first() {
+                    let key = format!("IMG:{}", first);
+                    app.capture_engine.get_or_update_filtered_texture(egui_ctx, &key, &src.filter)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
         _ => None,
     };
 
@@ -1359,6 +1585,78 @@ pub(crate) fn render_source_item_on_canvas(
         time_sec,
         alpha_mul,
     );
+}
+
+#[allow(clippy::too_many_arguments)]
+fn paint_transformed_image(
+    painter: &egui::Painter,
+    texture_id: egui::TextureId,
+    rect: Rect,
+    u0: f32,
+    v0: f32,
+    u1: f32,
+    v1: f32,
+    tint: Color32,
+    flip_h: bool,
+    flip_v: bool,
+    rotation_deg: i32,
+) {
+    let (mut left_u, mut right_u) = (u0, u1);
+    let (mut top_v, mut bot_v) = (v0, v1);
+    if flip_h {
+        std::mem::swap(&mut left_u, &mut right_u);
+    }
+    if flip_v {
+        std::mem::swap(&mut top_v, &mut bot_v);
+    }
+
+    let rot = ((rotation_deg % 360) + 360) % 360;
+    if rot == 0 {
+        painter.image(
+            texture_id,
+            rect,
+            Rect::from_min_max(Pos2::new(left_u, top_v), Pos2::new(right_u, bot_v)),
+            tint,
+        );
+        return;
+    }
+
+    let (c_tl, c_tr, c_br, c_bl) = match rot {
+        90 => (
+            Pos2::new(left_u, bot_v),
+            Pos2::new(left_u, top_v),
+            Pos2::new(right_u, top_v),
+            Pos2::new(right_u, bot_v),
+        ),
+        180 => (
+            Pos2::new(right_u, bot_v),
+            Pos2::new(left_u, bot_v),
+            Pos2::new(left_u, top_v),
+            Pos2::new(right_u, top_v),
+        ),
+        270 => (
+            Pos2::new(right_u, top_v),
+            Pos2::new(right_u, bot_v),
+            Pos2::new(left_u, bot_v),
+            Pos2::new(left_u, top_v),
+        ),
+        _ => (
+            Pos2::new(left_u, top_v),
+            Pos2::new(right_u, top_v),
+            Pos2::new(right_u, bot_v),
+            Pos2::new(left_u, bot_v),
+        ),
+    };
+
+    let mut mesh = egui::Mesh::with_texture(texture_id);
+    let idx = mesh.vertices.len() as u32;
+    mesh.vertices.push(egui::epaint::Vertex { pos: Pos2::new(rect.min.x, rect.min.y), uv: c_tl, color: tint });
+    mesh.vertices.push(egui::epaint::Vertex { pos: Pos2::new(rect.max.x, rect.min.y), uv: c_tr, color: tint });
+    mesh.vertices.push(egui::epaint::Vertex { pos: Pos2::new(rect.max.x, rect.max.y), uv: c_br, color: tint });
+    mesh.vertices.push(egui::epaint::Vertex { pos: Pos2::new(rect.min.x, rect.max.y), uv: c_bl, color: tint });
+    mesh.add_triangle(idx, idx + 1, idx + 2);
+    mesh.add_triangle(idx, idx + 2, idx + 3);
+    painter.add(egui::Shape::mesh(mesh));
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1576,6 +1874,48 @@ fn draw_source_layer_visual(
         return;
     }
 
+    if let SourceKind::TimeSource {
+        mode,
+        target_duration_sec,
+        elapsed_sec,
+        is_running,
+        effect,
+        font_size,
+        font_family,
+        text_color_rgba,
+        bg_color_rgba,
+        accent_color_rgba,
+        show_hours,
+        blink_colon,
+        use_24h_format,
+        badge_text,
+        finish_text,
+    } = kind
+    {
+        draw_time_source_layer(
+            painter,
+            rect,
+            *mode,
+            *target_duration_sec,
+            *elapsed_sec,
+            *is_running,
+            *effect,
+            *font_size,
+            *font_family,
+            *text_color_rgba,
+            *bg_color_rgba,
+            *accent_color_rgba,
+            *show_hours,
+            *blink_colon,
+            *use_24h_format,
+            badge_text,
+            finish_text,
+            time_sec,
+            a_factor,
+        );
+        return;
+    }
+
     let (fill_color, accent_color) = match kind {
         SourceKind::DisplayCapture { .. } => (
             Color32::from_rgb(22, 34, 52),
@@ -1609,11 +1949,18 @@ fn draw_source_layer_visual(
         };
         let alpha_u8 = ((base_opacity * a_factor) * 255.0).round() as u8;
         let tint = Color32::from_rgba_unmultiplied(255, 255, 255, alpha_u8);
-        painter.image(
+        paint_transformed_image(
+            painter,
             tex.id(),
             rect,
-            Rect::from_min_max(Pos2::new(u0, v0), Pos2::new(u1, v1)),
+            u0,
+            v0,
+            u1,
+            v1,
             tint,
+            transform.flip_h,
+            transform.flip_v,
+            transform.rotation_deg,
         );
     } else {
         painter.rect_filled(rect, CornerRadius::same(3), fill_color.gamma_multiply(a_factor));
@@ -2115,6 +2462,282 @@ fn draw_tv_text_layer(
                 text_col,
                 text_shadow,
                 final_alpha,
+            );
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_time_source_layer(
+    painter: &egui::Painter,
+    rect: Rect,
+    mode: TimeSourceMode,
+    target_duration_sec: u32,
+    elapsed_sec: f32,
+    is_running: bool,
+    effect: TimeVisualEffect,
+    font_size: f32,
+    font_family: TimeFontFamily,
+    text_color_rgba: [u8; 4],
+    bg_color_rgba: [u8; 4],
+    accent_color_rgba: [u8; 4],
+    show_hours: bool,
+    _blink_colon: bool,
+    use_24h_format: bool,
+    badge_text: &str,
+    finish_text: &str,
+    time_sec: f64,
+    alpha_mul: f32,
+) {
+    if rect.width() < 10.0 || rect.height() < 10.0 {
+        return;
+    }
+
+    let clipped = painter.with_clip_rect(rect);
+
+    // 1. Compute time string depending on mode (solid colon ':' without blinking)
+    let time_display = match mode {
+        TimeSourceMode::RealTimeClock => {
+            let now = chrono::Local::now();
+            use chrono::Timelike;
+            if use_24h_format {
+                if show_hours {
+                    format!("{:02}:{:02}:{:02}", now.hour(), now.minute(), now.second())
+                } else {
+                    format!("{:02}:{:02}", now.minute(), now.second())
+                }
+            } else {
+                let (pm, h12) = now.hour12();
+                let ampm = if pm { "PM" } else { "AM" };
+                if show_hours {
+                    format!("{:02}:{:02}:{:02} {}", h12, now.minute(), now.second(), ampm)
+                } else {
+                    format!("{:02}:{:02} {}", now.minute(), now.second(), ampm)
+                }
+            }
+        }
+        TimeSourceMode::CountUpStopwatch => {
+            let total_secs = elapsed_sec.max(0.0) as u64;
+            let h = total_secs / 3600;
+            let m = (total_secs % 3600) / 60;
+            let s = total_secs % 60;
+            if show_hours || h > 0 {
+                format!("{:02}:{:02}:{:02}", h, m, s)
+            } else {
+                format!("{:02}:{:02}", m, s)
+            }
+        }
+        TimeSourceMode::CountdownTimer => {
+            let remaining = (target_duration_sec as f32 - elapsed_sec).max(0.0);
+            let is_finished = remaining <= 0.001;
+            if is_finished && !finish_text.trim().is_empty() {
+                finish_text.trim().to_string()
+            } else {
+                let rem_secs = remaining.ceil() as u64;
+                let h = rem_secs / 3600;
+                let m = (rem_secs % 3600) / 60;
+                let s = rem_secs % 60;
+                if show_hours || h > 0 {
+                    format!("{:02}:{:02}:{:02}", h, m, s)
+                } else {
+                    format!("{:02}:{:02}", m, s)
+                }
+            }
+        }
+    };
+
+    // 2. Compute effective font size & FontId
+    let h_scale = (rect.height() / 70.0).clamp(0.2, 5.0);
+    let effective_font_px = (font_size * h_scale).clamp(10.0, 240.0);
+    let font_id = match font_family {
+        TimeFontFamily::Monospace => FontId::monospace(effective_font_px),
+        TimeFontFamily::Proportional => FontId::proportional(effective_font_px),
+        TimeFontFamily::Serif => FontId::new(effective_font_px, egui::FontFamily::Proportional),
+    };
+
+    // 3. Colors
+    let text_col = Color32::from_rgba_unmultiplied(
+        text_color_rgba[0],
+        text_color_rgba[1],
+        text_color_rgba[2],
+        ((text_color_rgba[3] as f32) * alpha_mul) as u8,
+    );
+    let bg_col = Color32::from_rgba_unmultiplied(
+        bg_color_rgba[0],
+        bg_color_rgba[1],
+        bg_color_rgba[2],
+        ((bg_color_rgba[3] as f32) * alpha_mul) as u8,
+    );
+    let accent_col = Color32::from_rgba_unmultiplied(
+        accent_color_rgba[0],
+        accent_color_rgba[1],
+        accent_color_rgba[2],
+        ((accent_color_rgba[3] as f32) * alpha_mul) as u8,
+    );
+
+    let default_badge = match mode {
+        TimeSourceMode::RealTimeClock => "CLOCK",
+        TimeSourceMode::CountUpStopwatch => "STOPWATCH",
+        TimeSourceMode::CountdownTimer => "COUNTDOWN",
+    };
+    let active_badge = if badge_text.trim().is_empty() {
+        default_badge
+    } else {
+        badge_text.trim()
+    };
+
+    // 4. Render based on TimeVisualEffect
+    match effect {
+        TimeVisualEffect::DigitalNeon => {
+            // High-tech LED Neon Frame
+            clipped.rect_filled(rect, CornerRadius::same(6), bg_col);
+            clipped.rect_stroke(
+                rect,
+                CornerRadius::same(6),
+                Stroke::new(2.0_f32, accent_col),
+                egui::StrokeKind::Inside,
+            );
+            if rect.width() > 20.0 && rect.height() > 16.0 {
+                clipped.rect_stroke(
+                    rect.shrink(3.0),
+                    CornerRadius::same(4),
+                    Stroke::new(1.0_f32, accent_col.gamma_multiply(0.30)),
+                    egui::StrokeKind::Inside,
+                );
+            }
+
+            // Top-left subtle header badge if space permits
+            if rect.height() >= 40.0 {
+                let badge_font = FontId::proportional((effective_font_px * 0.28).clamp(9.0, 16.0));
+                let badge_col = accent_col.gamma_multiply(0.85);
+                clipped.text(
+                    Pos2::new(rect.min.x + 8.0, rect.min.y + 6.0),
+                    Align2::LEFT_TOP,
+                    format!("{} {}", icons::CLOCK, active_badge),
+                    badge_font,
+                    badge_col,
+                );
+            }
+
+            // Glowing neon shadow effect
+            let center = rect.center();
+            let glow_col = accent_col.gamma_multiply(0.20 * alpha_mul);
+            let glow_offsets = [(-1.5, 0.0), (1.5, 0.0), (0.0, -1.5), (0.0, 1.5)];
+            for (dx, dy) in glow_offsets {
+                clipped.text(
+                    Pos2::new(center.x + dx, center.y + dy),
+                    Align2::CENTER_CENTER,
+                    &time_display,
+                    font_id.clone(),
+                    glow_col,
+                );
+            }
+
+            // Crisp front text
+            clipped.text(
+                center,
+                Align2::CENTER_CENTER,
+                &time_display,
+                font_id,
+                text_col,
+            );
+        }
+        TimeVisualEffect::TvCornerBadge => {
+            // TV Broadcast Lower-Third / Corner Bug Pill
+            clipped.rect_filled(rect, CornerRadius::same(6), bg_col);
+
+            let badge_font = FontId::proportional((effective_font_px * 0.40).clamp(10.0, 24.0));
+            let badge_galley = clipped.layout_no_wrap(active_badge.to_string(), badge_font, Color32::WHITE);
+            let badge_w = (badge_galley.size().x + 20.0).min(rect.width() * 0.35);
+
+            let badge_rect = Rect::from_min_max(
+                rect.min,
+                Pos2::new(rect.min.x + badge_w, rect.max.y),
+            );
+            clipped.rect_filled(
+                badge_rect,
+                CornerRadius {
+                    nw: 6,
+                    ne: 0,
+                    sw: 6,
+                    se: 0,
+                },
+                accent_col,
+            );
+            clipped.galley(
+                Pos2::new(
+                    badge_rect.center().x - badge_galley.size().x * 0.5,
+                    badge_rect.center().y - badge_galley.size().y * 0.5,
+                ),
+                badge_galley,
+                Color32::WHITE,
+            );
+
+            let time_area = Rect::from_min_max(
+                Pos2::new(badge_rect.max.x + 6.0, rect.min.y),
+                rect.max,
+            );
+            clipped.text(
+                time_area.center(),
+                Align2::CENTER_CENTER,
+                &time_display,
+                font_id,
+                text_col,
+            );
+        }
+        TimeVisualEffect::MinimalistClean => {
+            // Crisp floating text with soft drop shadow, completely transparent background
+            paint_text_with_optional_shadow(
+                &clipped,
+                Pos2::new(
+                    rect.center().x - (clipped.layout_no_wrap(time_display.clone(), font_id.clone(), text_col).size().x * 0.5),
+                    rect.center().y - (clipped.layout_no_wrap(time_display.clone(), font_id.clone(), text_col).size().y * 0.5),
+                ),
+                &time_display,
+                font_id,
+                text_col,
+                true,
+                alpha_mul,
+            );
+        }
+        TimeVisualEffect::DarkGlassCard => {
+            // Modern frosted dark glassmorphism card
+            clipped.rect_filled(rect, CornerRadius::same(10), bg_col);
+            let border_col = Color32::from_rgba_unmultiplied(255, 255, 255, (45.0 * alpha_mul) as u8);
+            clipped.rect_stroke(
+                rect,
+                CornerRadius::same(10),
+                Stroke::new(1.0_f32, border_col),
+                egui::StrokeKind::Inside,
+            );
+
+            // Pulsing status dot
+            if rect.height() >= 36.0 {
+                let dot_center = Pos2::new(rect.min.x + 14.0, rect.min.y + 14.0);
+                let dot_col = if is_running {
+                    let pulse = ((time_sec * 4.0).sin() * 0.3 + 0.7) as f32;
+                    accent_col.gamma_multiply(pulse)
+                } else {
+                    Color32::from_rgba_unmultiplied(160, 160, 160, (150.0 * alpha_mul) as u8)
+                };
+                clipped.circle_filled(dot_center, 4.0, dot_col);
+
+                let badge_font = FontId::proportional((effective_font_px * 0.26).clamp(9.0, 14.0));
+                clipped.text(
+                    Pos2::new(rect.min.x + 24.0, rect.min.y + 7.0),
+                    Align2::LEFT_TOP,
+                    active_badge,
+                    badge_font,
+                    Color32::from_rgba_unmultiplied(200, 210, 225, (200.0 * alpha_mul) as u8),
+                );
+            }
+
+            clipped.text(
+                rect.center(),
+                Align2::CENTER_CENTER,
+                &time_display,
+                font_id,
+                text_col,
             );
         }
     }

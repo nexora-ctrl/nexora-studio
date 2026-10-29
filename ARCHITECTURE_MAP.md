@@ -116,8 +116,8 @@ Lingkungan Windows pada mesin ini memiliki konfigurasi khusus yang **tidak boleh
 | [`src/ui/icons.rs`](file:///d:/Rust/Nexora%20Studio/src/ui/icons.rs) | [`install_tabler_icons`](file:///d:/Rust/Nexora%20Studio/src/ui/icons.rs) | Menyediakan konstanta Tabler Icons offline (`FILTER`, `ADJUSTMENTS`, `WAND`, `DEVICE_DESKTOP`, `EYE`, dll.). |
 | [`src/ui/theme.rs`](file:///d:/Rust/Nexora%20Studio/src/ui/theme.rs) | [`ThemePalette`](file:///d:/Rust/Nexora%20Studio/src/ui/theme.rs) | Palet warna tema Dark Mode dan Light Mode. |
 | [`src/ui/workspace.rs`](file:///d:/Rust/Nexora%20Studio/src/ui/workspace.rs) | [`render_preview_workspace`](file:///d:/Rust/Nexora%20Studio/src/ui/workspace.rs) | Dua viewport 16:9 (Preview & Program), jembatan transisi `Cut` & `Fade`, penyesuaian kursor mouse yang tepat (kursor panah standar untuk klik biasa, kursor 4-arah `Move` hanya saat drag posisi, kursor `Resize` hanya saat mengarahkan handle layer yang tidak terkunci), serta render layer berfilter transparansi. |
-| [`src/ui/dock.rs`](file:///d:/Rust/Nexora%20Studio/src/ui/dock.rs) | [`render_bottom_studio_dock`](file:///d:/Rust/Nexora%20Studio/src/ui/dock.rs) | 4 panel bawah (`Scenes`, `Source`, `Audio Mixer`, `Controls`). Klik kanan baris `Source` kini dilengkapi submenu **`Filters ▸`** (`None`, `Chroma Key`, `Color Key`, `Luma Key`) dengan tooltip panduan lengkap, tombol toolbar `Filters`, dan indikator badge `[CHROMA]`, `[COLOR]`, `[LUMA]` pada baris kartu. |
-| [`src/ui/dialogs.rs`](file:///d:/Rust/Nexora%20Studio/src/ui/dialogs.rs) | [`render_dialogs`](file:///d:/Rust/Nexora%20Studio/src/ui/dialogs.rs) | Merender modal **Properties**, modal **Manage Slide Show Images** (thumbnail `84×48 px`), modal **Filters for '<Source>'** (pengaturan slider Similarity, Smoothness, Spill Reduction, Luma Min/Max, Opacity, dan kotak panduan fungsi filter), serta jendela **Projector Layar Kedua**. |
+| [`src/ui/dock.rs`](file:///d:/Rust/Nexora%20Studio/src/ui/dock.rs) | [`render_bottom_studio_dock`](file:///d:/Rust/Nexora%20Studio/src/ui/dock.rs) | 4 panel bawah (`Scenes`, `Source`, `Audio Mixer`, `Controls`). Footer panel Sources dilengkapi tombol **`+ Add Source`** dan dropdown **`▾`**, menu pop-up kaya dengan ikon + nama + deskripsi subtitle, klik kanan baris `Source` dengan submenu **`Filters ▸`** (`None`, `Chroma Key`, `Color Key`, `Luma Key`), dan indikator badge filter pada kartu layer. |
+| [`src/ui/dialogs.rs`](file:///d:/Rust/Nexora%20Studio/src/ui/dialogs.rs) | [`render_dialogs`](file:///d:/Rust/Nexora%20Studio/src/ui/dialogs.rs) | Merender dialog modal **`+ Add Source`** 2-kolom (daftar tipe layer di kiri, konfigurasi + validasi nama & file di kanan), modal **Properties**, modal **Manage Slide Show Images** (thumbnail `84×48 px`), modal **Filters for '<Source>'** (slider Similarity, Smoothness, Spill Reduction, Luma, Pipet Warna Layar), serta jendela **Projector Layar Kedua**. |
 
 ---
 
@@ -164,3 +164,58 @@ Lingkungan Windows pada mesin ini memiliki konfigurasi khusus yang **tidak boleh
 6. **Ikon Offline Tabler Icons & Larangan Fitur Streaming:**
    - Selalu gunakan konstanta ikon dari [`src/ui/icons.rs`](file:///d:/Rust/Nexora%20Studio/src/ui/icons.rs).
    - Dilarang menambahkan fitur *live streaming* / RTMP / cloud / login.
+
+7. **Fitur Add Source & Dialog Konfigurasi Layer:**
+   - Tombol **`+ Add Source`** pada toolbar footer panel Sources membuka dialog modal 2-kolom (`render_add_source_dialog`):
+     - Kolom kiri: Daftar seluruh jenis source dengan ikon, judul, status badge, dan deskripsi singkat.
+     - Kolom kanan: Formulir konfigurasi nama source otomatis/unik (`Scene::generate_unique_source_name`), pemilih device/file native, opsi buka properties, pesan error validasi, dan tombol tambah.
+   - Menu pop-up **Add Source** (`▾` dan klik kanan) mempertahankan desain baris tunggal ringkas (*compact single-line*) yang bersih dengan tombol peluncur dialog di bagian atas, serta dilengkapi dukungan scroll mouse wheel dan auto-scroll dengan indikator panah Tabler Icons (`icons::CHEVRON_UP` & `icons::CHEVRON_DOWN`) yang otomatis bergeser saat kursor mendekat atau diklik.
+   - Setiap source baru disisipkan ke scene preview aktif pada index 0 (layer foreground paling depan).
+   - **PowerPoint / PPT Source**:
+     - Merender presentasi `.pptx` / `.ppt` ke resolusi penuh 1080p menggunakan COM Automation latar belakang (`Presentation.Export`) dengan cache otomatis di AppData.
+     - Kontrol navigasi slide (`◀` / `▶`) tersedia langsung pada kartu layer di panel Sources, dialog Properties, tombol presenter remote pointer (`PageDown`/`PageUp`/`Space`/Arrows), serta klik pointer mouse langsung pada viewport Program Output dan Projector Layar Kedua. Perubahan slide selalu disinkronkan secara real-time ke Program Output (`program_scene_snapshot`).
+   - **Waktu / Jam & Timer (`TimeSource`)**:
+     - Mendukung 3 mode:
+       1. **Waktu Sekarang (Real-time Clock)**: Menampilkan waktu sistem Windows saat ini (format 24 jam atau 12 jam AM/PM, dengan opsi titik dua solid `:` tanpa kedip).
+       2. **Hitung Maju (Stopwatch / Count-up)**: Menghitung maju dari 00:00:00 (jam, menit, detik).
+       3. **Hitung Mundur (Countdown Timer)**: Menghitung mundur dari durasi target ke 00:00:00 (bisa menampilkan teks kustom seperti `TIME'S UP!` atau `SELESAI`).
+     - **Pilihan Efek Visual (`TimeVisualEffect`)**:
+       - `DigitalNeon`: Kotak LED bercahaya ala panggung / scoreboard cyberpunk dengan border neon dan glow shadow.
+       - `TvCornerBadge`: Kapsul broadcast berita TV dengan label badge di kiri dan waktu di kanan.
+       - `MinimalistClean`: Teks mengambang transparan dengan bayangan lembut (*soft drop shadow*).
+       - `DarkGlassCard`: Kartu glassmorphism gelap modern dengan hairline border dan lampu indikator status berkedip (*pulsing dot*).
+     - **Kontrol Waktu Maju & Mundur**:
+       - Tombol Start/Pause dan Reset.
+       - Tombol cepat `-1m`, `+1m`, `-10s`, `+10s` untuk memajukan atau memundurkan waktu secara presisi.
+       - Tombol Play/Pause dan Reset langsung tersedia di kartu baris layer panel Sources.
+     - **Tipografi & Skalabilitas**:
+       - Pilihan jenis font: `Monospace Digital` (angka sejajar tanpa jitter), `Modern Sans-Serif`, dan `Serif Klasik`.
+       - Ukuran font bebas disesuaikan (`font_size` slider dari `16px` hingga `140px` untuk studio panggung besar).
+       - Kustomisasi warna teks, background, dan aksen/border penuh.
+   - Browser Source mendukung input URL dan parameter overlay siaran.
+
+
+   - **Alur Tambah Scene (Add Scene) & Default Empty Sources:**
+     - Tombol + pada dock Scenes atau opsi Add Scene... pada menu klik kanan membuka modal dialog *Add Scene*.
+     - Modal dialog mem-prefill nama scene unik otomatis (Scene N), mengarahkan fokus ke teks input, dan mendukung tombol Enter / tombol OK untuk konfirmasi cepat atau Esc / Batal untuk membatalkan.
+     - Scene baru yang ditambahkan selalu dimulai dengan layer yang **KOSONG** (sources: Vec::new()) tanpa menambahkan layer capture default apapun.
+
+8. **Sistem Menu Transform & Manipulasi Kanvas Langsung (OBS-Style):**
+   - **Submenu Transform Lengkap**:
+     - Tersedia di klik kanan layer pada kanvas Preview dan klik kanan kartu Source pada dock Sources.
+     - Opsi transformasi:
+       - `Rotate 90 degrees CW` (+90° searah jarum jam)
+       - `Rotate 90 degrees CCW` (-90° berlawanan arah jarum jam)
+       - `Rotate 180 degrees` (180°)
+       - `Flip Horizontal` (balik sumbu horizontal / cermin X)
+       - `Flip Vertical` (balik sumbu vertikal / cermin Y)
+       - `Fit to screen` (`Ctrl+F` — menyesuaikan layer ke kanvas tanpa merusak rasio aspek)
+       - `Stretch to screen` (`Ctrl+S` — mengisi penuh kanvas 1920x1080)
+       - `Center to screen` (`Ctrl+D` — menempatkan layer tepat di tengah kanvas)
+       - `Center Vertically` (menyelaraskan posisi tengah secara vertikal)
+       - `Center Horizontally` (menyelaraskan posisi tengah secara horizontal)
+       - `Reset Transform` (`Ctrl+R` — mengembalikan rotasi, flip, dan skala layer ke default)
+   - **Interaksi Kanvas Langsung**:
+     - Mengklik kanan objek pada kanvas Preview otomatis memilih layer tersebut (*hit-testing*) dan langsung membuka menu konteks dengan submenu Transform.
+     - Shortcut keyboard aktif langsung di kanvas saat layer dipilih: `Ctrl+F` (Fit), `Ctrl+S` (Stretch), `Ctrl+D` (Center), dan `Ctrl+R` (Reset).
+     - Rendering rotasi dan flip menggunakan `egui::Mesh::with_texture` dan pemetaan UV dinamis sehingga rotasi dan flipping dirender secara native, halus, dan instan.

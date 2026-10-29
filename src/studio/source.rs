@@ -47,6 +47,107 @@ fn default_text_accent_rgba() -> [u8; 4] {
     [220, 38, 38, 255]
 }
 
+fn default_timer_duration() -> u32 {
+    300
+}
+
+fn default_time_font_size() -> f32 {
+    52.0
+}
+
+fn default_white_rgba() -> [u8; 4] {
+    [255, 255, 255, 255]
+}
+
+fn default_time_bg_rgba() -> [u8; 4] {
+    [15, 23, 42, 220]
+}
+
+fn default_time_accent_rgba() -> [u8; 4] {
+    [0, 210, 255, 255]
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum TimeSourceMode {
+    #[default]
+    RealTimeClock,
+    CountUpStopwatch,
+    CountdownTimer,
+}
+
+impl TimeSourceMode {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::RealTimeClock => "Waktu Sekarang (Jam Real-Time)",
+            Self::CountUpStopwatch => "Hitung Maju (Stopwatch / Count-Up)",
+            Self::CountdownTimer => "Hitung Mundur (Countdown Timer)",
+        }
+    }
+
+    pub fn all() -> &'static [TimeSourceMode] {
+        &[
+            Self::RealTimeClock,
+            Self::CountUpStopwatch,
+            Self::CountdownTimer,
+        ]
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum TimeVisualEffect {
+    #[default]
+    DigitalNeon,
+    TvCornerBadge,
+    MinimalistClean,
+    DarkGlassCard,
+}
+
+impl TimeVisualEffect {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::DigitalNeon => "Digital LED / Neon Glow",
+            Self::TvCornerBadge => "TV Broadcast Badge (Kapsul Siaran)",
+            Self::MinimalistClean => "Minimalis Bersih (Transparan)",
+            Self::DarkGlassCard => "Dark Glassmorphism Card",
+        }
+    }
+
+    pub fn all() -> &'static [TimeVisualEffect] {
+        &[
+            Self::DigitalNeon,
+            Self::TvCornerBadge,
+            Self::MinimalistClean,
+            Self::DarkGlassCard,
+        ]
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum TimeFontFamily {
+    #[default]
+    Monospace,
+    Proportional,
+    Serif,
+}
+
+impl TimeFontFamily {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Monospace => "Monospace Digital (Angka Sejajar - Rekomendasi)",
+            Self::Proportional => "Modern Sans-Serif (Proportional)",
+            Self::Serif => "Serif Klasik (Formal)",
+        }
+    }
+
+    pub fn all() -> &'static [TimeFontFamily] {
+        &[
+            Self::Monospace,
+            Self::Proportional,
+            Self::Serif,
+        ]
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum TextAnimationEffect {
     #[default]
@@ -344,6 +445,49 @@ pub enum SourceKind {
         height: u32,
         fps: u32,
     },
+    PowerPointSource {
+        presentation_name: String,
+        file_path: String,
+        window_hwnd: u64,
+        #[serde(default)]
+        slide_index: usize,
+        #[serde(default)]
+        slide_count: usize,
+        #[serde(default)]
+        slides: Vec<String>,
+    },
+    TimeSource {
+        #[serde(default)]
+        mode: TimeSourceMode,
+        #[serde(default = "default_timer_duration")]
+        target_duration_sec: u32,
+        #[serde(default)]
+        elapsed_sec: f32,
+        #[serde(default = "default_true")]
+        is_running: bool,
+        #[serde(default)]
+        effect: TimeVisualEffect,
+        #[serde(default = "default_time_font_size")]
+        font_size: f32,
+        #[serde(default)]
+        font_family: TimeFontFamily,
+        #[serde(default = "default_white_rgba")]
+        text_color_rgba: [u8; 4],
+        #[serde(default = "default_time_bg_rgba")]
+        bg_color_rgba: [u8; 4],
+        #[serde(default = "default_time_accent_rgba")]
+        accent_color_rgba: [u8; 4],
+        #[serde(default = "default_true")]
+        show_hours: bool,
+        #[serde(default)]
+        blink_colon: bool,
+        #[serde(default = "default_true")]
+        use_24h_format: bool,
+        #[serde(default)]
+        badge_text: String,
+        #[serde(default)]
+        finish_text: String,
+    },
     SceneSource {
         scene_name: String,
     },
@@ -383,6 +527,12 @@ impl SourceKind {
             Self::ColorSource { .. } => crate::ui::icons::BRUSH,
             Self::TextGdiPlus { .. } => crate::ui::icons::LETTER_CASE,
             Self::BrowserSource { .. } => crate::ui::icons::WORLD,
+            Self::PowerPointSource { .. } => crate::ui::icons::PRESENTATION,
+            Self::TimeSource { mode, .. } => match mode {
+                TimeSourceMode::RealTimeClock => crate::ui::icons::CLOCK,
+                TimeSourceMode::CountUpStopwatch => crate::ui::icons::STOPWATCH,
+                TimeSourceMode::CountdownTimer => crate::ui::icons::HOURGLASS,
+            },
             Self::SceneSource { .. } => crate::ui::icons::LIST,
         }
     }
@@ -402,6 +552,8 @@ impl SourceKind {
             Self::ColorSource { .. } => "COLOR",
             Self::TextGdiPlus { .. } => "TEXT",
             Self::BrowserSource { .. } => "WEB",
+            Self::PowerPointSource { .. } => "PPT",
+            Self::TimeSource { .. } => "TIME",
             Self::SceneSource { .. } => "SCENE",
         }
     }
@@ -421,6 +573,8 @@ impl SourceKind {
             Self::ColorSource { .. } => "Color Source",
             Self::TextGdiPlus { .. } => "Text (GDI+)",
             Self::BrowserSource { .. } => "Browser",
+            Self::PowerPointSource { .. } => "PowerPoint / PPT Source",
+            Self::TimeSource { .. } => "Waktu / Jam & Timer",
             Self::SceneSource { .. } => "Scene",
         }
     }
@@ -477,7 +631,159 @@ impl SourceKind {
             ),
             Self::TextGdiPlus { text, .. } => text.clone(),
             Self::BrowserSource { url, .. } => url.clone(),
+            Self::PowerPointSource {
+                presentation_name,
+                file_path,
+                window_hwnd,
+                slide_index,
+                slide_count,
+                ..
+            } => {
+                if !file_path.is_empty() {
+                    let fname = std::path::Path::new(file_path)
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or(file_path.as_str());
+                    if *slide_count > 0 {
+                        format!("PPT: {} (Slide {}/{})", fname, *slide_index + 1, slide_count)
+                    } else {
+                        format!("PPT File: {}", fname)
+                    }
+                } else if *window_hwnd != 0 {
+                    format!("PPT Window: {}", presentation_name)
+                } else {
+                    presentation_name.clone()
+                }
+            }
+            Self::TimeSource {
+                mode,
+                target_duration_sec,
+                effect,
+                ..
+            } => match mode {
+                TimeSourceMode::RealTimeClock => format!("Jam Sekarang • {}", effect.label()),
+                TimeSourceMode::CountUpStopwatch => format!("Stopwatch Hitung Maju • {}", effect.label()),
+                TimeSourceMode::CountdownTimer => {
+                    let m = target_duration_sec / 60;
+                    let s = target_duration_sec % 60;
+                    format!("Countdown {:02}:{:02} • {}", m, s, effect.label())
+                }
+            },
             Self::SceneSource { scene_name } => scene_name.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AddSourceType {
+    #[default]
+    DisplayCapture,
+    WindowCapture,
+    Image,
+    MediaSource,
+    TextGdiPlus,
+    ColorSource,
+    PowerPoint,
+    TimeSource,
+    BrowserSource,
+    WebcamDevice,
+    ImageSlideShow,
+}
+
+impl AddSourceType {
+    pub fn all() -> &'static [AddSourceType] {
+        &[
+            AddSourceType::DisplayCapture,
+            AddSourceType::WindowCapture,
+            AddSourceType::Image,
+            AddSourceType::MediaSource,
+            AddSourceType::TextGdiPlus,
+            AddSourceType::ColorSource,
+            AddSourceType::PowerPoint,
+            AddSourceType::TimeSource,
+            AddSourceType::BrowserSource,
+            AddSourceType::WebcamDevice,
+            AddSourceType::ImageSlideShow,
+        ]
+    }
+
+    pub fn title(&self) -> &'static str {
+        match self {
+            Self::DisplayCapture => "Display Capture",
+            Self::WindowCapture => "Window Capture",
+            Self::Image => "Image",
+            Self::MediaSource => "Media Source",
+            Self::TextGdiPlus => "Text (GDI+)",
+            Self::ColorSource => "Color Source",
+            Self::PowerPoint => "PowerPoint / PPT Source",
+            Self::TimeSource => "Waktu / Jam & Timer",
+            Self::BrowserSource => "Browser Source",
+            Self::WebcamDevice => "Video Capture Device",
+            Self::ImageSlideShow => "Image Slide Show",
+        }
+    }
+
+    pub fn description(&self) -> &'static str {
+        match self {
+            Self::DisplayCapture => "Menangkap seluruh tampilan layar monitor secara real-time.",
+            Self::WindowCapture => "Menangkap jendela aplikasi tertentu (Word, Chrome, Game, dll).",
+            Self::Image => "Menambahkan gambar statis lokal (.png, .jpg, .jpeg, .webp, .bmp).",
+            Self::MediaSource => "Menambahkan file video atau audio musik lokal (.mp4, .mkv, .mov, .mp3).",
+            Self::TextGdiPlus => "Menambahkan teks kustom, animasi berjalan (running text), atau template TV Show.",
+            Self::ColorSource => "Menambahkan bidang warna solid sebagai latar belakang (solid background).",
+            Self::PowerPoint => "Menampilkan presentasi PowerPoint (memilih jendela slide show atau file presentasi).",
+            Self::TimeSource => "Menampilkan jam real-time, hitung mundur (countdown), atau hitung maju (stopwatch) dengan berbagai pilihan efek visual dan font.",
+            Self::BrowserSource => "Menampilkan halaman website / overlay browser melalui URL.",
+            Self::WebcamDevice => "Menangkap kamera webcam fisik (Integrated Camera, USB Cam).",
+            Self::ImageSlideShow => "Menampilkan tayangan slide multi-foto dengan transisi halus.",
+        }
+    }
+
+    pub fn icon(&self) -> &'static str {
+        match self {
+            Self::DisplayCapture => crate::ui::icons::DEVICE_DESKTOP,
+            Self::WindowCapture => crate::ui::icons::APP_WINDOW,
+            Self::Image => crate::ui::icons::PHOTO,
+            Self::MediaSource => crate::ui::icons::PLAYER_PLAY,
+            Self::TextGdiPlus => crate::ui::icons::LETTER_CASE,
+            Self::ColorSource => crate::ui::icons::BRUSH,
+            Self::PowerPoint => crate::ui::icons::PRESENTATION,
+            Self::TimeSource => crate::ui::icons::CLOCK,
+            Self::BrowserSource => crate::ui::icons::WORLD,
+            Self::WebcamDevice => crate::ui::icons::CAMERA,
+            Self::ImageSlideShow => crate::ui::icons::PRESENTATION,
+        }
+    }
+
+    pub fn default_name_prefix(&self) -> &'static str {
+        match self {
+            Self::DisplayCapture => "Display Capture",
+            Self::WindowCapture => "Window Capture",
+            Self::Image => "Image",
+            Self::MediaSource => "Media Source",
+            Self::TextGdiPlus => "Text",
+            Self::ColorSource => "Color Source",
+            Self::PowerPoint => "PowerPoint Slide Show",
+            Self::TimeSource => "Waktu",
+            Self::BrowserSource => "Browser",
+            Self::WebcamDevice => "Video Capture Device",
+            Self::ImageSlideShow => "Image Slide Show",
+        }
+    }
+
+    pub fn status_tag(&self) -> (&'static str, bool) {
+        match self {
+            Self::DisplayCapture
+            | Self::WindowCapture
+            | Self::Image
+            | Self::MediaSource
+            | Self::TextGdiPlus
+            | Self::ColorSource
+            | Self::TimeSource
+            | Self::WebcamDevice
+            | Self::ImageSlideShow => ("Ready", true),
+            Self::PowerPoint => ("Window/Slide", true),
+            Self::BrowserSource => ("Web URL", false),
         }
     }
 }
@@ -511,6 +817,15 @@ pub struct SourceTransform {
     pub crop_bottom: f32,
     /// Preserve source aspect ratio
     pub lock_aspect: bool,
+    /// Rotation in degrees: 0, 90, 180, 270
+    #[serde(default)]
+    pub rotation_deg: i32,
+    /// Flip horizontally (mirror X)
+    #[serde(default)]
+    pub flip_h: bool,
+    /// Flip vertically (mirror Y)
+    #[serde(default)]
+    pub flip_v: bool,
 }
 
 impl Default for SourceTransform {
@@ -526,6 +841,9 @@ impl Default for SourceTransform {
             crop_top: 0.0,
             crop_bottom: 0.0,
             lock_aspect: true,
+            rotation_deg: 0,
+            flip_h: false,
+            flip_v: false,
         }
     }
 }
@@ -618,6 +936,65 @@ impl SourceTransform {
         let (u0, v0, _, _) = self.uv_bounds();
         self.pos_x = (1.0 - vis_w) * 0.5 - full_w * u0;
         self.pos_y = (1.0 - vis_h) * 0.5 - full_h * v0;
+    }
+
+    pub fn rotate_cw_90(&mut self) {
+        self.rotation_deg = (self.rotation_deg + 90) % 360;
+    }
+
+    pub fn rotate_ccw_90(&mut self) {
+        self.rotation_deg = ((self.rotation_deg - 90) % 360 + 360) % 360;
+    }
+
+    pub fn rotate_180(&mut self) {
+        self.rotation_deg = (self.rotation_deg + 180) % 360;
+    }
+
+    pub fn flip_horizontal(&mut self) {
+        self.flip_h = !self.flip_h;
+    }
+
+    pub fn flip_vertical(&mut self) {
+        self.flip_v = !self.flip_v;
+    }
+
+    pub fn fit_to_screen(&mut self) {
+        self.reset_full_canvas();
+    }
+
+    pub fn stretch_to_screen(&mut self) {
+        self.pos_x = 0.0;
+        self.pos_y = 0.0;
+        self.scale = 1.0;
+        self.scale_x = 1.0;
+        self.scale_y = 1.0;
+        self.lock_aspect = false;
+        self.reset_crop();
+    }
+
+    pub fn center_to_screen(&mut self) {
+        self.preset_center();
+    }
+
+    pub fn center_vertically(&mut self) {
+        let (_, _, _, vis_h) = self.visible_norm_rect();
+        let full_h = self.effective_height_norm();
+        let (_, v0, _, _) = self.uv_bounds();
+        self.pos_y = (1.0 - vis_h) * 0.5 - full_h * v0;
+    }
+
+    pub fn center_horizontally(&mut self) {
+        let (_, _, vis_w, _) = self.visible_norm_rect();
+        let full_w = self.effective_width_norm();
+        let (u0, _, _, _) = self.uv_bounds();
+        self.pos_x = (1.0 - vis_w) * 0.5 - full_w * u0;
+    }
+
+    pub fn reset_transform(&mut self) {
+        self.reset_full_canvas();
+        self.rotation_deg = 0;
+        self.flip_h = false;
+        self.flip_v = false;
     }
 }
 

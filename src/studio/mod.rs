@@ -244,6 +244,100 @@ impl StudioState {
                         }
                     }
                 }
+
+                if let SourceKind::PowerPointSource {
+                    file_path,
+                    slide_index,
+                    slide_count,
+                    slides,
+                    ..
+                } = &src.kind
+                {
+                    if let Some(prog_src) = self
+                        .program_scene_snapshot
+                        .sources
+                        .iter_mut()
+                        .find(|ps| ps.id == src.id || match &ps.kind {
+                            SourceKind::PowerPointSource { file_path: p_fp, .. } => !p_fp.is_empty() && p_fp == file_path,
+                            _ => false,
+                        })
+                    {
+                        if let SourceKind::PowerPointSource {
+                            slide_index: p_idx,
+                            slide_count: p_cnt,
+                            slides: p_slides,
+                            ..
+                        } = &mut prog_src.kind
+                        {
+                            *p_idx = *slide_index;
+                            *p_cnt = *slide_count;
+                            if p_slides.is_empty() && !slides.is_empty() {
+                                *p_slides = slides.clone();
+                            }
+                        }
+                    }
+                }
+
+                if let SourceKind::TimeSource {
+                    mode,
+                    target_duration_sec,
+                    elapsed_sec,
+                    is_running,
+                    effect,
+                    font_size,
+                    font_family,
+                    text_color_rgba,
+                    bg_color_rgba,
+                    accent_color_rgba,
+                    show_hours,
+                    blink_colon,
+                    use_24h_format,
+                    badge_text,
+                    finish_text,
+                } = &src.kind
+                {
+                    if let Some(prog_src) = self
+                        .program_scene_snapshot
+                        .sources
+                        .iter_mut()
+                        .find(|ps| ps.id == src.id)
+                    {
+                        if let SourceKind::TimeSource {
+                            mode: p_mode,
+                            target_duration_sec: p_target,
+                            elapsed_sec: p_elapsed,
+                            is_running: p_running,
+                            effect: p_effect,
+                            font_size: p_fs,
+                            font_family: p_ff,
+                            text_color_rgba: p_tc,
+                            bg_color_rgba: p_bg,
+                            accent_color_rgba: p_ac,
+                            show_hours: p_sh,
+                            blink_colon: p_bc,
+                            use_24h_format: p_24,
+                            badge_text: p_badge,
+                            finish_text: p_finish,
+                        } = &mut prog_src.kind
+                        {
+                            *p_mode = *mode;
+                            *p_target = *target_duration_sec;
+                            *p_elapsed = *elapsed_sec;
+                            *p_running = *is_running;
+                            *p_effect = *effect;
+                            *p_fs = *font_size;
+                            *p_ff = *font_family;
+                            *p_tc = *text_color_rgba;
+                            *p_bg = *bg_color_rgba;
+                            *p_ac = *accent_color_rgba;
+                            *p_sh = *show_hours;
+                            *p_bc = *blink_colon;
+                            *p_24 = *use_24h_format;
+                            *p_badge = badge_text.clone();
+                            *p_finish = finish_text.clone();
+                        }
+                    }
+                }
             }
         }
     }
@@ -276,8 +370,19 @@ impl StudioState {
         }
     }
 
+    pub fn generate_unique_scene_name(&self) -> String {
+        let mut idx = self.scenes.len() + 1;
+        loop {
+            let candidate = format!("Scene {}", idx);
+            if !self.scenes.iter().any(|s| s.name.eq_ignore_ascii_case(&candidate)) {
+                return candidate;
+            }
+            idx += 1;
+        }
+    }
+
     pub fn add_scene(&mut self, name: String) -> Uuid {
-        let scene = Scene::with_default_display(name);
+        let scene = Scene::new(name);
         let id = scene.id;
         self.scenes.push(scene);
         self.preview_scene_id = id;

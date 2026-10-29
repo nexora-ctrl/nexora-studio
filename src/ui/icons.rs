@@ -206,7 +206,9 @@ pub const MOON: &str = "\u{eaf8}";
 pub const REFRESH: &str = "\u{eb13}";
 /// `ti-layout-columns` — Studio Dual-Viewport Mode
 pub const LAYOUT_COLUMNS: &str = "\u{ead4}";
-/// `ti-arrow-right` — Cut / Transition to Program
+/// `ti-arrow-left` — Previous Slide / Left Navigation
+pub const ARROW_LEFT: &str = "\u{ea19}";
+/// `ti-arrow-right` — Cut / Transition to Program / Next Slide
 pub const ARROW_RIGHT: &str = "\u{ea1f}";
 /// `ti-palette` — Set Color Label
 pub const PALETTE: &str = "\u{eb01}";
@@ -245,6 +247,17 @@ pub const ADJUSTMENTS: &str = "\u{ea03}";
 pub const WAND: &str = "\u{ebcb}";
 /// `ti-color-picker` — Screen Color Picker / Eyedropper Pipet
 pub const COLOR_PICKER: &str = "\u{ebe6}";
+
+/// `ti-chevron-up` — Scroll Up / Menu Up Indicator
+pub const CHEVRON_UP: &str = "\u{ea62}";
+/// `ti-chevron-down` — Scroll Down / Dropdown Menu Indicator
+pub const CHEVRON_DOWN: &str = "\u{ea5f}";
+/// `ti-clock` — Time / Clock Source
+pub const CLOCK: &str = "\u{ea70}";
+/// `ti-stopwatch` — Stopwatch / Count-Up Timer
+pub const STOPWATCH: &str = "\u{ff9b}";
+/// `ti-hourglass` — Countdown Hourglass
+pub const HOURGLASS: &str = "\u{ef93}";
 
 
 

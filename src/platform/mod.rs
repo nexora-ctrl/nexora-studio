@@ -74,6 +74,121 @@ pub fn pick_multiple_image_files_dialog() -> Vec<PathBuf> {
     }
 }
 
+/// Opens a native Windows File Open Dialog (`GetOpenFileNameW`) for PowerPoint presentation files (.pptx, .ppt)
+pub fn pick_powerpoint_file_dialog() -> Option<PathBuf> {
+    #[cfg(target_os = "windows")]
+    {
+        let filter = "PowerPoint Files (*.pptx;*.ppt)\0*.pptx;*.ppt\0All Files (*.*)\0*.*\0\0";
+        win32_file_dialog::open_file_dialog("Select PowerPoint Presentation", filter)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        None
+    }
+}
+
+/// Exports or retrieves cached high-resolution slide PNGs from a PowerPoint presentation (.pptx or .ppt).
+/// Uses native PowerPoint COM Automation (hidden window, zero dependencies) to export all slides to 1920x1080 PNG images.
+pub fn get_or_export_ppt_slides(file_path: &str) -> Vec<String> {
+    if file_path.trim().is_empty() {
+        return Vec::new();
+    }
+    let p = std::path::Path::new(file_path);
+    if !p.exists() {
+        return Vec::new();
+    }
+
+    // Determine cache folder in AppData or Temp
+    let cache_root = if let Some(app_data) = std::env::var_os("APPDATA") {
+        PathBuf::from(app_data).join("Nexora").join("NexoraStudio").join("ppt_cache")
+    } else {
+        std::env::temp_dir().join("nexora_ppt_cache")
+    };
+
+    // Create unique hash/subfolder based on file path and file modification time
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    use std::hash::{Hash, Hasher};
+    file_path.hash(&mut hasher);
+    if let Ok(meta) = p.metadata() {
+        if let Ok(modified) = meta.modified() {
+            modified.hash(&mut hasher);
+        }
+    }
+    let hash_val = hasher.finish();
+    let sanitized_stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("presentation")
+        .chars().filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-').take(24).collect::<String>();
+    let out_dir = cache_root.join(format!("{}_{:016x}", sanitized_stem, hash_val));
+
+    // If cache directory exists and contains Slide*.PNG files, collect and return them
+    let mut existing_slides = collect_sorted_slide_files(&out_dir);
+    if !existing_slides.is_empty() {
+        return existing_slides;
+    }
+
+    let _ = std::fs::create_dir_all(&out_dir);
+
+    // Run PowerPoint COM export via PowerShell (background, no window)
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        let script = format!(
+            "$filePath = '{}'; $outDir = '{}'; \
+             $ppt = New-Object -ComObject PowerPoint.Application; \
+             $pres = $ppt.Presentations.Open($filePath, 1, 0, 0); \
+             $pres.Export($outDir, 'PNG', 1920, 1080); \
+             $pres.Close(); \
+             $ppt.Quit(); \
+             [System.Runtime.InteropServices.Marshal]::ReleaseComObject($ppt) | Out-Null;",
+            file_path.replace('\'', "''"),
+            out_dir.to_string_lossy().replace('\'', "''")
+        );
+
+        let status = std::process::Command::new("powershell")
+            .arg("-NoProfile")
+            .arg("-NonInteractive")
+            .arg("-Command")
+            .arg(&script)
+            .creation_flags(CREATE_NO_WINDOW)
+            .status();
+
+        if let Ok(s) = status {
+            if s.success() {
+                existing_slides = collect_sorted_slide_files(&out_dir);
+            }
+        }
+    }
+
+    existing_slides
+}
+
+fn collect_sorted_slide_files(dir: &std::path::Path) -> Vec<String> {
+    if !dir.exists() {
+        return Vec::new();
+    }
+    let mut files = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                if ext.eq_ignore_ascii_case("png") || ext.eq_ignore_ascii_case("jpg") {
+                    files.push(path);
+                }
+            }
+        }
+    }
+
+    // Sort naturally: Slide1, Slide2, ... Slide10
+    files.sort_by_key(|p| {
+        let name = p.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+        let num: usize = name.chars().filter(|c| c.is_ascii_digit()).collect::<String>().parse().unwrap_or(0);
+        num
+    });
+
+    files.into_iter().map(|p| p.to_string_lossy().to_string()).collect()
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ActiveMediaAudioSpec {
     pub id_key: String,

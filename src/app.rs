@@ -71,6 +71,8 @@ pub struct NexoraApp {
     pub project_manager: ProjectManager,
     pub media_library: MediaLibrary,
     pub show_settings_dialog: bool,
+    pub show_add_scene_dialog: bool,
+    pub add_scene_name_buffer: String,
     pub show_rename_scene_dialog: bool,
     pub rename_scene_buffer: String,
     pub show_source_properties_dialog: bool,
@@ -80,6 +82,15 @@ pub struct NexoraApp {
     pub rename_source_buffer: String,
     pub show_save_layout_dialog: bool,
     pub save_layout_name_buffer: String,
+    pub show_add_source_dialog: bool,
+    pub add_source_selected_type: crate::studio::source::AddSourceType,
+    pub add_source_name_buffer: String,
+    pub add_source_file_path: String,
+    pub add_source_error_message: Option<String>,
+    pub add_source_color_rgba: [u8; 4],
+    pub add_source_text_content: String,
+    pub add_source_browser_url: String,
+    pub add_source_open_properties: bool,
     pub eyedropper_active: bool,
     pub eyedropper_armed: bool,
     pub eyedropper_color: Option<[u8; 3]>,
@@ -208,6 +219,8 @@ impl NexoraApp {
             project_manager,
             media_library,
             show_settings_dialog: false,
+            show_add_scene_dialog: false,
+            add_scene_name_buffer: String::new(),
             show_rename_scene_dialog: false,
             rename_scene_buffer: String::new(),
             show_source_properties_dialog: false,
@@ -217,6 +230,15 @@ impl NexoraApp {
             rename_source_buffer: String::new(),
             show_save_layout_dialog: false,
             save_layout_name_buffer: String::new(),
+            show_add_source_dialog: false,
+            add_source_selected_type: crate::studio::source::AddSourceType::DisplayCapture,
+            add_source_name_buffer: String::new(),
+            add_source_file_path: String::new(),
+            add_source_error_message: None,
+            add_source_color_rgba: [37, 99, 235, 255],
+            add_source_text_content: "NEXORA Studio Live".to_string(),
+            add_source_browser_url: "https://obsproject.com/browser-source".to_string(),
+            add_source_open_properties: false,
             eyedropper_active: false,
             eyedropper_armed: false,
             eyedropper_color: None,
@@ -371,6 +393,21 @@ impl NexoraApp {
     }
 
     pub fn sync_active_capture_requests(&mut self) {
+        // Auto-extract & cache PowerPoint slides if any source was saved/loaded with empty slides
+        for scene in &mut self.studio.scenes {
+            for src in &mut scene.sources {
+                if let SourceKind::PowerPointSource { file_path, window_hwnd, slides, slide_count, .. } = &mut src.kind {
+                    if *window_hwnd == 0 && slides.is_empty() && !file_path.trim().is_empty() {
+                        let exported = crate::platform::get_or_export_ppt_slides(file_path);
+                        if !exported.is_empty() {
+                            *slide_count = exported.len();
+                            *slides = exported;
+                        }
+                    }
+                }
+            }
+        }
+
         let mut set = HashSet::new();
         let mut audio_specs = Vec::new();
         let mut seen_audio_keys = HashSet::new();
@@ -485,6 +522,24 @@ impl NexoraApp {
                             }
                         }
                     }
+                    SourceKind::PowerPointSource {
+                        file_path: _,
+                        window_hwnd,
+                        slides,
+                        slide_index,
+                        ..
+                    } => {
+                        if *window_hwnd != 0 {
+                            set.insert(CaptureRequestTarget::Window {
+                                hwnd: *window_hwnd,
+                                capture_cursor: true,
+                            });
+                        } else if let Some(cur_slide) = slides.get(*slide_index) {
+                            set.insert(CaptureRequestTarget::ImageFile {
+                                file_path: cur_slide.clone(),
+                            });
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -501,6 +556,177 @@ impl NexoraApp {
         self.project_manager.project_name = "Untitled Studio Project".to_string();
         self.save_all_state();
         self.recording.last_message = "Created new Studio project (Auto-saved)".to_string();
+    }
+
+    /// Advances or rewinds the active presentation slide by delta (+1 = next, -1 = prev).
+    /// Updates the slide on Program Output (and matching sources across scenes) so the audience immediately sees the change!
+    pub fn advance_presentation_slide(&mut self, delta: i32) -> bool {
+        let mut changed = false;
+
+        // 1. First priority: Update PowerPoint source on Program Output (what the audience sees)
+        let prog_ppt_info = {
+            let mut info = None;
+            for src in &self.studio.program_scene_snapshot.sources {
+                if let SourceKind::PowerPointSource { file_path, slide_index, slide_count, .. } = &src.kind {
+                    if *slide_count > 0 {
+                        info = Some((src.id, file_path.clone(), *slide_index, *slide_count));
+                        break;
+                    }
+                }
+            }
+            info
+        };
+
+        if let Some((prog_src_id, prog_file_path, cur_idx, total)) = prog_ppt_info {
+            let new_idx = if delta > 0 {
+                (cur_idx + (delta as usize)).min(total.saturating_sub(1))
+            } else {
+                cur_idx.saturating_sub((-delta) as usize)
+            };
+
+            if new_idx != cur_idx {
+                for src in &mut self.studio.program_scene_snapshot.sources {
+                    if src.id == prog_src_id || match &src.kind {
+                        SourceKind::PowerPointSource { file_path, .. } => !file_path.is_empty() && file_path == &prog_file_path,
+                        _ => false,
+                    } {
+                        if let SourceKind::PowerPointSource { slide_index, .. } = &mut src.kind {
+                            *slide_index = new_idx;
+                            changed = true;
+                        }
+                    }
+                }
+
+                // Also sync across scenes so Preview & saved project stay synchronized
+                for scene in &mut self.studio.scenes {
+                    for src in &mut scene.sources {
+                        if src.id == prog_src_id || match &src.kind {
+                            SourceKind::PowerPointSource { file_path, .. } => !file_path.is_empty() && file_path == &prog_file_path,
+                            _ => false,
+                        } {
+                            if let SourceKind::PowerPointSource { slide_index, .. } = &mut src.kind {
+                                *slide_index = new_idx;
+                            }
+                        }
+                    }
+                }
+            }
+            if changed {
+                self.sync_active_capture_requests();
+                return true;
+            }
+        }
+
+        // 2. Second priority: If Program doesn't have an active PPT, update in Preview scene
+        let prev_ppt_info = {
+            let mut info = None;
+            let scene = self.studio.preview_scene();
+            for src in &scene.sources {
+                if let SourceKind::PowerPointSource { file_path, slide_index, slide_count, .. } = &src.kind {
+                    if *slide_count > 0 {
+                        info = Some((src.id, file_path.clone(), *slide_index, *slide_count));
+                        break;
+                    }
+                }
+            }
+            info
+        };
+
+        if let Some((prev_src_id, prev_file_path, cur_idx, total)) = prev_ppt_info {
+            let new_idx = if delta > 0 {
+                (cur_idx + (delta as usize)).min(total.saturating_sub(1))
+            } else {
+                cur_idx.saturating_sub((-delta) as usize)
+            };
+
+            if new_idx != cur_idx {
+                for scene in &mut self.studio.scenes {
+                    for src in &mut scene.sources {
+                        if src.id == prev_src_id || match &src.kind {
+                            SourceKind::PowerPointSource { file_path, .. } => !file_path.is_empty() && file_path == &prev_file_path,
+                            _ => false,
+                        } {
+                            if let SourceKind::PowerPointSource { slide_index, .. } = &mut src.kind {
+                                *slide_index = new_idx;
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+
+                self.studio.sync_media_transport_to_program();
+                if self.studio.auto_sync_program {
+                    self.studio.sync_if_linked();
+                }
+            }
+            if changed {
+                self.sync_active_capture_requests();
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// Advances all running TimeSource clocks and countdown timers by the given delta time
+    pub fn advance_active_time_sources(&mut self, dt: f32) {
+        if dt <= 0.0 {
+            return;
+        }
+
+        // 1. Advance in all scenes (preview and standby scenes)
+        for scene in &mut self.studio.scenes {
+            for src in &mut scene.sources {
+                if let SourceKind::TimeSource {
+                    mode,
+                    target_duration_sec,
+                    elapsed_sec,
+                    is_running,
+                    ..
+                } = &mut src.kind
+                {
+                    if *is_running {
+                        match mode {
+                            crate::studio::source::TimeSourceMode::RealTimeClock => {}
+                            crate::studio::source::TimeSourceMode::CountUpStopwatch => {
+                                *elapsed_sec += dt;
+                            }
+                            crate::studio::source::TimeSourceMode::CountdownTimer => {
+                                if *elapsed_sec < *target_duration_sec as f32 {
+                                    *elapsed_sec = (*elapsed_sec + dt).min(*target_duration_sec as f32);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Advance in Program scene snapshot
+        for src in &mut self.studio.program_scene_snapshot.sources {
+            if let SourceKind::TimeSource {
+                mode,
+                target_duration_sec,
+                elapsed_sec,
+                is_running,
+                ..
+            } = &mut src.kind
+            {
+                if *is_running {
+                    match mode {
+                        crate::studio::source::TimeSourceMode::RealTimeClock => {}
+                        crate::studio::source::TimeSourceMode::CountUpStopwatch => {
+                            *elapsed_sec += dt;
+                        }
+                        crate::studio::source::TimeSourceMode::CountdownTimer => {
+                            if *elapsed_sec < *target_duration_sec as f32 {
+                                *elapsed_sec = (*elapsed_sec + dt).min(*target_duration_sec as f32);
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fn default_project_snapshot_path() -> PathBuf {
@@ -765,12 +991,45 @@ impl NexoraApp {
 
     pub fn is_any_modal_open(&self) -> bool {
         self.show_settings_dialog
+            || self.show_add_scene_dialog
             || self.show_rename_scene_dialog
             || self.show_rename_source_dialog
             || self.show_source_properties_dialog
             || self.show_slideshow_manager_dialog
             || self.show_source_filters_dialog
             || self.show_save_layout_dialog
+            || self.show_add_source_dialog
+    }
+
+    pub fn open_add_scene_dialog(&mut self) {
+        self.add_scene_name_buffer = self.studio.generate_unique_scene_name();
+        self.show_add_scene_dialog = true;
+    }
+
+    pub fn open_add_source_dialog(&mut self, source_type: crate::studio::source::AddSourceType) {
+        self.show_add_source_dialog = true;
+        self.add_source_selected_type = source_type;
+        self.add_source_error_message = None;
+        self.add_source_open_properties = false;
+        self.capture_catalog.refresh_from_system();
+
+        let prefix = source_type.default_name_prefix();
+        self.add_source_name_buffer = self.studio.preview_scene().generate_unique_source_name(prefix);
+
+        match source_type {
+            crate::studio::source::AddSourceType::ColorSource => {
+                self.add_source_color_rgba = [37, 99, 235, 255];
+            }
+            crate::studio::source::AddSourceType::TextGdiPlus => {
+                self.add_source_text_content = "NEXORA Studio Live".to_string();
+            }
+            crate::studio::source::AddSourceType::BrowserSource => {
+                self.add_source_browser_url = "https://obsproject.com/browser-source".to_string();
+            }
+            _ => {
+                self.add_source_file_path.clear();
+            }
+        }
     }
 
     pub fn can_undo(&self) -> bool {
@@ -908,6 +1167,33 @@ impl eframe::App for NexoraApp {
             self.undo();
         } else if ctrl_y {
             self.redo();
+        }
+
+        // Advance running time sources (stopwatch, countdown timer)
+        let dt = ctx.input(|i| i.stable_dt);
+        self.advance_active_time_sources(dt);
+
+        // Global Presenter Remote Clicker / Pointer & Keyboard Slide Navigation
+        if !ctx.wants_keyboard_input() && !self.is_any_modal_open() {
+            let (next_slide, prev_slide) = ctx.input(|i| {
+                let next = !i.modifiers.ctrl && !i.modifiers.alt && (
+                    i.key_pressed(egui::Key::ArrowRight)
+                        || i.key_pressed(egui::Key::PageDown)
+                        || i.key_pressed(egui::Key::Space)
+                );
+                let prev = !i.modifiers.ctrl && !i.modifiers.alt && (
+                    i.key_pressed(egui::Key::ArrowLeft)
+                        || i.key_pressed(egui::Key::PageUp)
+                        || i.key_pressed(egui::Key::Backspace)
+                );
+                (next, prev)
+            });
+
+            if next_slide {
+                self.advance_presentation_slide(1);
+            } else if prev_slide {
+                self.advance_presentation_slide(-1);
+            }
         }
 
         // 1. Top Bar (Brand, Menus, Undo/Redo, Studio Mode switch, Live Status Pill, Theme Toggle, Settings)
