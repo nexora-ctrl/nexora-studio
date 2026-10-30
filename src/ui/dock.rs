@@ -1277,11 +1277,11 @@ fn populate_add_source_menu(ui: &mut egui::Ui, action_out: &mut Option<SourceCon
         let arrow_col = if up_hovered { ui.visuals().hyperlink_color } else { ui.visuals().text_color() };
         ui.painter().text(up_rect.center(), egui::Align2::CENTER_CENTER, icons::CHEVRON_UP, egui::FontId::proportional(14.0), arrow_col);
         if up_hovered {
-            current_offset = (current_offset - 12.0).max(0.0);
+            current_offset = (current_offset - 2.0).max(0.0);
             ui.ctx().request_repaint();
         }
         if up_resp.clicked() {
-            current_offset = (current_offset - 50.0).max(0.0);
+            current_offset = (current_offset - 30.0).max(0.0);
             ui.ctx().request_repaint();
         }
     }
@@ -1330,11 +1330,11 @@ fn populate_add_source_menu(ui: &mut egui::Ui, action_out: &mut Option<SourceCon
         let arrow_col = if down_hovered { ui.visuals().hyperlink_color } else { ui.visuals().text_color() };
         ui.painter().text(down_rect.center(), egui::Align2::CENTER_CENTER, icons::CHEVRON_DOWN, egui::FontId::proportional(14.0), arrow_col);
         if down_hovered {
-            current_offset = (current_offset + 12.0).min(actual_max);
+            current_offset = (current_offset + 2.0).min(actual_max);
             ui.ctx().request_repaint();
         }
         if down_resp.clicked() {
-            current_offset = (current_offset + 50.0).min(actual_max);
+            current_offset = (current_offset + 30.0).min(actual_max);
             ui.ctx().request_repaint();
         }
     }
