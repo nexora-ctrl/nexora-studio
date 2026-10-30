@@ -8,7 +8,7 @@
 
   [![Rust Version](https://img.shields.io/badge/rust-2021_edition-DEA584.svg?style=flat-square&logo=rust)](https://www.rust-lang.org)
   [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6.svg?style=flat-square&logo=windows)](https://microsoft.com/windows)
-  [![Release](https://img.shields.io/badge/version-v0.5.0-success.svg?style=flat-square)](https://github.com/nexora-ctrl/nexora-studio/releases)
+  [![Release](https://img.shields.io/badge/version-v0.6.0-success.svg?style=flat-square)](https://github.com/nexora-ctrl/nexora-studio/releases)
   [![License](https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-blue.svg?style=flat-square)](#license)
 
   <br />
@@ -153,3 +153,4 @@ NEXORA Studio dilisensikan di bawah lisensi ganda [MIT](LICENSE-MIT) atau [Apach
 <div align="center">
   <sub>Dibuat dengan ❤️ dan dedikasi oleh tim NEXORA Studio untuk komunitas kreator dan presenter Indonesia & dunia.</sub>
 </div>
+

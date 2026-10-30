@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 pub const GITHUB_REPO: &str = "nexora-ctrl/nexora-studio";
-pub const CURRENT_VERSION: &str = "0.5.0";
+pub const CURRENT_VERSION: &str = "0.6.0";
 
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct GithubAsset {
