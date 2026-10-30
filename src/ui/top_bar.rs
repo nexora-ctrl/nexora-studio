@@ -1,4 +1,4 @@
-use crate::app::{NexoraApp, QuickScreenTemplate};
+use crate::app::{NexoraApp, QuickScreenTemplate, SettingsCategory};
 use crate::recording::RecordingStatus;
 use crate::settings::ThemeMode;
 use crate::ui::icons;
@@ -388,6 +388,33 @@ pub fn render_top_bar(ctx: &egui::Context, app: &mut NexoraApp) {
                 {
                     app.settings.panels.studio_mode = !app.settings.panels.studio_mode;
                     let _ = app.settings.save();
+                }
+
+                // Smooth green badge right beside Studio Mode: ON when update is available
+                let update_available = {
+                    let st = app.updater.lock().unwrap();
+                    matches!(st.status, crate::platform::updater::UpdateStatus::UpdateAvailable { .. })
+                };
+
+                if update_available {
+                    ui.add_space(4.0);
+                    let badge_btn = egui::Button::new(
+                        RichText::new(format!("{} Update Available · Update Now", icons::SPARKLES))
+                            .size(11.5)
+                            .strong()
+                            .color(Color32::WHITE),
+                    )
+                    .fill(Color32::from_rgb(34, 197, 94))
+                    .corner_radius(CornerRadius::same(12));
+
+                    if ui
+                        .add(badge_btn)
+                        .on_hover_text("A new version of NEXORA Studio is available! Click to open Update Preferences.")
+                        .clicked()
+                    {
+                        app.show_settings_dialog = true;
+                        app.settings_category = SettingsCategory::Update;
+                    }
                 }
 
                 // Right-aligned indicators and controls

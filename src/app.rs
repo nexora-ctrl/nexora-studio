@@ -144,6 +144,7 @@ pub struct NexoraApp {
     pub media_audio_engine: crate::platform::MediaAudioEngine,
     pub brand_icon_texture: Option<egui::TextureHandle>,
     pub initial_maximized_applied: bool,
+    pub update_check_on_startup_done: bool,
     pub updater: std::sync::Arc<std::sync::Mutex<crate::platform::updater::UpdaterState>>,
     pub copied_source: Option<crate::studio::source::SourceItem>,
     pub virtual_camera_active: bool,
@@ -305,6 +306,7 @@ impl NexoraApp {
             media_audio_engine: crate::platform::MediaAudioEngine::default(),
             brand_icon_texture,
             initial_maximized_applied: false,
+            update_check_on_startup_done: false,
             updater: std::sync::Arc::new(std::sync::Mutex::new(crate::platform::updater::UpdaterState::default())),
             copied_source: None,
             virtual_camera_active: false,
@@ -1474,6 +1476,12 @@ impl eframe::App for NexoraApp {
         if !self.initial_maximized_applied {
             self.initial_maximized_applied = true;
             ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(true));
+        }
+
+        // Automatically check for updates on startup if internet is available
+        if !self.update_check_on_startup_done {
+            self.update_check_on_startup_done = true;
+            crate::platform::updater::check_for_updates_async(self.updater.clone(), ctx.clone());
         }
 
         let time_sec = ctx.input(|i| i.time);

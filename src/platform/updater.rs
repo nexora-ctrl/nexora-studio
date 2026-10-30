@@ -288,7 +288,19 @@ pub fn apply_update_and_restart(new_binary_path: &Path) -> anyhow::Result<()> {
         .spawn()
         .context("Failed to restart application with new version")?;
 
-    // 5. Exit the current process cleanly
+    // 5. Spawn detached background delayed cleanup to guarantee old_exe is deleted once process exits
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        let old_str = old_exe.to_string_lossy().to_string();
+        let _ = Command::new("cmd.exe")
+            .args(["/C", "timeout /t 2 /nobreak > NUL & del /f /q", &format!("\"{}\"", old_str)])
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn();
+    }
+
+    // 6. Exit the current process cleanly
     std::process::exit(0);
 }
 
@@ -296,9 +308,55 @@ pub fn apply_update_and_restart(new_binary_path: &Path) -> anyhow::Result<()> {
 pub fn cleanup_old_executable_if_needed() {
     if let Ok(current_exe) = std::env::current_exe() {
         let old_exe = current_exe.with_extension("exe.old");
-        if old_exe.exists() {
-            let _ = std::fs::remove_file(&old_exe);
-        }
+        let alt_old_exe = current_exe.with_extension("old");
+        let parent_dir = current_exe.parent().map(|p| p.to_path_buf());
+
+        // Spawn a background thread to retry cleanup after previous process has fully exited
+        std::thread::spawn(move || {
+            // Immediate check
+            if old_exe.exists() {
+                let _ = std::fs::remove_file(&old_exe);
+            }
+            if alt_old_exe.exists() {
+                let _ = std::fs::remove_file(&alt_old_exe);
+            }
+
+            // Retry for up to 3 seconds to ensure previous Windows file locks are released
+            for _ in 0..6 {
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                let mut found_any = false;
+
+                if old_exe.exists() {
+                    found_any = true;
+                    let _ = std::fs::remove_file(&old_exe);
+                }
+                if alt_old_exe.exists() {
+                    found_any = true;
+                    let _ = std::fs::remove_file(&alt_old_exe);
+                }
+
+                // Also scan directory for any lingering .old files from previous updates
+                if let Some(ref dir) = parent_dir {
+                    if let Ok(entries) = std::fs::read_dir(dir) {
+                        for entry in entries.flatten() {
+                            let p = entry.path();
+                            if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
+                                if name.to_lowercase().ends_with(".exe.old")
+                                    || (name.to_lowercase().contains("nexora") && name.to_lowercase().ends_with(".old"))
+                                {
+                                    found_any = true;
+                                    let _ = std::fs::remove_file(&p);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if !found_any {
+                    break;
+                }
+            }
+        });
     }
 }
 
