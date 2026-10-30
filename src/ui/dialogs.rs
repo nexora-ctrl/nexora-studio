@@ -208,19 +208,19 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-            .fixed_size(Vec2::new(670.0, 455.0))
+            .fixed_size(Vec2::new(760.0, 485.0))
             .show(ctx, |ui| {
                 block_window_body_drag(ui);
                 let p = ThemePalette::for_mode(app.settings.theme);
-                const LEFT_COL_W: f32 = 175.0;
-                const RIGHT_COL_W: f32 = 460.0;
-                const BODY_H: f32 = 360.0;
+                const LEFT_COL_W: f32 = 180.0;
+                const RIGHT_COL_W: f32 = 540.0;
+                const BODY_H: f32 = 385.0;
                 const FIELD_W: f32 = 270.0;
                 const FIELD_H: f32 = 24.0;
 
-                ui.set_width(645.0);
-                ui.set_min_width(645.0);
-                ui.set_max_width(645.0);
+                ui.set_width(735.0);
+                ui.set_min_width(735.0);
+                ui.set_max_width(735.0);
                 ui.set_height(BODY_H + 45.0);
 
                 // Two-Column Body: Categories on left, Category Content Options on right
@@ -885,21 +885,26 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
 
                                             egui::Frame::new()
                                                 .fill(p.bg_canvas_well)
-                                                .stroke(Stroke::new(1.0_f32, egui::Color32::from_rgb(225, 112, 85).gamma_multiply(0.4)))
-                                                .corner_radius(egui::CornerRadius::same(4))
-                                                .inner_margin(egui::Margin::symmetric(10, 8))
+                                                .stroke(Stroke::new(1.0_f32, egui::Color32::from_rgb(225, 112, 85).gamma_multiply(0.45)))
+                                                .corner_radius(egui::CornerRadius::same(6))
+                                                .inner_margin(egui::Margin::symmetric(12, 10))
                                                 .show(ui, |ui| {
                                                     ui.horizontal(|ui| {
-                                                        ui.label(RichText::new(icons::HEART).size(22.0).color(egui::Color32::from_rgb(225, 112, 85)));
-                                                        ui.add_space(4.0);
-                                                        ui.vertical(|ui| {
-                                                            ui.label(RichText::new("Dukung Pengembang NEXORA Studio").strong());
-                                                            ui.label(RichText::new("Donasi via Saweria untuk mendukung pengembangan aplikasi ini.").small().color(p.text_secondary));
-                                                        });
+                                                        ui.label(RichText::new(icons::HEART).size(24.0).color(egui::Color32::from_rgb(225, 112, 85)));
+                                                        ui.add_space(6.0);
+                                                        ui.allocate_ui_with_layout(
+                                                            Vec2::new(340.0, 36.0),
+                                                            egui::Layout::top_down(egui::Align::Min),
+                                                            |ui| {
+                                                                ui.label(RichText::new("Dukung Pengembang NEXORA Studio").strong().size(12.5));
+                                                                ui.label(RichText::new("Donasi via Saweria untuk mendukung operasional & fitur baru.").small().color(p.text_secondary));
+                                                            },
+                                                        );
                                                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                                             let donate_btn = egui::Button::new(
                                                                 RichText::new(format!("{}  Dukung via Saweria", icons::HEART))
                                                                     .strong()
+                                                                    .size(12.0)
                                                                     .color(egui::Color32::WHITE),
                                                             )
                                                             .fill(egui::Color32::from_rgb(225, 112, 85))
