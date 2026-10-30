@@ -21,6 +21,7 @@ pub enum SettingsCategory {
     VideoOutput,
     HardwarePerformance,
     AudioMixer,
+    Update,
     About,
 }
 
@@ -143,6 +144,7 @@ pub struct NexoraApp {
     pub media_audio_engine: crate::platform::MediaAudioEngine,
     pub brand_icon_texture: Option<egui::TextureHandle>,
     pub initial_maximized_applied: bool,
+    pub updater: std::sync::Arc<std::sync::Mutex<crate::platform::updater::UpdaterState>>,
     pub copied_source: Option<crate::studio::source::SourceItem>,
     pub virtual_camera_active: bool,
     pub virtual_camera_service: Option<crate::virtual_camera::VirtualCameraService>,
@@ -303,6 +305,7 @@ impl NexoraApp {
             media_audio_engine: crate::platform::MediaAudioEngine::default(),
             brand_icon_texture,
             initial_maximized_applied: false,
+            updater: std::sync::Arc::new(std::sync::Mutex::new(crate::platform::updater::UpdaterState::default())),
             copied_source: None,
             virtual_camera_active: false,
             virtual_camera_service: None,

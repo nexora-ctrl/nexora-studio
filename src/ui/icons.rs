@@ -405,6 +405,12 @@ pub const ALERT_CIRCLE: &str = "\u{ea05}";
 pub const CPU: &str = "\u{ef8e}";
 /// `ti-info-circle` — Information / About
 pub const INFO_CIRCLE: &str = "\u{eac5}";
+/// `ti-download` — Download File
+pub const DOWNLOAD: &str = "\u{ea96}";
+/// `ti-cloud-download` — Cloud Download / Update
+pub const CLOUD_DOWNLOAD: &str = "\u{ea71}";
+/// `ti-brand-github` — GitHub Logo
+pub const BRAND_GITHUB: &str = "\u{ec1c}";
 
 
 

@@ -25,6 +25,8 @@ fn main() -> eframe::Result<()> {
         )
         .init();
 
+    crate::platform::updater::cleanup_old_executable_if_needed();
+
     let initial_settings = settings::AppSettings::load_or_default();
     let win_w = initial_settings.window_size.0.clamp(1280.0, 3840.0);
     let win_h = initial_settings.window_size.1.clamp(720.0, 2160.0);
@@ -244,6 +246,21 @@ mod tests {
             )
         });
         assert_eq!(galley.rect.width(), 11.0);
+    }
+
+    #[test]
+    fn test_updater_semver_and_state() {
+        use crate::platform::updater::{parse_version, UpdaterState, UpdateStatus};
+        assert_eq!(parse_version("0.3.0"), (0, 3, 0));
+        assert_eq!(parse_version("v0.4.0"), (0, 4, 0));
+        assert_eq!(parse_version("v1.0.2"), (1, 0, 2));
+        assert!(parse_version("v0.4.0") > parse_version("0.3.0"));
+        assert!(parse_version("0.3.1") > parse_version("0.3.0"));
+        assert!(!(parse_version("0.3.0") > parse_version("0.3.0")));
+
+        let updater = UpdaterState::default();
+        assert_eq!(updater.status, UpdateStatus::Idle);
+        assert_eq!(updater.current_version, "0.3.0");
     }
 }
 
