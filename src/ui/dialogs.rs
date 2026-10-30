@@ -1116,6 +1116,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
     // 2. Rename Scene Modal Dialog
     if app.show_rename_scene_dialog {
         let mut open = app.show_rename_scene_dialog;
+        let p = ThemePalette::for_mode(app.settings.theme);
         egui::Window::new("Rename Scene")
             .id(egui::Id::new("nexora_rename_scene_modal_win"))
             .order(egui::Order::Foreground)
@@ -1130,7 +1131,17 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                 ui.text_edit_singleline(&mut app.rename_scene_buffer);
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
-                    if ui.button("Apply").clicked() {
+                    ui.spacing_mut().item_spacing.x = 8.0;
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                RichText::new("Apply").strong().color(egui::Color32::WHITE),
+                            )
+                            .fill(p.accent_preview)
+                            .min_size(Vec2::new(70.0, 24.0)),
+                        )
+                        .clicked()
+                    {
                         let trimmed = app.rename_scene_buffer.trim();
                         if !trimmed.is_empty() {
                             app.studio.preview_scene_mut().name = trimmed.to_string();
@@ -1138,7 +1149,10 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                         }
                         app.show_rename_scene_dialog = false;
                     }
-                    if ui.button("Cancel").clicked() {
+                    if ui
+                        .add(egui::Button::new("Cancel").min_size(Vec2::new(70.0, 24.0)))
+                        .clicked()
+                    {
                         app.show_rename_scene_dialog = false;
                     }
                 });
@@ -1151,6 +1165,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
     // 3. Rename Source Modal Dialog (F2 / Right-Click -> Rename...)
     if app.show_rename_source_dialog {
         let mut open = app.show_rename_source_dialog;
+        let p = ThemePalette::for_mode(app.settings.theme);
         egui::Window::new("Rename Source")
             .id(egui::Id::new("nexora_rename_source_modal_win"))
             .order(egui::Order::Foreground)
@@ -1165,7 +1180,17 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                 ui.text_edit_singleline(&mut app.rename_source_buffer);
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
-                    if ui.button("Apply").clicked() {
+                    ui.spacing_mut().item_spacing.x = 8.0;
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                RichText::new("Apply").strong().color(egui::Color32::WHITE),
+                            )
+                            .fill(p.accent_preview)
+                            .min_size(Vec2::new(70.0, 24.0)),
+                        )
+                        .clicked()
+                    {
                         let trimmed = app.rename_source_buffer.trim();
                         if !trimmed.is_empty() {
                             if let Some(src) = app.studio.preview_scene_mut().selected_source_mut()
@@ -1176,7 +1201,10 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                         }
                         app.show_rename_source_dialog = false;
                     }
-                    if ui.button("Cancel").clicked() {
+                    if ui
+                        .add(egui::Button::new("Cancel").min_size(Vec2::new(70.0, 24.0)))
+                        .clicked()
+                    {
                         app.show_rename_source_dialog = false;
                     }
                 });
@@ -1227,7 +1255,6 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
             .default_width(515.0)
             .max_width(515.0)
             .auto_sized()
-            .default_height(250.0)
             .show(ctx, |ui| {
                 block_window_body_drag(ui);
                 let p = ThemePalette::for_mode(app.settings.theme);
@@ -1238,7 +1265,12 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
 
                 if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
                     let mut pending_tv_template: Option<TvTextTemplate> = None;
-                    egui::Grid::new("source_props_grid")
+                    egui::ScrollArea::vertical()
+                        .id_salt("source_props_scroll_area")
+                        .max_height(480.0)
+                        .auto_shrink([false, true])
+                        .show(ui, |ui| {
+                            egui::Grid::new("source_props_grid")
                         .num_columns(2)
                         .spacing([12.0, 8.0])
                         .show(ui, |ui| {
@@ -2804,16 +2836,20 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                 .changed();
                             ui.end_row();
                         });
+                    });
 
-                    ui.separator();
                     ui.add_space(6.0);
-                    ui.with_layout(
+                    ui.separator();
+                    ui.add_space(4.0);
+                    ui.allocate_ui_with_layout(
+                        Vec2::new(495.0, 26.0),
                         egui::Layout::right_to_left(egui::Align::Center),
                         |ui| {
                             let ok_btn = egui::Button::new(
-                                RichText::new("OK").size(12.5),
+                                RichText::new("OK").strong().size(12.0).color(egui::Color32::WHITE),
                             )
-                            .min_size(Vec2::new(76.0, 24.0));
+                            .fill(p.accent_preview)
+                            .min_size(Vec2::new(80.0, 26.0));
                             if ui.add(ok_btn).clicked() {
                                 close_clicked = true;
                             }
@@ -2845,7 +2881,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
             app.studio.sync_if_linked();
             app.save_all_state();
         }
-        if !open || close_clicked {
+        if !open || close_clicked || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
             app.show_source_properties_dialog = false;
         }
     }
@@ -3183,7 +3219,13 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                             egui::Layout::right_to_left(egui::Align::Center),
                             |ui| {
                                 if ui
-                                    .add(egui::Button::new("Done").min_size(Vec2::new(78.0, 26.0)))
+                                    .add(
+                                        egui::Button::new(
+                                            RichText::new("Done").strong().size(12.0).color(egui::Color32::WHITE),
+                                        )
+                                        .fill(p.accent_preview)
+                                        .min_size(Vec2::new(78.0, 26.0)),
+                                    )
                                     .clicked()
                                 {
                                     done_clicked = true;
@@ -3481,7 +3523,16 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                         Vec2::new(480.0, 26.0),
                         egui::Layout::right_to_left(egui::Align::Center),
                         |ui| {
-                            if ui.add(egui::Button::new("Done").min_size(Vec2::new(76.0, 24.0))).clicked() {
+                            if ui
+                                .add(
+                                    egui::Button::new(
+                                        RichText::new("Done").strong().size(12.0).color(egui::Color32::WHITE),
+                                    )
+                                    .fill(p.accent_preview)
+                                    .min_size(Vec2::new(76.0, 24.0)),
+                                )
+                                .clicked()
+                            {
                                 done_clicked = true;
                             }
                             if ui.add(egui::Button::new(format!("{} Reset Default", icons::REFRESH)).min_size(Vec2::new(115.0, 24.0))).clicked() {
