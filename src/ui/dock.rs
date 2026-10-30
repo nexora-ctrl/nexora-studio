@@ -449,7 +449,7 @@ fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                         ((avail_w - (cols - 1) as f32 * gap) / cols as f32).floor().max(96.0);
                     let thumb_w = (col_w - 8.0).max(80.0);
                     let thumb_h = (thumb_w * 9.0 / 16.0).round().max(45.0);
-                    let card_h = thumb_h + 38.0;
+                    let card_h = thumb_h + 39.0;
 
                     let time_sec = ui.input(|i| i.time);
                     let egui_ctx = ui.ctx().clone();
@@ -535,63 +535,123 @@ fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
 
                                 // Scene Name & Status badges in bottom area of card (keeps 16:9 thumbnail 100% clean and unblocked)
                                 let label_y = thumb_rect.max.y + 4.0;
+                                let pill_w = 38.0;
+                                let pill_h = 12.5;
+                                let badge_x = card_rect.max.x - pill_w - 5.0;
 
-                                // Right-aligned status badges in footer
-                                let mut badge_right_x = card_rect.max.x - 5.0;
-                                if is_pgm {
-                                    let pill_w = 40.0;
-                                    let pill_rect = Rect::from_min_size(
-                                        Pos2::new(badge_right_x - pill_w, label_y + 1.0),
-                                        Vec2::new(pill_w, 13.0),
-                                    );
-                                    ui.painter().rect_filled(
-                                        pill_rect,
-                                        CornerRadius::same(3),
-                                        p.accent_program,
-                                    );
-                                    ui.painter().text(
-                                        pill_rect.center(),
-                                        Align2::CENTER_CENTER,
-                                        format!("{} LIVE", icons::PLAYER_RECORD),
-                                        FontId::proportional(7.5),
-                                        Color32::WHITE,
-                                    );
-                                    badge_right_x -= pill_w + 3.0;
-                                }
-                                if is_prv {
-                                    let pill_w = 36.0;
-                                    let pill_rect = Rect::from_min_size(
-                                        Pos2::new(badge_right_x - pill_w, label_y + 1.0),
-                                        Vec2::new(pill_w, 13.0),
-                                    );
-                                    ui.painter().rect_filled(
-                                        pill_rect,
-                                        CornerRadius::same(3),
-                                        p.accent_preview,
-                                    );
-                                    ui.painter().text(
-                                        pill_rect.center(),
-                                        Align2::CENTER_CENTER,
-                                        format!("{} PRV", icons::EYE),
-                                        FontId::proportional(7.5),
-                                        Color32::WHITE,
-                                    );
+                                // Right-aligned status badges stacked vertically (atas-bawah) so text is not obstructed
+                                match (is_pgm, is_prv) {
+                                    (true, true) => {
+                                        // Top badge: LIVE (Program)
+                                        let live_rect = Rect::from_min_size(
+                                            Pos2::new(badge_x, label_y),
+                                            Vec2::new(pill_w, pill_h),
+                                        );
+                                        ui.painter().rect_filled(
+                                            live_rect,
+                                            CornerRadius::same(3),
+                                            p.accent_program,
+                                        );
+                                        ui.painter().text(
+                                            live_rect.center(),
+                                            Align2::CENTER_CENTER,
+                                            format!("{} LIVE", icons::PLAYER_RECORD),
+                                            FontId::proportional(7.5),
+                                            Color32::WHITE,
+                                        );
+
+                                        // Bottom badge: PRV (Preview)
+                                        let prv_rect = Rect::from_min_size(
+                                            Pos2::new(badge_x, label_y + 14.0),
+                                            Vec2::new(pill_w, pill_h),
+                                        );
+                                        ui.painter().rect_filled(
+                                            prv_rect,
+                                            CornerRadius::same(3),
+                                            p.accent_preview,
+                                        );
+                                        ui.painter().text(
+                                            prv_rect.center(),
+                                            Align2::CENTER_CENTER,
+                                            format!("{} PRV", icons::EYE),
+                                            FontId::proportional(7.5),
+                                            Color32::WHITE,
+                                        );
+                                    }
+                                    (true, false) => {
+                                        let live_rect = Rect::from_min_size(
+                                            Pos2::new(badge_x, label_y),
+                                            Vec2::new(pill_w, pill_h),
+                                        );
+                                        ui.painter().rect_filled(
+                                            live_rect,
+                                            CornerRadius::same(3),
+                                            p.accent_program,
+                                        );
+                                        ui.painter().text(
+                                            live_rect.center(),
+                                            Align2::CENTER_CENTER,
+                                            format!("{} LIVE", icons::PLAYER_RECORD),
+                                            FontId::proportional(7.5),
+                                            Color32::WHITE,
+                                        );
+                                    }
+                                    (false, true) => {
+                                        let prv_rect = Rect::from_min_size(
+                                            Pos2::new(badge_x, label_y),
+                                            Vec2::new(pill_w, pill_h),
+                                        );
+                                        ui.painter().rect_filled(
+                                            prv_rect,
+                                            CornerRadius::same(3),
+                                            p.accent_preview,
+                                        );
+                                        ui.painter().text(
+                                            prv_rect.center(),
+                                            Align2::CENTER_CENTER,
+                                            format!("{} PRV", icons::EYE),
+                                            FontId::proportional(7.5),
+                                            Color32::WHITE,
+                                        );
+                                    }
+                                    (false, false) => {}
                                 }
 
-                                // Left-aligned Scene Title and Layer count
-                                let max_title_chars = if is_pgm && is_prv { 10 } else if is_pgm || is_prv { 13 } else { 18 };
-                                let scene_title = truncate_str(&scene.name, max_title_chars);
+                                // Left-aligned Scene Title (dynamically fitted so it NEVER overlaps badges)
+                                let font_id = FontId::proportional(11.0);
+                                let avail_w = if is_pgm || is_prv {
+                                    (card_rect.width() - pill_w - 14.0).max(20.0)
+                                } else {
+                                    (card_rect.width() - 12.0).max(20.0)
+                                };
+
+                                let mut display_title = scene.name.clone();
+                                let g = ui.painter().layout_no_wrap(display_title.clone(), font_id.clone(), p.text_primary);
+                                if g.size().x > avail_w {
+                                    let mut truncated = scene.name.clone();
+                                    display_title = "...".to_string();
+                                    while !truncated.is_empty() {
+                                        truncated.pop();
+                                        let candidate = format!("{}…", truncated);
+                                        let cand_g = ui.painter().layout_no_wrap(candidate.clone(), font_id.clone(), p.text_primary);
+                                        if cand_g.size().x <= avail_w {
+                                            display_title = candidate;
+                                            break;
+                                        }
+                                    }
+                                }
+
                                 ui.painter().text(
                                     Pos2::new(card_rect.min.x + 6.0, label_y),
                                     Align2::LEFT_TOP,
-                                    scene_title,
-                                    FontId::proportional(11.0),
+                                    display_title,
+                                    font_id,
                                     p.text_primary,
                                 );
 
                                 let layer_info = format!("{} layer(s)", src_count);
                                 ui.painter().text(
-                                    Pos2::new(card_rect.min.x + 6.0, label_y + 13.0),
+                                    Pos2::new(card_rect.min.x + 6.0, label_y + 14.0),
                                     Align2::LEFT_TOP,
                                     layer_info,
                                     FontId::proportional(9.0),
