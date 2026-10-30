@@ -274,13 +274,13 @@ mod tests {
         assert_eq!(parse_version("0.3.0"), (0, 3, 0));
         assert_eq!(parse_version("v0.4.0"), (0, 4, 0));
         assert_eq!(parse_version("v1.0.2"), (1, 0, 2));
-        assert!(parse_version("v0.4.0") > parse_version("0.3.0"));
+        assert!(parse_version("v0.5.0") > parse_version("0.4.0"));
         assert!(parse_version("0.3.1") > parse_version("0.3.0"));
         assert!(!(parse_version("0.3.0") > parse_version("0.3.0")));
 
         let updater = UpdaterState::default();
         assert_eq!(updater.status, UpdateStatus::Idle);
-        assert_eq!(updater.current_version, "0.3.0");
+        assert_eq!(updater.current_version, "0.4.0");
     }
 }
 
