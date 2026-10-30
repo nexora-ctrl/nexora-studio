@@ -887,34 +887,32 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                 .fill(p.bg_canvas_well)
                                                 .stroke(Stroke::new(1.0_f32, egui::Color32::from_rgb(225, 112, 85).gamma_multiply(0.45)))
                                                 .corner_radius(egui::CornerRadius::same(6))
-                                                .inner_margin(egui::Margin::symmetric(12, 10))
+                                                .inner_margin(egui::Margin::symmetric(14, 10))
                                                 .show(ui, |ui| {
                                                     ui.horizontal(|ui| {
-                                                        ui.label(RichText::new(icons::HEART).size(24.0).color(egui::Color32::from_rgb(225, 112, 85)));
-                                                        ui.add_space(6.0);
-                                                        ui.allocate_ui_with_layout(
-                                                            Vec2::new(340.0, 36.0),
-                                                            egui::Layout::top_down(egui::Align::Min),
-                                                            |ui| {
-                                                                ui.label(RichText::new("Dukung Pengembang NEXORA Studio").strong().size(12.5));
-                                                                ui.label(RichText::new("Donasi via Saweria untuk mendukung operasional & fitur baru.").small().color(p.text_secondary));
-                                                            },
-                                                        );
-                                                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                                            let donate_btn = egui::Button::new(
-                                                                RichText::new(format!("{}  Dukung via Saweria", icons::HEART))
-                                                                    .strong()
-                                                                    .size(12.0)
-                                                                    .color(egui::Color32::WHITE),
-                                                            )
-                                                            .fill(egui::Color32::from_rgb(225, 112, 85))
-                                                            .min_size(Vec2::new(145.0, 28.0));
-
-                                                            if ui.add(donate_btn).clicked() {
-                                                                ui.ctx().open_url(egui::OpenUrl::new_tab("https://saweria.co/ilopejr"));
-                                                            }
-                                                        });
+                                                        ui.label(RichText::new(icons::HEART).size(20.0).color(egui::Color32::from_rgb(225, 112, 85)));
+                                                        ui.add_space(4.0);
+                                                        ui.label(RichText::new("Dukung Pengembang NEXORA Studio").strong().size(13.0));
                                                     });
+                                                    ui.add_space(3.0);
+                                                    ui.label(
+                                                        RichText::new("Donasi sukarela melalui Saweria untuk membantu operasional & pembaruan fitur baru.")
+                                                            .small()
+                                                            .color(p.text_secondary),
+                                                    );
+                                                    ui.add_space(8.0);
+                                                    let donate_btn = egui::Button::new(
+                                                        RichText::new(format!("{}  Dukung via Saweria", icons::HEART))
+                                                            .strong()
+                                                            .size(12.5)
+                                                            .color(egui::Color32::WHITE),
+                                                    )
+                                                    .fill(egui::Color32::from_rgb(225, 112, 85))
+                                                    .min_size(Vec2::new(165.0, 30.0));
+
+                                                    if ui.add(donate_btn).clicked() {
+                                                        ui.ctx().open_url(egui::OpenUrl::new_tab("https://saweria.co/ilopejr"));
+                                                    }
                                                 });
                                         }
                                     }
