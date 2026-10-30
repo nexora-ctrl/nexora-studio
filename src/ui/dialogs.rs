@@ -633,36 +633,65 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                     }
 
                                                     crate::platform::updater::UpdateStatus::UpToDate { version, check_time } => {
-                                                        egui::Frame::new()
-                                                            .fill(p.bg_canvas_well)
-                                                            .stroke(Stroke::new(1.0_f32, p.meter_ok.gamma_multiply(0.4)))
-                                                            .corner_radius(egui::CornerRadius::same(6))
-                                                            .inner_margin(egui::Margin::symmetric(16, 12))
-                                                            .show(ui, |ui| {
-                                                                ui.set_max_width(440.0);
-                                                                ui.horizontal(|ui| {
-                                                                    ui.label(RichText::new(icons::CIRCLE_CHECK).size(24.0).color(p.meter_ok));
-                                                                    ui.add_space(8.0);
-                                                                    ui.vertical(|ui| {
-                                                                        ui.label(RichText::new("Aplikasi Sudah Menggunakan Versi Terbaru").strong().color(p.meter_ok));
-                                                                        ui.label(RichText::new(format!("NEXORA Studio v{} adalah versi paling mutakhir.", version)).small());
-                                                                        ui.label(RichText::new(format!("Pengecekan terakhir pukul {} WIB", check_time)).small().color(p.text_muted));
+                                                        const CARD_W: f32 = 460.0;
+
+                                                        // 1. Centered Status Card
+                                                        ui.allocate_ui_with_layout(
+                                                            Vec2::new(CARD_W, 0.0),
+                                                            egui::Layout::top_down(egui::Align::Center),
+                                                            |ui| {
+                                                                egui::Frame::new()
+                                                                    .fill(p.bg_canvas_well)
+                                                                    .stroke(Stroke::new(1.0_f32, p.meter_ok.gamma_multiply(0.45)))
+                                                                    .corner_radius(egui::CornerRadius::same(6))
+                                                                    .inner_margin(egui::Margin::symmetric(16, 14))
+                                                                    .show(ui, |ui| {
+                                                                        ui.set_width(CARD_W - 32.0);
+                                                                        ui.horizontal(|ui| {
+                                                                            ui.label(RichText::new(icons::CIRCLE_CHECK).size(28.0).color(p.meter_ok));
+                                                                            ui.add_space(8.0);
+                                                                            ui.vertical(|ui| {
+                                                                                ui.label(RichText::new("Aplikasi Sudah Menggunakan Versi Terbaru").strong().color(p.meter_ok));
+                                                                                ui.label(RichText::new(format!("NEXORA Studio v{} adalah versi paling mutakhir.", version)).small());
+                                                                                ui.label(RichText::new(format!("Pengecekan terakhir pukul {} WIB", check_time)).small().color(p.text_muted));
+                                                                            });
+                                                                        });
                                                                     });
-                                                                });
-                                                            });
+                                                            },
+                                                        );
 
                                                         ui.add_space(14.0);
-                                                        ui.horizontal(|ui| {
-                                                            if ui.button(format!("{}  Periksa Ulang", icons::REFRESH)).clicked() {
-                                                                crate::platform::updater::check_for_updates_async(
-                                                                    app.updater.clone(),
-                                                                    ui.ctx().clone(),
-                                                                );
-                                                            }
-                                                            if ui.button(format!("{}  Buka GitHub", icons::BRAND_GITHUB)).clicked() {
-                                                                ui.ctx().open_url(egui::OpenUrl::new_tab(&repo_url));
-                                                            }
-                                                        });
+
+                                                        // 2. Centered Action Buttons
+                                                        const BTN_GROUP_W: f32 = 135.0 + 10.0 + 135.0;
+                                                        ui.allocate_ui_with_layout(
+                                                            Vec2::new(BTN_GROUP_W, 32.0),
+                                                            egui::Layout::left_to_right(egui::Align::Center),
+                                                            |ui| {
+                                                                let refresh_btn = egui::Button::new(
+                                                                    RichText::new(format!("{}  Periksa Ulang", icons::REFRESH)),
+                                                                )
+                                                                .min_size(Vec2::new(135.0, 30.0));
+
+                                                                if ui.add(refresh_btn).clicked() {
+                                                                    crate::platform::updater::check_for_updates_async(
+                                                                        app.updater.clone(),
+                                                                        ui.ctx().clone(),
+                                                                    );
+                                                                }
+
+                                                                ui.add_space(10.0);
+
+                                                                let github_btn = egui::Button::new(
+                                                                    RichText::new(format!("{}  Buka GitHub", icons::BRAND_GITHUB)),
+                                                                )
+                                                                .min_size(Vec2::new(135.0, 30.0));
+
+                                                                if ui.add(github_btn).clicked() {
+                                                                    ui.ctx().open_url(egui::OpenUrl::new_tab(&repo_url));
+                                                                }
+                                                            },
+                                                        );
                                                     }
 
                                                     crate::platform::updater::UpdateStatus::UpdateAvailable {
@@ -674,64 +703,71 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                         release_notes,
                                                         file_size_bytes,
                                                     } => {
-                                                        egui::Frame::new()
-                                                            .fill(p.accent_primary.gamma_multiply(0.12))
-                                                            .stroke(Stroke::new(1.2_f32, p.accent_primary))
-                                                            .corner_radius(egui::CornerRadius::same(6))
-                                                            .inner_margin(egui::Margin::symmetric(16, 14))
-                                                            .show(ui, |ui| {
-                                                                ui.set_max_width(460.0);
-                                                                ui.horizontal(|ui| {
-                                                                    ui.label(RichText::new(icons::CLOUD_DOWNLOAD).size(30.0).color(p.accent_primary));
-                                                                    ui.add_space(8.0);
-                                                                    ui.vertical(|ui| {
-                                                                        ui.label(RichText::new("Versi Baru Tersedia!").heading().strong().color(p.accent_primary));
-                                                                        ui.label(RichText::new(format!("Versi Saat Ini: v{}  ➜  Versi Baru: {}", current_version, latest_version)).strong());
-                                                                        ui.label(RichText::new(format!("Judul Rilis: {}", release_title)).small().color(p.text_secondary));
-                                                                        if let Some(sz) = file_size_bytes {
-                                                                            let sz_mb = sz as f64 / (1024.0 * 1024.0);
-                                                                            ui.label(RichText::new(format!("Ukuran Binary: {:.1} MB", sz_mb)).small().color(p.text_muted));
-                                                                        }
+                                                        const CARD_W: f32 = 470.0;
+                                                        ui.allocate_ui_with_layout(
+                                                            Vec2::new(CARD_W, 0.0),
+                                                            egui::Layout::top_down(egui::Align::Center),
+                                                            |ui| {
+                                                                egui::Frame::new()
+                                                                    .fill(p.accent_primary.gamma_multiply(0.12))
+                                                                    .stroke(Stroke::new(1.2_f32, p.accent_primary))
+                                                                    .corner_radius(egui::CornerRadius::same(6))
+                                                                    .inner_margin(egui::Margin::symmetric(16, 14))
+                                                                    .show(ui, |ui| {
+                                                                        ui.set_width(CARD_W - 32.0);
+                                                                        ui.horizontal(|ui| {
+                                                                            ui.label(RichText::new(icons::CLOUD_DOWNLOAD).size(30.0).color(p.accent_primary));
+                                                                            ui.add_space(8.0);
+                                                                            ui.vertical(|ui| {
+                                                                                ui.label(RichText::new("Versi Baru Tersedia!").heading().strong().color(p.accent_primary));
+                                                                                ui.label(RichText::new(format!("Versi Saat Ini: v{}  ➜  Versi Baru: {}", current_version, latest_version)).strong());
+                                                                                ui.label(RichText::new(format!("Judul Rilis: {}", release_title)).small().color(p.text_secondary));
+                                                                                if let Some(sz) = file_size_bytes {
+                                                                                    let sz_mb = sz as f64 / (1024.0 * 1024.0);
+                                                                                    ui.label(RichText::new(format!("Ukuran Binary: {:.1} MB", sz_mb)).small().color(p.text_muted));
+                                                                                }
+                                                                            });
+                                                                        });
+
+                                                                        ui.add_space(8.0);
+                                                                        ui.separator();
+                                                                        ui.add_space(4.0);
+                                                                        ui.label(RichText::new("Catatan Perubahan:").small().strong());
+                                                                        ui.label(RichText::new(&release_notes).small().color(p.text_secondary));
+
+                                                                        ui.add_space(10.0);
+                                                                        ui.horizontal(|ui| {
+                                                                            if let Some(ref dl_url) = download_url {
+                                                                                let dl_btn = egui::Button::new(
+                                                                                    RichText::new(format!("{}  Update Otomatis Sekarang", icons::DOWNLOAD))
+                                                                                        .strong()
+                                                                                        .color(egui::Color32::WHITE),
+                                                                                )
+                                                                                .fill(p.meter_ok)
+                                                                                .min_size(Vec2::new(190.0, 32.0));
+
+                                                                                if ui.add(dl_btn).clicked() {
+                                                                                    crate::platform::updater::start_download_async(
+                                                                                        app.updater.clone(),
+                                                                                        dl_url.clone(),
+                                                                                        latest_version.clone(),
+                                                                                        ui.ctx().clone(),
+                                                                                    );
+                                                                                }
+                                                                            }
+
+                                                                            let gh_btn = egui::Button::new(
+                                                                                RichText::new(format!("{}  Lihat di GitHub", icons::BRAND_GITHUB)),
+                                                                            )
+                                                                            .min_size(Vec2::new(130.0, 32.0));
+
+                                                                            if ui.add(gh_btn).clicked() {
+                                                                                ui.ctx().open_url(egui::OpenUrl::new_tab(&release_url));
+                                                                            }
+                                                                        });
                                                                     });
-                                                                });
-
-                                                                ui.add_space(8.0);
-                                                                ui.separator();
-                                                                ui.add_space(4.0);
-                                                                ui.label(RichText::new("Catatan Perubahan:").small().strong());
-                                                                ui.label(RichText::new(&release_notes).small().color(p.text_secondary));
-
-                                                                ui.add_space(10.0);
-                                                                ui.horizontal(|ui| {
-                                                                    if let Some(ref dl_url) = download_url {
-                                                                        let dl_btn = egui::Button::new(
-                                                                            RichText::new(format!("{}  Update Otomatis Sekarang", icons::DOWNLOAD))
-                                                                                .strong()
-                                                                                .color(egui::Color32::WHITE),
-                                                                        )
-                                                                        .fill(p.meter_ok)
-                                                                        .min_size(Vec2::new(190.0, 32.0));
-
-                                                                        if ui.add(dl_btn).clicked() {
-                                                                            crate::platform::updater::start_download_async(
-                                                                                app.updater.clone(),
-                                                                                dl_url.clone(),
-                                                                                latest_version.clone(),
-                                                                                ui.ctx().clone(),
-                                                                            );
-                                                                        }
-                                                                    }
-
-                                                                    let gh_btn = egui::Button::new(
-                                                                        RichText::new(format!("{}  Lihat di GitHub", icons::BRAND_GITHUB)),
-                                                                    )
-                                                                    .min_size(Vec2::new(130.0, 32.0));
-
-                                                                    if ui.add(gh_btn).clicked() {
-                                                                        ui.ctx().open_url(egui::OpenUrl::new_tab(&release_url));
-                                                                    }
-                                                                });
-                                                            });
+                                                            },
+                                                        );
                                                     }
 
                                                     crate::platform::updater::UpdateStatus::Downloading {
@@ -740,92 +776,119 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                         downloaded_mb: _,
                                                         total_mb: _,
                                                     } => {
-                                                        egui::Frame::new()
-                                                            .fill(p.bg_canvas_well)
-                                                            .stroke(Stroke::new(1.0_f32, p.accent_primary))
-                                                            .corner_radius(egui::CornerRadius::same(6))
-                                                            .inner_margin(egui::Margin::symmetric(16, 14))
-                                                            .show(ui, |ui| {
-                                                                ui.set_max_width(440.0);
-                                                                ui.label(RichText::new(format!("Mengunduh Pembaruan {}...", latest_version)).strong());
-                                                                ui.add_space(6.0);
-                                                                ui.add(egui::ProgressBar::new(progress).show_percentage());
-                                                                ui.add_space(4.0);
-                                                                ui.label(
-                                                                    RichText::new("Sedang mengunduh file binary baru langsung dari GitHub. Mohon jangan menutup aplikasi...")
-                                                                        .small()
-                                                                        .color(p.text_secondary),
-                                                                );
-                                                            });
+                                                        const CARD_W: f32 = 460.0;
+                                                        ui.allocate_ui_with_layout(
+                                                            Vec2::new(CARD_W, 0.0),
+                                                            egui::Layout::top_down(egui::Align::Center),
+                                                            |ui| {
+                                                                egui::Frame::new()
+                                                                    .fill(p.bg_canvas_well)
+                                                                    .stroke(Stroke::new(1.0_f32, p.accent_primary))
+                                                                    .corner_radius(egui::CornerRadius::same(6))
+                                                                    .inner_margin(egui::Margin::symmetric(16, 14))
+                                                                    .show(ui, |ui| {
+                                                                        ui.set_width(CARD_W - 32.0);
+                                                                        ui.label(RichText::new(format!("Mengunduh Pembaruan {}...", latest_version)).strong());
+                                                                        ui.add_space(6.0);
+                                                                        ui.add(egui::ProgressBar::new(progress).show_percentage());
+                                                                        ui.add_space(4.0);
+                                                                        ui.label(
+                                                                            RichText::new("Sedang mengunduh file binary baru langsung dari GitHub. Mohon jangan menutup aplikasi...")
+                                                                                .small()
+                                                                                .color(p.text_secondary),
+                                                                        );
+                                                                    });
+                                                            },
+                                                        );
                                                     }
 
                                                     crate::platform::updater::UpdateStatus::ReadyToRestart {
                                                         ref new_version,
                                                         ref downloaded_path,
                                                     } => {
-                                                        egui::Frame::new()
-                                                            .fill(p.meter_ok.gamma_multiply(0.15))
-                                                            .stroke(Stroke::new(1.2_f32, p.meter_ok))
-                                                            .corner_radius(egui::CornerRadius::same(6))
-                                                            .inner_margin(egui::Margin::symmetric(16, 14))
-                                                            .show(ui, |ui| {
-                                                                ui.set_max_width(440.0);
-                                                                ui.horizontal(|ui| {
-                                                                    ui.label(RichText::new(icons::CHECK).size(26.0).color(p.meter_ok));
-                                                                    ui.add_space(6.0);
-                                                                    ui.vertical(|ui| {
-                                                                        ui.label(RichText::new("Pembaruan Berhasil Diunduh!").heading().strong().color(p.meter_ok));
-                                                                        ui.label(RichText::new(format!("Versi {} siap dipasang ke sistem.", new_version)).small());
+                                                        const CARD_W: f32 = 460.0;
+                                                        ui.allocate_ui_with_layout(
+                                                            Vec2::new(CARD_W, 0.0),
+                                                            egui::Layout::top_down(egui::Align::Center),
+                                                            |ui| {
+                                                                egui::Frame::new()
+                                                                    .fill(p.meter_ok.gamma_multiply(0.15))
+                                                                    .stroke(Stroke::new(1.2_f32, p.meter_ok))
+                                                                    .corner_radius(egui::CornerRadius::same(6))
+                                                                    .inner_margin(egui::Margin::symmetric(16, 14))
+                                                                    .show(ui, |ui| {
+                                                                        ui.set_width(CARD_W - 32.0);
+                                                                        ui.horizontal(|ui| {
+                                                                            ui.label(RichText::new(icons::CHECK).size(26.0).color(p.meter_ok));
+                                                                            ui.add_space(6.0);
+                                                                            ui.vertical(|ui| {
+                                                                                ui.label(RichText::new("Pembaruan Berhasil Diunduh!").heading().strong().color(p.meter_ok));
+                                                                                ui.label(RichText::new(format!("Versi {} siap dipasang ke sistem.", new_version)).small());
+                                                                            });
+                                                                        });
+
+                                                                        ui.add_space(10.0);
+                                                                        let restart_btn = egui::Button::new(
+                                                                            RichText::new(format!("{}  Restart Aplikasi Sekarang", icons::REFRESH))
+                                                                                .strong()
+                                                                                .color(egui::Color32::WHITE),
+                                                                        )
+                                                                        .fill(p.meter_ok)
+                                                                        .min_size(Vec2::new(220.0, 36.0));
+
+                                                                        if ui.add(restart_btn).clicked() {
+                                                                            if let Err(e) = crate::platform::updater::apply_update_and_restart(downloaded_path) {
+                                                                                tracing::error!("Gagal menerapkan update: {}", e);
+                                                                            }
+                                                                        }
                                                                     });
-                                                                });
-
-                                                                ui.add_space(10.0);
-                                                                let restart_btn = egui::Button::new(
-                                                                    RichText::new(format!("{}  Restart Aplikasi Sekarang", icons::REFRESH))
-                                                                        .strong()
-                                                                        .color(egui::Color32::WHITE),
-                                                                )
-                                                                .fill(p.meter_ok)
-                                                                .min_size(Vec2::new(220.0, 36.0));
-
-                                                                if ui.add(restart_btn).clicked() {
-                                                                    if let Err(e) = crate::platform::updater::apply_update_and_restart(downloaded_path) {
-                                                                        tracing::error!("Gagal menerapkan update: {}", e);
-                                                                    }
-                                                                }
-                                                            });
+                                                            },
+                                                        );
                                                     }
 
                                                     crate::platform::updater::UpdateStatus::Failed { ref error } => {
-                                                        egui::Frame::new()
-                                                            .fill(p.bg_canvas_well)
-                                                            .stroke(Stroke::new(1.0_f32, p.meter_warn.gamma_multiply(0.5)))
-                                                            .corner_radius(egui::CornerRadius::same(6))
-                                                            .inner_margin(egui::Margin::symmetric(14, 12))
-                                                            .show(ui, |ui| {
-                                                                ui.set_max_width(440.0);
-                                                                ui.horizontal(|ui| {
-                                                                    ui.label(RichText::new(icons::ALERT_CIRCLE).size(22.0).color(p.meter_warn));
-                                                                    ui.add_space(6.0);
-                                                                    ui.vertical(|ui| {
-                                                                        ui.label(RichText::new("Pemberitahuan Pembaruan").strong().color(p.meter_warn));
-                                                                        ui.label(RichText::new(error).small());
+                                                        const CARD_W: f32 = 460.0;
+                                                        ui.allocate_ui_with_layout(
+                                                            Vec2::new(CARD_W, 0.0),
+                                                            egui::Layout::top_down(egui::Align::Center),
+                                                            |ui| {
+                                                                egui::Frame::new()
+                                                                    .fill(p.bg_canvas_well)
+                                                                    .stroke(Stroke::new(1.0_f32, p.meter_warn.gamma_multiply(0.5)))
+                                                                    .corner_radius(egui::CornerRadius::same(6))
+                                                                    .inner_margin(egui::Margin::symmetric(14, 12))
+                                                                    .show(ui, |ui| {
+                                                                        ui.set_width(CARD_W - 32.0);
+                                                                        ui.horizontal(|ui| {
+                                                                            ui.label(RichText::new(icons::ALERT_CIRCLE).size(22.0).color(p.meter_warn));
+                                                                            ui.add_space(6.0);
+                                                                            ui.vertical(|ui| {
+                                                                                ui.label(RichText::new("Pemberitahuan Pembaruan").strong().color(p.meter_warn));
+                                                                                ui.label(RichText::new(error).small());
+                                                                            });
+                                                                        });
                                                                     });
-                                                                });
-                                                            });
 
-                                                        ui.add_space(12.0);
-                                                        ui.horizontal(|ui| {
-                                                            if ui.button(format!("{}  Coba Periksa Lagi", icons::REFRESH)).clicked() {
-                                                                crate::platform::updater::check_for_updates_async(
-                                                                    app.updater.clone(),
-                                                                    ui.ctx().clone(),
+                                                                ui.add_space(12.0);
+                                                                const BTN_GROUP_W: f32 = 145.0 + 10.0 + 155.0;
+                                                                ui.allocate_ui_with_layout(
+                                                                    Vec2::new(BTN_GROUP_W, 32.0),
+                                                                    egui::Layout::left_to_right(egui::Align::Center),
+                                                                    |ui| {
+                                                                        if ui.add(egui::Button::new(format!("{}  Coba Periksa Lagi", icons::REFRESH)).min_size(Vec2::new(145.0, 30.0))).clicked() {
+                                                                            crate::platform::updater::check_for_updates_async(
+                                                                                app.updater.clone(),
+                                                                                ui.ctx().clone(),
+                                                                            );
+                                                                        }
+                                                                        ui.add_space(10.0);
+                                                                        if ui.add(egui::Button::new(format!("{}  Buka GitHub Manual", icons::BRAND_GITHUB)).min_size(Vec2::new(155.0, 30.0))).clicked() {
+                                                                            ui.ctx().open_url(egui::OpenUrl::new_tab(&repo_url));
+                                                                        }
+                                                                    },
                                                                 );
-                                                            }
-                                                            if ui.button(format!("{}  Buka GitHub Manual", icons::BRAND_GITHUB)).clicked() {
-                                                                ui.ctx().open_url(egui::OpenUrl::new_tab(&repo_url));
-                                                            }
-                                                        });
+                                                            },
+                                                        );
                                                     }
                                                 }
                                             });
