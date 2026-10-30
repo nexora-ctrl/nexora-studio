@@ -436,37 +436,48 @@ pub fn render_top_bar(ctx: &egui::Context, app: &mut NexoraApp) {
 
                     ui.separator();
 
-                    // Live Recording Status Indicator Pill
-                    let (badge_color, status_text) = match app.recording.status {
+                    // Live Recording Status Indicator (Precisely centered timer, dot, and status label)
+                    let (status_color, status_label) = match app.recording.status {
                         RecordingStatus::Idle => (
-                            p.border_strong,
-                            format!("{} STANDBY", icons::PLAYER_RECORD),
+                            p.text_muted,
+                            "STANDBY",
                         ),
                         RecordingStatus::Recording => (
                             p.rec_red,
-                            format!("{} REC", icons::PLAYER_RECORD),
+                            "REC",
                         ),
                         RecordingStatus::Paused => (
                             p.pause_amber,
-                            format!("{} PAUSED", icons::PLAYER_PAUSE),
+                            "PAUSED",
                         ),
                     };
 
-                    // Live Recording Status Indicator (Clean inline text without frame/border box)
                     ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 6.0;
+
+                        // 1. Status label ("STANDBY" / "REC" / "PAUSED") - added first so it appears on the right in right-to-left layout
                         ui.label(
-                            RichText::new(status_text)
-                                .size(11.8)
-                                .color(if app.recording.status == RecordingStatus::Idle {
-                                    p.text_muted
-                                } else {
-                                    badge_color
-                                }),
+                            RichText::new(status_label)
+                                .size(12.0)
+                                .color(status_color),
                         );
+
+                        // 2. Status Dot - mathematically centered between label and time readout
+                        let (dot_rect, _) = ui.allocate_exact_size(
+                            egui::vec2(7.0, 7.0),
+                            egui::Sense::hover(),
+                        );
+                        ui.painter().circle_filled(
+                            dot_rect.center(),
+                            3.5,
+                            status_color,
+                        );
+
+                        // 3. Time readout ("00:00:00") - added last so it appears on the left in right-to-left layout
                         ui.label(
                             RichText::new(app.recording.formatted_timer())
                                 .monospace()
-                                .size(12.5)
+                                .size(12.0)
                                 .color(p.text_primary),
                         );
                     });
