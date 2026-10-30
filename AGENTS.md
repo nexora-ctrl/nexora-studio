@@ -2,7 +2,7 @@
 
 Selamat datang di repositori **NEXORA Studio** (Aplikasi Desktop Screen Recording & Studio Presentation Native Windows berbasis Rust & `egui`).
 
-Sebelum melakukan perubahan kode, **baca peta arsitektur lengkap di [`ARCHITECTURE_MAP.md`](file:///d:/Rust/Nexora%20Studio/ARCHITECTURE_MAP.md)**.
+Sebelum melakukan perubahan kode, **baca peta arsitektur lengkap di [`ARCHITECTURE_MAP.md`](file:///d:/Rust/Nexora%20Studio/ARCHITECTURE_MAP.md)** dan **prosedur rilis & pembaruan versi di [`RELEASE_WORKFLOW.md`](file:///d:/Rust/Nexora%20Studio/RELEASE_WORKFLOW.md)**.
 
 ## Ringkasan Cepat Aturan Wajib
 
