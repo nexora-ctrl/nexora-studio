@@ -459,6 +459,8 @@ pub const BRAND_GITHUB: &str = "\u{ec1c}";
 pub const HEART: &str = "\u{eabe}";
 /// `ti-heart-filled` — Heart Filled Icon
 pub const HEART_FILLED: &str = "\u{f67c}";
+/// `ti-sparkles` — Sparkles / Vision Icon
+pub const SPARKLES: &str = "\u{f6d7}";
 
 
 

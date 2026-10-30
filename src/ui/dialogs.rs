@@ -900,9 +900,10 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
 
                                             ui.horizontal(|ui| {
                                                 ui.label(RichText::new(icons::DEVICE_DESKTOP).size(26.0).color(p.accent_primary));
+                                                ui.add_space(6.0);
                                                 ui.vertical(|ui| {
-                                                    ui.label(RichText::new("NEXORA Studio").heading().strong());
-                                                    ui.label(RichText::new("Native Windows Desktop Screen Recording & Live Studio").small().color(p.text_secondary));
+                                                    ui.label(RichText::new("NEXORA Studio - Your Easy Studio").heading().strong());
+                                                    ui.label(RichText::new("Versi v0.3.0 (Native Windows 64-bit)").small().color(p.text_secondary));
                                                 });
                                             });
 
@@ -910,32 +911,41 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                             ui.separator();
                                             ui.add_space(8.0);
 
-                                            egui::Grid::new("settings_about_grid")
-                                                .num_columns(2)
-                                                .spacing([12.0, 8.0])
+                                            // Vision & Story Card
+                                            egui::Frame::new()
+                                                .fill(p.bg_canvas_well)
+                                                .stroke(Stroke::new(1.0_f32, p.border_subtle))
+                                                .corner_radius(egui::CornerRadius::same(6))
+                                                .inner_margin(egui::Margin::symmetric(16, 14))
                                                 .show(ui, |ui| {
-                                                    ui.label("Versi Aplikasi:");
-                                                    ui.label(RichText::new("v0.3.0 (Native 64-bit)").strong());
-                                                    ui.end_row();
-
-                                                    ui.label("Target Platform:");
-                                                    ui.label(RichText::new(crate::platform::target_os_summary()).monospace());
-                                                    ui.end_row();
-
-                                                    ui.label("Tipografi Antarmuka:");
-                                                    ui.label("Rubik + Exo Medium + Roboto Mono (Offline OFL)");
-                                                    ui.end_row();
-
-                                                    ui.label("Sistem Ikon:");
-                                                    ui.label("Tabler Icons (5.936 icons offline embedded)");
-                                                    ui.end_row();
-
-                                                    ui.label("Keamanan & Privasi:");
-                                                    ui.label(RichText::new("100% Offline Lokal — Tanpa Cloud, Streaming, atau Login").color(p.meter_ok).strong());
-                                                    ui.end_row();
+                                                    ui.horizontal(|ui| {
+                                                        ui.label(RichText::new(icons::SPARKLES).size(20.0).color(p.accent_primary));
+                                                        ui.add_space(4.0);
+                                                        ui.label(RichText::new("Our Vision").strong().size(13.5).color(p.accent_primary));
+                                                    });
+                                                    ui.add_space(8.0);
+                                                    ui.label(
+                                                        RichText::new("We believe technology should make creativity easier, not more complicated.")
+                                                            .size(13.0)
+                                                            .strong()
+                                                            .color(p.text_primary),
+                                                    );
+                                                    ui.add_space(8.0);
+                                                    ui.label(
+                                                        RichText::new("NEXORA Studio was created with one simple vision: to bring recording, visual production, and creative tools together in one intuitive workspace.")
+                                                            .size(12.5)
+                                                            .color(p.text_secondary),
+                                                    );
+                                                    ui.add_space(10.0);
+                                                    ui.label(
+                                                        RichText::new("Built with passion, driven by innovation, and designed to make every creation easier.")
+                                                            .size(12.0)
+                                                            .italics()
+                                                            .color(p.text_muted),
+                                                    );
                                                 });
 
-                                            ui.add_space(8.0);
+                                            ui.add_space(10.0);
                                             ui.separator();
                                             ui.add_space(6.0);
 
