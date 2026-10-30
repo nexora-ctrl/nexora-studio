@@ -136,6 +136,16 @@ mod tests {
         assert_eq!(mode, ThemeMode::Light);
         mode.toggle();
         assert_eq!(mode, ThemeMode::Dark);
+
+        // Verify native feel: static labels are non-selectable across both themes
+        let ctx = egui::Context::default();
+        crate::ui::theme::apply_studio_theme(&ctx, ThemeMode::Dark);
+        assert!(!ctx.style().interaction.selectable_labels, "Labels must be non-selectable for native feel");
+        assert!(!ctx.style().interaction.multi_widget_text_select);
+
+        crate::ui::theme::apply_studio_theme(&ctx, ThemeMode::Light);
+        assert!(!ctx.style().interaction.selectable_labels, "Labels must be non-selectable in Light mode");
+        assert!(!ctx.style().interaction.multi_widget_text_select);
     }
 
     #[test]

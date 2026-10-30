@@ -100,6 +100,10 @@ pub fn apply_studio_theme(ctx: &egui::Context, mode: ThemeMode) {
     style.spacing.indent = 12.0;
     style.spacing.interact_size = egui::vec2(28.0, 22.0);
 
+    // Disable text selection on static labels so the app feels 100% native desktop (OBS/Win32)
+    style.interaction.selectable_labels = false;
+    style.interaction.multi_widget_text_select = false;
+
     let mut visuals = match mode {
         ThemeMode::Dark => Visuals::dark(),
         ThemeMode::Light => Visuals::light(),
