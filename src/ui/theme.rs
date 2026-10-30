@@ -93,10 +93,15 @@ pub fn apply_studio_theme(ctx: &egui::Context, mode: ThemeMode) {
         FontId::new(12.8, egui::FontFamily::Monospace),
     );
 
-    // Compact spacing for 1366x768 and 1920x1080 efficiency
+    // Spacing with comfortable window margins for clean modal breathing room
     style.spacing.item_spacing = egui::vec2(6.0, 5.0);
     style.spacing.button_padding = egui::vec2(7.0, 3.5);
-    style.spacing.window_margin = Margin::same(8);
+    style.spacing.window_margin = Margin {
+        left: 14,
+        right: 14,
+        top: 10,
+        bottom: 12,
+    };
     style.spacing.indent = 12.0;
     style.spacing.interact_size = egui::vec2(28.0, 22.0);
 
@@ -111,6 +116,12 @@ pub fn apply_studio_theme(ctx: &egui::Context, mode: ThemeMode) {
 
     visuals.panel_fill = p.bg_panel;
     visuals.window_fill = p.bg_panel;
+    visuals.window_highlight_topmost = true;
+    // Distinct subtle grayish background for modal window headers / title bars to signify draggable handle
+    visuals.widgets.open.weak_bg_fill = match mode {
+        ThemeMode::Dark => Color32::from_rgb(38, 42, 50),
+        ThemeMode::Light => Color32::from_rgb(228, 232, 238),
+    };
     visuals.extreme_bg_color = p.bg_canvas_well;
     visuals.faint_bg_color = p.bg_elevated;
     visuals.override_text_color = Some(p.text_primary);

@@ -172,6 +172,75 @@ pub fn block_window_body_drag(ui: &egui::Ui) {
     );
 }
 
+/// Paints a sleek red circular close button on the top-right of the modal title bar,
+/// replacing the plain default egui lines with a polished broadcast-grade window control.
+pub fn decorate_modal_window(
+    ctx: &egui::Context,
+    window_response: &egui::Response,
+    open: &mut bool,
+) {
+    let outer_rect = window_response.rect;
+    if outer_rect.width() <= 20.0 || outer_rect.height() <= 20.0 {
+        return;
+    }
+
+    let style = ctx.style();
+    let font_id = egui::TextStyle::Heading.resolve(&style);
+    let font_h = ctx.fonts(|f| f.row_height(&font_id));
+    let title_bar_h = font_h.max(style.spacing.interact_size.y)
+        + style.spacing.window_margin.top as f32
+        + style.spacing.window_margin.bottom as f32;
+    let stroke_w = style.visuals.window_stroke().width;
+    let inner_rect_max_x = outer_rect.right() - stroke_w;
+    let inner_rect_min_y = outer_rect.top() + stroke_w;
+    let btn_center = Pos2::new(
+        inner_rect_max_x - title_bar_h / 2.0,
+        inner_rect_min_y + title_bar_h / 2.0,
+    );
+
+    let interact_rect = egui::Rect::from_center_size(btn_center, egui::vec2(title_bar_h, title_bar_h));
+    let is_hovered = ctx.input(|i| i.pointer.hover_pos().map_or(false, |pos| interact_rect.contains(pos)));
+    if is_hovered {
+        ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
+        if ctx.input(|i| i.pointer.primary_clicked()) {
+            *open = false;
+        }
+    }
+
+    let painter = ctx.layer_painter(window_response.layer_id);
+
+    let radius = 7.5_f32;
+    let fill_color = if is_hovered {
+        egui::Color32::from_rgb(255, 92, 85)
+    } else {
+        egui::Color32::from_rgb(238, 77, 70)
+    };
+    let stroke_color = if is_hovered {
+        egui::Color32::from_rgb(225, 55, 48)
+    } else {
+        egui::Color32::from_rgb(205, 55, 50)
+    };
+
+    painter.circle(btn_center, radius, fill_color, Stroke::new(0.8_f32, stroke_color));
+
+    let x_size = 2.6_f32;
+    let x_stroke = Stroke::new(1.3_f32, egui::Color32::WHITE);
+    painter.line_segment(
+        [
+            btn_center + egui::vec2(-x_size, -x_size),
+            btn_center + egui::vec2(x_size, x_size),
+        ],
+        x_stroke,
+    );
+    painter.line_segment(
+        [
+            btn_center + egui::vec2(x_size, -x_size),
+            btn_center + egui::vec2(-x_size, x_size),
+        ],
+        x_stroke,
+    );
+}
+
 pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
     // Modal Backdrop / Scrim Shield: When any modal dialog is open, render a semi-transparent
     // backdrop across the viewport that intercepts all background clicks and drags so underlying
@@ -201,13 +270,15 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
         let mut cancel_triggered = false;
         let gpus = app.capture_catalog.gpus.clone();
 
-        egui::Window::new(format!("{} Preferences", icons::SETTINGS))
+        let win_resp = egui::Window::new(format!("{} Preferences", icons::SETTINGS))
             .id(egui::Id::new("nexora_preferences_modal_win"))
             .order(egui::Order::Foreground)
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
-            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .pivot(egui::Align2::CENTER_CENTER)
+            .default_pos(ctx.screen_rect().center())
+            .constrain(true)
             .fixed_size(Vec2::new(760.0, 485.0))
             .show(ctx, |ui| {
                 block_window_body_drag(ui);
@@ -1025,6 +1096,10 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                 });
             });
 
+        if let Some(ref r) = win_resp {
+            decorate_modal_window(ctx, &r.response, &mut open);
+        }
+
         if save_and_close {
             let _ = app.settings.save();
             apply_studio_theme(ctx, app.settings.theme);
@@ -1043,7 +1118,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
         let mut confirm_add = false;
         let mut cancel_add = false;
 
-        egui::Window::new(format!("{} Add Scene", icons::PLUS))
+        let win_resp = egui::Window::new(format!("{} Add Scene", icons::PLUS))
             .id(egui::Id::new("nexora_add_scene_modal_win"))
             .order(egui::Order::Foreground)
             .open(&mut open)
@@ -1051,7 +1126,9 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
             .resizable(false)
             .auto_sized()
             .default_width(320.0)
-            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .pivot(egui::Align2::CENTER_CENTER)
+            .default_pos(ctx.screen_rect().center())
+            .constrain(true)
             .show(ctx, |ui| {
                 block_window_body_drag(ui);
                 ui.add_space(4.0);
@@ -1101,6 +1178,10 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                 });
             });
 
+        if let Some(ref r) = win_resp {
+            decorate_modal_window(ctx, &r.response, &mut open);
+        }
+
         if confirm_add {
             let mut final_name = app.add_scene_name_buffer.trim().to_string();
             if final_name.is_empty() {
@@ -1117,7 +1198,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
     if app.show_rename_scene_dialog {
         let mut open = app.show_rename_scene_dialog;
         let p = ThemePalette::for_mode(app.settings.theme);
-        egui::Window::new("Rename Scene")
+        let win_resp = egui::Window::new("Rename Scene")
             .id(egui::Id::new("nexora_rename_scene_modal_win"))
             .order(egui::Order::Foreground)
             .open(&mut open)
@@ -1125,8 +1206,12 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
             .resizable(false)
             .auto_sized()
             .default_width(290.0)
+            .pivot(egui::Align2::CENTER_CENTER)
+            .default_pos(ctx.screen_rect().center())
+            .constrain(true)
             .show(ctx, |ui| {
                 block_window_body_drag(ui);
+                ui.add_space(4.0);
                 ui.label("Enter a new name for the active Preview scene:");
                 ui.text_edit_singleline(&mut app.rename_scene_buffer);
                 ui.add_space(6.0);
@@ -1157,6 +1242,11 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                     }
                 });
             });
+
+        if let Some(ref r) = win_resp {
+            decorate_modal_window(ctx, &r.response, &mut open);
+        }
+
         if !open {
             app.show_rename_scene_dialog = false;
         }
@@ -1166,7 +1256,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
     if app.show_rename_source_dialog {
         let mut open = app.show_rename_source_dialog;
         let p = ThemePalette::for_mode(app.settings.theme);
-        egui::Window::new("Rename Source")
+        let win_resp = egui::Window::new("Rename Source")
             .id(egui::Id::new("nexora_rename_source_modal_win"))
             .order(egui::Order::Foreground)
             .open(&mut open)
@@ -1174,8 +1264,12 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
             .resizable(false)
             .auto_sized()
             .default_width(290.0)
+            .pivot(egui::Align2::CENTER_CENTER)
+            .default_pos(ctx.screen_rect().center())
+            .constrain(true)
             .show(ctx, |ui| {
                 block_window_body_drag(ui);
+                ui.add_space(4.0);
                 ui.label("Enter a new name for the selected Source:");
                 ui.text_edit_singleline(&mut app.rename_source_buffer);
                 ui.add_space(6.0);
@@ -1209,6 +1303,11 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                     }
                 });
             });
+
+        if let Some(ref r) = win_resp {
+            decorate_modal_window(ctx, &r.response, &mut open);
+        }
+
         if !open {
             app.show_rename_source_dialog = false;
         }
@@ -1245,13 +1344,15 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
             )
         };
 
-        egui::Window::new(title)
+        let win_resp = egui::Window::new(title)
             .id(window_id)
             .order(egui::Order::Foreground)
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
-            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .pivot(egui::Align2::CENTER_CENTER)
+            .default_pos(ctx.screen_rect().center())
+            .constrain(true)
             .default_width(515.0)
             .max_width(515.0)
             .auto_sized()
@@ -2863,6 +2964,10 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                 }
             });
 
+        if let Some(ref r) = win_resp {
+            decorate_modal_window(ctx, &r.response, &mut open);
+        }
+
         if open_slideshow_manager {
             app.show_slideshow_manager_dialog = true;
         }
@@ -2912,7 +3017,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
             })
             .collect();
 
-        egui::Window::new(format!("{} Manage Slide Show Images", icons::PHOTO))
+        let win_resp = egui::Window::new(format!("{} Manage Slide Show Images", icons::PHOTO))
             .id(egui::Id::new("nexora_slideshow_manager_modal_win"))
             .order(egui::Order::Foreground)
             .open(&mut open)
@@ -2921,8 +3026,12 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
             .auto_sized()
             .default_width(530.0)
             .max_width(530.0)
+            .pivot(egui::Align2::CENTER_CENTER)
+            .default_pos(ctx.screen_rect().center())
+            .constrain(true)
             .show(ctx, |ui| {
                 block_window_body_drag(ui);
+                ui.add_space(4.0);
                 ui.set_width(510.0);
                 ui.set_max_width(510.0);
 
@@ -3246,6 +3355,10 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                 }
             });
 
+        if let Some(ref r) = win_resp {
+            decorate_modal_window(ctx, &r.response, &mut open);
+        }
+
         if manager_changed {
             app.studio.sync_if_linked();
             app.save_all_state();
@@ -3269,7 +3382,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
             .map(|s| s.name.clone())
             .unwrap_or_else(|| "Source".to_string());
 
-        egui::Window::new(format!("{} Filters for '{}'", icons::FILTER, src_name))
+        let win_resp = egui::Window::new(format!("{} Filters for '{}'", icons::FILTER, src_name))
             .id(egui::Id::new("nexora_source_filters_modal_win"))
             .order(egui::Order::Foreground)
             .open(&mut open)
@@ -3278,8 +3391,12 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
             .auto_sized()
             .default_width(510.0)
             .max_width(510.0)
+            .pivot(egui::Align2::CENTER_CENTER)
+            .default_pos(ctx.screen_rect().center())
+            .constrain(true)
             .show(ctx, |ui| {
                 block_window_body_drag(ui);
+                ui.add_space(4.0);
                 const FLT_FIELD_W: f32 = 270.0;
                 ui.set_width(490.0);
                 ui.set_max_width(490.0);
@@ -3551,6 +3668,10 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                 }
             });
 
+        if let Some(ref r) = win_resp {
+            decorate_modal_window(ctx, &r.response, &mut open);
+        }
+
         if filters_changed {
             app.studio.sync_if_linked();
             app.save_all_state();
@@ -3566,7 +3687,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
         let mut save_triggered = false;
         let mut cancel_triggered = false;
 
-        egui::Window::new(format!(
+        let win_resp = egui::Window::new(format!(
             "{} Save Screen & Layout Preset",
             icons::DEVICE_FLOPPY
         ))
@@ -3577,8 +3698,12 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
         .resizable(false)
         .auto_sized()
         .default_width(360.0)
+        .pivot(egui::Align2::CENTER_CENTER)
+        .default_pos(ctx.screen_rect().center())
+        .constrain(true)
         .show(ctx, |ui| {
             block_window_body_drag(ui);
+            ui.add_space(4.0);
             ui.label(
                 "Save your current Screen, Camera PiP positions, Scenes, Audio Mixer, and Dock Layout as a reusable preset:",
             );
@@ -3600,6 +3725,10 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                 }
             });
         });
+
+        if let Some(ref r) = win_resp {
+            decorate_modal_window(ctx, &r.response, &mut open);
+        }
 
         if save_triggered {
             let preset_name = app.save_layout_name_buffer.trim().to_string();
@@ -3818,7 +3947,7 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
     let mut open = app.show_add_source_dialog;
     let p = ThemePalette::for_mode(app.settings.theme);
 
-    egui::Window::new(format!("{} Add Source", icons::PLUS))
+    let win_resp = egui::Window::new(format!("{} Add Source", icons::PLUS))
         .id(egui::Id::new("nexora_add_source_modal_win"))
         .order(egui::Order::Foreground)
         .open(&mut open)
@@ -3827,8 +3956,12 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
         .auto_sized()
         .default_width(650.0)
         .max_width(650.0)
+        .pivot(egui::Align2::CENTER_CENTER)
+        .default_pos(ctx.screen_rect().center())
+        .constrain(true)
         .show(ctx, |ui| {
             block_window_body_drag(ui);
+            ui.add_space(4.0);
             ui.set_width(630.0);
             ui.set_max_width(630.0);
 
@@ -4216,6 +4349,10 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                 app.add_source_error_message = None;
             }
         });
+
+    if let Some(ref r) = win_resp {
+        decorate_modal_window(ctx, &r.response, &mut open);
+    }
 
     if !open {
         app.show_add_source_dialog = false;
@@ -4698,14 +4835,16 @@ pub fn render_virtual_camera_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
     let p = ThemePalette::for_mode(app.settings.theme);
     let mut is_open = app.show_virtual_camera_dialog;
 
-    egui::Window::new(format!("{} Virtual Camera", icons::CAMERA))
+    let win_resp = egui::Window::new(format!("{} Virtual Camera", icons::CAMERA))
         .id(egui::Id::new("nexora_vcam_modal_win_v2"))
         .order(egui::Order::Foreground)
         .open(&mut is_open)
         .collapsible(false)
         .resizable(false)
         .auto_sized()
-        .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+        .pivot(egui::Align2::CENTER_CENTER)
+        .default_pos(ctx.screen_rect().center())
+        .constrain(true)
         .default_width(300.0)
         .max_width(310.0)
         .max_height(210.0)
@@ -4806,6 +4945,10 @@ pub fn render_virtual_camera_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                 }
             });
         });
+
+    if let Some(ref r) = win_resp {
+        decorate_modal_window(ctx, &r.response, &mut is_open);
+    }
 
     if !is_open {
         app.show_virtual_camera_dialog = false;
