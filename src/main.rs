@@ -246,6 +246,16 @@ mod tests {
             )
         });
         assert_eq!(galley.rect.width(), 11.0);
+
+        // Verify Roboto Mono renders monospace numbers cleanly
+        let mono_galley = ctx.fonts(|f| {
+            f.layout_no_wrap(
+                "0123456789:".to_owned(),
+                egui::FontId::monospace(14.0),
+                egui::Color32::WHITE,
+            )
+        });
+        assert!(mono_galley.rect.width() > 0.0);
     }
 
     #[test]

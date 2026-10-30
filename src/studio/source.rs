@@ -141,7 +141,7 @@ pub enum TimeFontFamily {
 impl TimeFontFamily {
     pub fn label(&self) -> &'static str {
         match self {
-            Self::Monospace => "Monospace Digital (Angka Sejajar - Rekomendasi)",
+            Self::Monospace => "Roboto Mono (Angka Sejajar - Rekomendasi)",
             Self::Proportional => "Modern Sans-Serif (Proportional)",
             Self::Serif => "Serif Klasik (Formal)",
         }

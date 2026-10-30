@@ -140,6 +140,20 @@ pub fn install_tabler_icons(ctx: &egui::Context) {
         Arc::new(FontData::from_static(EXO_MEDIUM_TTF)),
     );
 
+    // 4. Monospace Font: Roboto Mono (Google Fonts OFL), embedded offline
+    fonts.font_data.insert(
+        ROBOTO_MONO_REGULAR_NAME.to_owned(),
+        Arc::new(FontData::from_static(ROBOTO_MONO_REGULAR_TTF)),
+    );
+    fonts.font_data.insert(
+        ROBOTO_MONO_MEDIUM_NAME.to_owned(),
+        Arc::new(FontData::from_static(ROBOTO_MONO_MEDIUM_TTF)),
+    );
+    fonts.font_data.insert(
+        ROBOTO_MONO_BOLD_NAME.to_owned(),
+        Arc::new(FontData::from_static(ROBOTO_MONO_BOLD_TTF)),
+    );
+
     let default_fallbacks = vec![
         "tabler-icons".to_owned(),
         "emoji-icon-font".to_owned(),
@@ -155,6 +169,9 @@ pub fn install_tabler_icons(ctx: &egui::Context) {
         family.push("tabler-icons".to_owned());
     }
     if let Some(family) = fonts.families.get_mut(&FontFamily::Monospace) {
+        family.insert(0, ROBOTO_MONO_REGULAR_NAME.to_owned());
+        family.push(ROBOTO_MONO_MEDIUM_NAME.to_owned());
+        family.push(ROBOTO_MONO_BOLD_NAME.to_owned());
         family.push("tabler-icons".to_owned());
     }
 
@@ -185,6 +202,18 @@ pub fn install_tabler_icons(ctx: &egui::Context) {
         FontFamily::Name(BRAND_FONT_NAME.into()),
         make_family_list(BRAND_FONT_NAME),
     );
+    fonts.families.insert(
+        FontFamily::Name(ROBOTO_MONO_REGULAR_NAME.into()),
+        make_family_list(ROBOTO_MONO_REGULAR_NAME),
+    );
+    fonts.families.insert(
+        FontFamily::Name(ROBOTO_MONO_MEDIUM_NAME.into()),
+        make_family_list(ROBOTO_MONO_MEDIUM_NAME),
+    );
+    fonts.families.insert(
+        FontFamily::Name(ROBOTO_MONO_BOLD_NAME.into()),
+        make_family_list(ROBOTO_MONO_BOLD_NAME),
+    );
 
     ctx.set_fonts(fonts);
 }
@@ -201,11 +230,26 @@ const RUBIK_SEMIBOLD_TTF: &[u8] = include_bytes!("../../assets/fonts/Rubik-SemiB
 /// Exo Medium (wght 500) — SIL Open Font License, see `assets/fonts/Exo-OFL.txt`
 const EXO_MEDIUM_TTF: &[u8] = include_bytes!("../../assets/fonts/Exo-Medium.ttf");
 
+/// Roboto Mono Regular (weight 400) — SIL Open Font License, see `assets/fonts/RobotoMono-OFL.txt`
+const ROBOTO_MONO_REGULAR_TTF: &[u8] = include_bytes!("../../assets/fonts/RobotoMono-Regular.ttf");
+/// Roboto Mono Medium (weight 500) — SIL Open Font License
+const ROBOTO_MONO_MEDIUM_TTF: &[u8] = include_bytes!("../../assets/fonts/RobotoMono-Medium.ttf");
+/// Roboto Mono Bold (weight 700) — SIL Open Font License
+const ROBOTO_MONO_BOLD_TTF: &[u8] = include_bytes!("../../assets/fonts/RobotoMono-Bold.ttf");
+
 pub const RUBIK_LIGHT_NAME: &str = "rubik-light";
 pub const RUBIK_REGULAR_NAME: &str = "rubik-regular";
 pub const RUBIK_MEDIUM_NAME: &str = "rubik-medium";
 pub const RUBIK_SEMIBOLD_NAME: &str = "rubik-semibold";
 pub const BRAND_FONT_NAME: &str = "exo-medium";
+pub const ROBOTO_MONO_REGULAR_NAME: &str = "roboto-mono-regular";
+pub const ROBOTO_MONO_MEDIUM_NAME: &str = "roboto-mono-medium";
+pub const ROBOTO_MONO_BOLD_NAME: &str = "roboto-mono-bold";
+
+/// Font family handle for Roboto Mono (Clean, modern monospace for code, metrics, and clocks)
+pub fn roboto_mono_family() -> FontFamily {
+    FontFamily::Name(ROBOTO_MONO_REGULAR_NAME.into())
+}
 
 /// Font family handle for the brand title (Exo 500, works fully offline)
 pub fn brand_font_family() -> FontFamily {

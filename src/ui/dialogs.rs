@@ -863,7 +863,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                     ui.end_row();
 
                                                     ui.label("Tipografi Antarmuka:");
-                                                    ui.label("Rubik Light & Regular + Exo Medium (Offline OFL)");
+                                                    ui.label("Rubik + Exo Medium + Roboto Mono (Offline OFL)");
                                                     ui.end_row();
 
                                                     ui.label("Sistem Ikon:");
