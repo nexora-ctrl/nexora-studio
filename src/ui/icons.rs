@@ -411,6 +411,10 @@ pub const DOWNLOAD: &str = "\u{ea96}";
 pub const CLOUD_DOWNLOAD: &str = "\u{ea71}";
 /// `ti-brand-github` — GitHub Logo
 pub const BRAND_GITHUB: &str = "\u{ec1c}";
+/// `ti-heart` — Heart / Support / Donate Icon
+pub const HEART: &str = "\u{eabe}";
+/// `ti-heart-filled` — Heart Filled Icon
+pub const HEART_FILLED: &str = "\u{f67c}";
 
 
 

@@ -208,10 +208,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-            .default_width(670.0)
-            .max_width(670.0)
-            .auto_sized()
-            .default_height(420.0)
+            .fixed_size(Vec2::new(670.0, 455.0))
             .show(ctx, |ui| {
                 block_window_body_drag(ui);
                 let p = ThemePalette::for_mode(app.settings.theme);
@@ -222,7 +219,9 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                 const FIELD_H: f32 = 24.0;
 
                 ui.set_width(645.0);
+                ui.set_min_width(645.0);
                 ui.set_max_width(645.0);
+                ui.set_height(BODY_H + 45.0);
 
                 // Two-Column Body: Categories on left, Category Content Options on right
                 ui.horizontal(|ui| {
@@ -597,11 +596,6 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                                     .small()
                                                                     .color(p.text_secondary),
                                                             );
-                                                            ui.label(
-                                                                RichText::new(format!("Kanal Pembaruan: GitHub ({})", crate::platform::updater::GITHUB_REPO))
-                                                                    .small()
-                                                                    .color(p.text_muted),
-                                                            );
                                                         });
                                                     });
                                                 });
@@ -879,6 +873,43 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                     ui.label("Keamanan & Privasi:");
                                                     ui.label(RichText::new("100% Offline Lokal — Tanpa Cloud, Streaming, atau Login").color(p.meter_ok).strong());
                                                     ui.end_row();
+                                                });
+
+                                            ui.add_space(8.0);
+                                            ui.separator();
+                                            ui.add_space(6.0);
+
+                                            // Saweria Developer Support Card
+                                            ui.label(RichText::new("DUKUNGAN & DONASI DEVELOPER").small().strong().color(p.text_muted));
+                                            ui.add_space(4.0);
+
+                                            egui::Frame::new()
+                                                .fill(p.bg_canvas_well)
+                                                .stroke(Stroke::new(1.0_f32, egui::Color32::from_rgb(225, 112, 85).gamma_multiply(0.4)))
+                                                .corner_radius(egui::CornerRadius::same(4))
+                                                .inner_margin(egui::Margin::symmetric(10, 8))
+                                                .show(ui, |ui| {
+                                                    ui.horizontal(|ui| {
+                                                        ui.label(RichText::new(icons::HEART).size(22.0).color(egui::Color32::from_rgb(225, 112, 85)));
+                                                        ui.add_space(4.0);
+                                                        ui.vertical(|ui| {
+                                                            ui.label(RichText::new("Dukung Pengembang NEXORA Studio").strong());
+                                                            ui.label(RichText::new("Donasi via Saweria untuk mendukung pengembangan aplikasi ini.").small().color(p.text_secondary));
+                                                        });
+                                                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                            let donate_btn = egui::Button::new(
+                                                                RichText::new(format!("{}  Dukung via Saweria", icons::HEART))
+                                                                    .strong()
+                                                                    .color(egui::Color32::WHITE),
+                                                            )
+                                                            .fill(egui::Color32::from_rgb(225, 112, 85))
+                                                            .min_size(Vec2::new(145.0, 28.0));
+
+                                                            if ui.add(donate_btn).clicked() {
+                                                                ui.ctx().open_url(egui::OpenUrl::new_tab("https://saweria.co/ilopejr"));
+                                                            }
+                                                        });
+                                                    });
                                                 });
                                         }
                                     }

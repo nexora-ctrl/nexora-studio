@@ -301,3 +301,4 @@ pub fn cleanup_old_executable_if_needed() {
         }
     }
 }
+
