@@ -424,7 +424,7 @@ fn render_single_viewport_card(
                             SourceKind::PdfSource { page_index, page_count, pages, .. } => {
                                 let total = if *page_count > 0 { *page_count } else { pages.len() };
                                 if total > 0 {
-                                    res = Some((*page_index, total, "Halaman"));
+                                    res = Some((*page_index, total, "Page"));
                                     break;
                                 }
                             }
@@ -448,7 +448,7 @@ fn render_single_viewport_card(
                                     SourceKind::PdfSource { page_index, page_count, pages, .. } => {
                                         let total = if *page_count > 0 { *page_count } else { pages.len() };
                                         if total > 0 {
-                                            res = Some((*page_index, total, "Halaman"));
+                                            res = Some((*page_index, total, "Page"));
                                             break;
                                         }
                                     }
@@ -1608,7 +1608,7 @@ pub(crate) fn render_scene_thumbnail(
         thumb_painter.text(
             thumb_rect.center(),
             Align2::CENTER_CENTER,
-            "(Kosong)",
+            "(Empty)",
             FontId::proportional(10.0),
             Color32::from_rgb(120, 130, 145),
         );

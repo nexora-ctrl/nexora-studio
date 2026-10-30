@@ -142,7 +142,7 @@ pub fn check_for_updates_async(state: Arc<Mutex<UpdaterState>>, ctx: egui::Conte
                                     tag_name: format!("v{}", ver),
                                     name: Some(format!("NEXORA Studio v{}", ver)),
                                     html_url: format!("https://github.com/{}/tree/main", GITHUB_REPO),
-                                    body: Some("Pembaruan terdeteksi langsung dari branch utama repositori GitHub.".to_string()),
+                                    body: Some("Update detected directly from GitHub repository main branch.".to_string()),
                                     assets: Vec::new(),
                                 });
                                 break;
@@ -177,7 +177,7 @@ pub fn check_for_updates_async(state: Arc<Mutex<UpdaterState>>, ctx: egui::Conte
                         release_title: rel.name.unwrap_or_else(|| rel.tag_name.clone()),
                         release_url: rel.html_url,
                         download_url,
-                        release_notes: rel.body.unwrap_or_else(|| "Pembaruan performa dan stabilitas sistem.".to_string()),
+                        release_notes: rel.body.unwrap_or_else(|| "Performance and stability updates.".to_string()),
                         file_size_bytes,
                     };
                 } else {
@@ -189,7 +189,7 @@ pub fn check_for_updates_async(state: Arc<Mutex<UpdaterState>>, ctx: egui::Conte
             }
             None => {
                 st.status = UpdateStatus::Failed {
-                    error: "Tidak dapat menghubungi server GitHub. Periksa koneksi internet Anda atau coba beberapa saat lagi.".to_string(),
+                    error: "Unable to reach GitHub server. Please check your internet connection or try again later.".to_string(),
                 };
             }
         }
@@ -239,24 +239,24 @@ pub fn start_download_async(
                         };
                     } else {
                         st.status = UpdateStatus::Failed {
-                            error: "Ukuran file binary yang diunduh tidak valid.".to_string(),
+                            error: "Downloaded binary file size is invalid.".to_string(),
                         };
                     }
                 } else {
                     st.status = UpdateStatus::Failed {
-                        error: "Gagal membaca file hasil unduhan.".to_string(),
+                        error: "Failed to read downloaded update file.".to_string(),
                     };
                 }
             }
             Ok(out) => {
                 let err_msg = String::from_utf8_lossy(&out.stderr).to_string();
                 st.status = UpdateStatus::Failed {
-                    error: format!("Gagal mengunduh file update: {}", err_msg),
+                    error: format!("Failed to download update file: {}", err_msg),
                 };
             }
             Err(e) => {
                 st.status = UpdateStatus::Failed {
-                    error: format!("Gagal menjalankan downloader: {}", e),
+                    error: format!("Failed to launch downloader: {}", e),
                 };
             }
         }
@@ -267,7 +267,7 @@ pub fn start_download_async(
 /// Safely replaces the running executable on Windows using atomic rename,
 /// launches the newly updated executable, and exits the current process.
 pub fn apply_update_and_restart(new_binary_path: &Path) -> anyhow::Result<()> {
-    let current_exe = std::env::current_exe().context("Gagal mendeteksi path executable saat ini")?;
+    let current_exe = std::env::current_exe().context("Failed to detect current executable path")?;
     let old_exe = current_exe.with_extension("exe.old");
 
     // 1. Remove old backup file if it exists
@@ -276,17 +276,17 @@ pub fn apply_update_and_restart(new_binary_path: &Path) -> anyhow::Result<()> {
     }
 
     // 2. Windows allows renaming a currently running executable!
-    std::fs::rename(&current_exe, &old_exe).context("Gagal me-rename file executable aktif")?;
+    std::fs::rename(&current_exe, &old_exe).context("Failed to rename active executable")?;
 
     // 3. Move the downloaded new executable into place
     std::fs::copy(new_binary_path, &current_exe)
-        .context("Gagal memasang file executable baru")?;
+        .context("Failed to install new executable")?;
     let _ = std::fs::remove_file(new_binary_path);
 
     // 4. Launch the updated application
     Command::new(&current_exe)
         .spawn()
-        .context("Gagal me-restart aplikasi dengan versi baru")?;
+        .context("Failed to restart application with new version")?;
 
     // 5. Exit the current process cleanly
     std::process::exit(0);

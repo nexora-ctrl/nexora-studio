@@ -357,7 +357,7 @@ fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                         })
                         .min_size(Vec2::new(22.0, 20.0)),
                 )
-                .on_hover_text("Tampilan Grid (dengan Thumbnail Source)")
+                .on_hover_text("Grid View (with Source Thumbnails)")
                 .clicked()
             {
                 app.settings.scenes_view_mode = crate::settings::ScenesViewMode::Grid;
@@ -379,7 +379,7 @@ fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                         })
                         .min_size(Vec2::new(22.0, 20.0)),
                 )
-                .on_hover_text("Tampilan List (Daftar Baris)")
+                .on_hover_text("List View")
                 .clicked()
             {
                 app.settings.scenes_view_mode = crate::settings::ScenesViewMode::List;
@@ -1151,7 +1151,7 @@ fn populate_add_source_menu(ui: &mut egui::Ui, action_out: &mut Option<SourceCon
     ui.label(RichText::new("Add Source").small().strong());
     ui.separator();
 
-    if ui.button(format!("{}  Buka Dialog Add Source Lengkap...", icons::PLUS)).clicked() {
+    if ui.button(format!("{}  Open Full Add Source Dialog...", icons::PLUS)).clicked() {
         *action_out = Some(SourceContextAction::OpenAddSourceDialog(crate::studio::source::AddSourceType::DisplayCapture));
         ui.close_menu();
     }
@@ -1190,7 +1190,7 @@ fn populate_add_source_menu(ui: &mut egui::Ui, action_out: &mut Option<SourceCon
         ),
         (
             icons::CLOCK,
-            "Waktu / Jam & Timer",
+            "Clock & Timer",
             SourceContextAction::OpenAddSourceDialog(crate::studio::source::AddSourceType::TimeSource),
         ),
         (
@@ -1375,7 +1375,7 @@ fn populate_source_context_menu(
         ui.separator();
         if ui
             .button(format!("{}  Configure Filters...", icons::ADJUSTMENTS))
-            .on_hover_text("Buka jendela pengaturan intensitas, warna target, dan kehalusan filter")
+            .on_hover_text("Open filter settings window for keying, target color, and smoothness")
             .clicked()
         {
             *action_out = Some(SourceContextAction::OpenFilters(src_id));
@@ -1522,7 +1522,7 @@ fn populate_source_context_menu(
 
     if ui
         .button(format!("{}  Duplicate", icons::COPY))
-        .on_hover_text("Duplikasi layer ini langsung di scene aktif")
+        .on_hover_text("Duplicate this layer in active scene")
         .clicked()
     {
         *action_out = Some(SourceContextAction::Duplicate(src_id));
@@ -1915,7 +1915,7 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                         let total = if *page_count > 0 { *page_count } else { pages.len() };
                         if total > 0 {
                             // In right_to_left layout, render Next first so on screen [ <- ] is left and [ -> ] is right
-                            let tip_next = format!("Halaman Selanjutnya (Saat ini: {}/{})", *page_index + 1, total);
+                            let tip_next = format!("Next Page (Current: {}/{})", *page_index + 1, total);
                             if paint_icon_action_btn(
                                 &mut btn_ui,
                                 icons::ARROW_RIGHT,
@@ -1926,7 +1926,7 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                                 pending_slide_target = Some((src.id, 1));
                             }
 
-                            let tip_prev = format!("Halaman Sebelumnya (Saat ini: {}/{})", *page_index + 1, total);
+                            let tip_prev = format!("Previous Page (Current: {}/{})", *page_index + 1, total);
                             if paint_icon_action_btn(
                                 &mut btn_ui,
                                 icons::ARROW_LEFT,
@@ -1949,7 +1949,7 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                         let total = if *slide_count > 0 { *slide_count } else { slides.len() };
                         if total > 0 {
                             // In right_to_left layout, render Next first so on screen [ <- ] is left and [ -> ] is right
-                            let tip_next = format!("Slide Selanjutnya (Saat ini: {}/{})", *slide_index + 1, total);
+                            let tip_next = format!("Next Slide (Current: {}/{})", *slide_index + 1, total);
                             if paint_icon_action_btn(
                                 &mut btn_ui,
                                 icons::ARROW_RIGHT,
@@ -1960,7 +1960,7 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                                 pending_slide_target = Some((src.id, 1));
                             }
 
-                            let tip_prev = format!("Slide Sebelumnya (Saat ini: {}/{})", *slide_index + 1, total);
+                            let tip_prev = format!("Previous Slide (Current: {}/{})", *slide_index + 1, total);
                             if paint_icon_action_btn(
                                 &mut btn_ui,
                                 icons::ARROW_LEFT,
@@ -1982,9 +1982,9 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                     {
                         if *mode != crate::studio::source::TimeSourceMode::RealTimeClock {
                             let (play_ic, play_tip) = if *is_running {
-                                (icons::PLAYER_PAUSE, "Jeda / Pause Timer")
+                                (icons::PLAYER_PAUSE, "Pause Timer")
                             } else {
-                                (icons::PLAYER_PLAY, "Mulai / Lanjutkan Timer")
+                                (icons::PLAYER_PLAY, "Start / Resume Timer")
                             };
                             if paint_icon_action_btn(
                                 &mut btn_ui,
@@ -2002,7 +2002,7 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                                 icons::REFRESH,
                                 None,
                                 &p,
-                                "Reset Timer ke 00:00",
+                                "Reset Timer to 00:00",
                             ) {
                                 *elapsed_sec = 0.0;
                                 vis_changed = true;
@@ -2067,7 +2067,7 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
             )
             .min_size(Vec2::new(96.0, 24.0))
         )
-        .on_hover_text("Add Source: Buka dialog penambahan layer source lengkap");
+        .on_hover_text("Add Source: Open complete layer addition dialog");
         if add_btn.clicked() {
             pending_action = Some(SourceContextAction::OpenAddSourceDialog(crate::studio::source::AddSourceType::DisplayCapture));
         }
@@ -2080,7 +2080,7 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
         );
         add_menu_resp
             .response
-            .on_hover_text("Pilih jenis source langsung dari daftar menu pop-up");
+            .on_hover_text("Select source type directly from pop-up menu");
 
         if ui
             .add_enabled(
@@ -3291,9 +3291,9 @@ fn render_recording_controls_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size:
             .min_size(Vec2::new(body_size.x, 26.0));
 
             let vcam_resp = ui.add(vcam_btn).on_hover_text(if vcam_active {
-                "Hentikan output Virtual Camera (Klik kanan untuk Pengaturan)"
+                "Stop Virtual Camera (Right-click for Settings)"
             } else {
-                "Mulai Virtual Camera (Klik kanan untuk Pengaturan)"
+                "Start Virtual Camera (Right-click for Settings)"
             });
 
             if vcam_resp.clicked() {
@@ -3370,7 +3370,7 @@ fn render_recording_controls_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size:
                 )
                 .min_size(Vec2::new(65.0, 24.0)),
             )
-            .on_hover_text("Pengaturan Virtual Camera (Output Type: Program, Preview, Scene)")
+            .on_hover_text("Virtual Camera Settings (Output Type: Program, Preview, Scene)")
             .clicked()
         {
             app.open_virtual_camera_dialog();

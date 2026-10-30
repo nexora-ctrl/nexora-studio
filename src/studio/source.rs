@@ -86,9 +86,9 @@ pub enum TimeSourceMode {
 impl TimeSourceMode {
     pub fn label(&self) -> &'static str {
         match self {
-            Self::RealTimeClock => "Waktu Sekarang (Jam Real-Time)",
-            Self::CountUpStopwatch => "Hitung Maju (Stopwatch / Count-Up)",
-            Self::CountdownTimer => "Hitung Mundur (Countdown Timer)",
+            Self::RealTimeClock => "Current Time (Real-Time Clock)",
+            Self::CountUpStopwatch => "Count-Up Stopwatch",
+            Self::CountdownTimer => "Countdown Timer",
         }
     }
 
@@ -115,7 +115,7 @@ impl TimeVisualEffect {
         match self {
             Self::DigitalNeon => "Digital LED / Neon Glow",
             Self::TvCornerBadge => "TV Broadcast Badge (Kapsul Siaran)",
-            Self::MinimalistClean => "Minimalis Bersih (Transparan)",
+            Self::MinimalistClean => "Clean Minimalist (Transparent)",
             Self::DarkGlassCard => "Dark Glassmorphism Card",
         }
     }
@@ -141,9 +141,9 @@ pub enum TimeFontFamily {
 impl TimeFontFamily {
     pub fn label(&self) -> &'static str {
         match self {
-            Self::Monospace => "Roboto Mono (Angka Sejajar - Rekomendasi)",
+            Self::Monospace => "Roboto Mono (Monospace - Recommended)",
             Self::Proportional => "Modern Sans-Serif (Proportional)",
-            Self::Serif => "Serif Klasik (Formal)",
+            Self::Serif => "Classic Serif (Formal)",
         }
     }
 
@@ -170,12 +170,12 @@ pub enum TimeBadgePosition {
 impl TimeBadgePosition {
     pub fn label(&self) -> &'static str {
         match self {
-            Self::TopLeft => "Kiri Atas (Top-Left)",
-            Self::TopCenter => "Tengah Atas (Top-Center)",
-            Self::TopRight => "Kanan Atas (Top-Right)",
-            Self::BottomLeft => "Kiri Bawah (Bottom-Left)",
-            Self::BottomCenter => "Tengah Bawah (Bottom-Center)",
-            Self::BottomRight => "Kanan Bawah (Bottom-Right)",
+            Self::TopLeft => "Top-Left",
+            Self::TopCenter => "Top-Center",
+            Self::TopRight => "Top-Right",
+            Self::BottomLeft => "Bottom-Left",
+            Self::BottomCenter => "Bottom-Center",
+            Self::BottomRight => "Bottom-Right",
         }
     }
 
@@ -208,10 +208,10 @@ impl TextAnimationEffect {
     pub fn label(&self) -> &'static str {
         match self {
             Self::Static => "Static (Diam)",
-            Self::ScrollLeft => "Running Text <- Ke Kiri (TV Ticker)",
-            Self::ScrollRight => "Running Text -> Ke Kanan",
-            Self::ScrollUp => "Scroll Ke Atas (Credits Roll)",
-            Self::BounceHorizontal => "Pantul Kiri <-> Kanan (Ping-Pong)",
+            Self::ScrollLeft => "Scrolling Text <- Left (TV Ticker)",
+            Self::ScrollRight => "Scrolling Text -> Right",
+            Self::ScrollUp => "Scroll Up (Credits Roll)",
+            Self::BounceHorizontal => "Bounce Left <-> Right (Ping-Pong)",
             Self::Typewriter => "Efek Ketik Berjalan (Typewriter)",
             Self::PulseGlow => "Berdenyut Halus (Pulse Live)",
             Self::FadeInOut => "Fade In / Out Berulang",
@@ -257,11 +257,11 @@ pub enum TvBannerStyle {
 impl TvBannerStyle {
     pub fn label(&self) -> &'static str {
         match self {
-            Self::PlainText => "Teks Polos (Tanpa Kotak Latar)",
+            Self::PlainText => "Plain Text (No Background Box)",
             Self::SolidBanner => "Banner Latar Solid (Ticker Strip)",
             Self::BreakingNewsTv => "TV Breaking News (Badge + Running Bar)",
             Self::LowerThirdCard => "TV Lower-Third (Kartu Nama / Acara)",
-            Self::HeadlineStrap => "TV Headline Strap (Garis Aksen Atas/Bawah)",
+            Self::HeadlineStrap => "TV Headline Strap (Accent Line Top/Bottom)",
             Self::CornerBugLive => "TV Corner Bug (Kapsul Pojok LIVE)",
         }
     }
@@ -305,12 +305,12 @@ pub enum TvTextTemplate {
 impl TvTextTemplate {
     pub fn label(&self) -> &'static str {
         match self {
-            Self::BreakingNewsTicker => "TV Breaking News Ticker (Bawah)",
+            Self::BreakingNewsTicker => "TV Breaking News Ticker (Bottom)",
             Self::InfoRunningMarquee => "TV Running Text Info (Marquee)",
-            Self::TalkshowLowerThird => "TV Talkshow Lower-Third (Kiri Bawah)",
+            Self::TalkshowLowerThird => "TV Talkshow Lower-Third (Bottom-Left)",
             Self::HeadlineBroadcastBanner => "TV Headline Strap (Judul Utama)",
-            Self::LiveCornerBug => "TV LIVE Corner Bug (Pojok Atas)",
-            Self::EndingCreditsRoll => "TV Ending Credits (Roll ke Atas)",
+            Self::LiveCornerBug => "TV LIVE Corner Bug (Top Corner)",
+            Self::EndingCreditsRoll => "TV Ending Credits (Roll Up)",
         }
     }
 
@@ -348,10 +348,10 @@ impl SlideTransitionEffect {
         match self {
             Self::Cut => "Cut (Berganti Instan)",
             Self::CrossFade => "Fade / Dissolve (Transisi Halus)",
-            Self::SlideLeft => "Geser ke Kiri (Slide Left)",
-            Self::SlideRight => "Geser ke Kanan (Slide Right)",
-            Self::SlideUp => "Geser ke Atas (Slide Up)",
-            Self::SlideDown => "Geser ke Bawah (Slide Down)",
+            Self::SlideLeft => "Slide Left",
+            Self::SlideRight => "Slide Right",
+            Self::SlideUp => "Slide Up",
+            Self::SlideDown => "Slide Down",
             Self::ZoomInKenBurns => "Zoom In Sinematik (Ken Burns)",
             Self::ZoomOut => "Zoom Out Reveal",
         }
@@ -654,7 +654,7 @@ impl SourceKind {
             Self::BrowserSource { .. } => "Browser",
             Self::PowerPointSource { .. } => "PowerPoint / PPT Source",
             Self::PdfSource { .. } => "PDF Document / Presentation",
-            Self::TimeSource { .. } => "Waktu / Jam & Timer",
+            Self::TimeSource { .. } => "Clock & Timer",
             Self::SceneSource { .. } => "Scene",
         }
     }
@@ -762,8 +762,8 @@ impl SourceKind {
                 effect,
                 ..
             } => match mode {
-                TimeSourceMode::RealTimeClock => format!("Jam Sekarang • {}", effect.label()),
-                TimeSourceMode::CountUpStopwatch => format!("Stopwatch Hitung Maju • {}", effect.label()),
+                TimeSourceMode::RealTimeClock => format!("Current Time • {}", effect.label()),
+                TimeSourceMode::CountUpStopwatch => format!("Count-Up Stopwatch • {}", effect.label()),
                 TimeSourceMode::CountdownTimer => {
                     let m = target_duration_sec / 60;
                     let s = target_duration_sec % 60;
@@ -820,7 +820,7 @@ impl AddSourceType {
             Self::ColorSource => "Color Source",
             Self::PowerPoint => "PowerPoint / PPT Source",
             Self::Pdf => "PDF Document / Presentation",
-            Self::TimeSource => "Waktu / Jam & Timer",
+            Self::TimeSource => "Clock & Timer",
             Self::BrowserSource => "Browser Source",
             Self::WebcamDevice => "Video Capture Device",
             Self::ImageSlideShow => "Image Slide Show",
@@ -829,18 +829,18 @@ impl AddSourceType {
 
     pub fn description(&self) -> &'static str {
         match self {
-            Self::DisplayCapture => "Menangkap seluruh tampilan layar monitor secara real-time.",
-            Self::WindowCapture => "Menangkap jendela aplikasi tertentu (Word, Chrome, Game, dll).",
+            Self::DisplayCapture => "Capture entire monitor screen display in real-time.",
+            Self::WindowCapture => "Capture specific application window (Word, Chrome, Game, etc.).",
             Self::Image => "Menambahkan gambar statis lokal (.png, .jpg, .jpeg, .webp, .bmp).",
-            Self::MediaSource => "Menambahkan file video atau audio musik lokal (.mp4, .mkv, .mov, .mp3).",
+            Self::MediaSource => "Add local video or music audio file (.mp4, .mkv, .mov, .mp3).",
             Self::TextGdiPlus => "Menambahkan teks kustom, animasi berjalan (running text), atau template TV Show.",
-            Self::ColorSource => "Menambahkan bidang warna solid sebagai latar belakang (solid background).",
-            Self::PowerPoint => "Menampilkan presentasi PowerPoint (memilih jendela slide show atau file presentasi).",
-            Self::Pdf => "Membuka dokumen atau presentasi PDF langsung fullscreen dengan navigasi halaman (Next/Prev, remote clicker, arrow keys).",
-            Self::TimeSource => "Menampilkan jam real-time, hitung mundur (countdown), atau hitung maju (stopwatch) dengan berbagai pilihan efek visual dan font.",
-            Self::BrowserSource => "Menampilkan halaman website / overlay browser melalui URL.",
-            Self::WebcamDevice => "Menangkap kamera webcam fisik (Integrated Camera, USB Cam).",
-            Self::ImageSlideShow => "Menampilkan tayangan slide multi-foto dengan transisi halus.",
+            Self::ColorSource => "Adds a solid color layer as a canvas background.",
+            Self::PowerPoint => "Display PowerPoint presentation (slide show window or presentation file).",
+            Self::Pdf => "Open PDF document or presentation in fullscreen with page navigation (Next/Prev, remote clicker, arrow keys).",
+            Self::TimeSource => "Display real-time clock, countdown timer, or count-up stopwatch with multiple visual effects and fonts.",
+            Self::BrowserSource => "Display website page / browser overlay via URL.",
+            Self::WebcamDevice => "Capture physical webcam camera (Integrated Camera, USB Cam).",
+            Self::ImageSlideShow => "Display multi-photo slide show with smooth transitions.",
         }
     }
 
@@ -871,7 +871,7 @@ impl AddSourceType {
             Self::ColorSource => "Color Source",
             Self::PowerPoint => "PowerPoint Slide Show",
             Self::Pdf => "PDF Document",
-            Self::TimeSource => "Waktu",
+            Self::TimeSource => "Clock & Timer",
             Self::BrowserSource => "Browser",
             Self::WebcamDevice => "Video Capture Device",
             Self::ImageSlideShow => "Image Slide Show",
@@ -1161,10 +1161,10 @@ pub enum KeyFilterKind {
 impl KeyFilterKind {
     pub fn label(&self) -> &'static str {
         match self {
-            Self::None => "None (Original / Tanpa Filter)",
+            Self::None => "None (Original / No Filter)",
             Self::ChromaKey => "Chroma Key (Green / Blue Screen)",
-            Self::ColorKey => "Color Key (Hapus Warna Tertentu)",
-            Self::LumaKey => "Luma Key (Hapus Gelap / Terang)",
+            Self::ColorKey => "Color Key (Remove Specific Color)",
+            Self::LumaKey => "Luma Key (Remove Dark / Light)",
         }
     }
 
@@ -1179,10 +1179,10 @@ impl KeyFilterKind {
 
     pub fn hover_explanation(&self) -> &'static str {
         match self {
-            Self::None => "Menampilkan gambar/video asli tanpa transparansi atau pemotongan warna latar.",
-            Self::ChromaKey => "Chroma Key: Menghapus latar belakang Green Screen atau Blue Screen secara halus.\n• Cocok untuk: Video presenter/webcam dengan kain hijau/biru, animasi transisi / subscribe green screen.\n• Dilengkapi: Fitur Spill Reduction untuk membersihkan sisa pantulan warna hijau di tepi rambut/badan objek.",
-            Self::ColorKey => "Color Key: Menghapus satu warna spesifik pilihan Anda menjadi transparan.\n• Cocok untuk: Logo, stiker, atau grafik overlay yang memiliki latar belakang satu warna solid (misal putih, merah, atau biru).\n• Fleksibel: Warna target dapat dipilih langsung menggunakan color picker.",
-            Self::LumaKey => "Luma Key: Menghapus bagian gambar/video berdasarkan tingkat kecerahan / gelap-terang (Luminance).\n• Cocok untuk: Menghilangkan background hitam pekat (seperti video efek api, partikel debu, kilatan cahaya, ledakan, atau logo berlatar hitam pekat tanpa green screen).\n• Juga dapat memotong area putih terang jika disesuaikan.",
+            Self::None => "Displays original image/video without transparency or background clipping.",
+            Self::ChromaKey => "Chroma Key: Smoothly removes Green Screen or Blue Screen backgrounds.\n• Best for: Presenter/webcam video with green/blue backdrop, animated transitions.\n• Features: Spill Reduction to clean up residual color reflections around edges.",
+            Self::ColorKey => "Color Key: Removes a specific solid color to transparency.\n• Best for: Logos, stickers, or graphic overlays with a solid color background.\n• Flexible: Target color can be sampled directly using screen eyedropper.",
+            Self::LumaKey => "Luma Key: Removes image/video areas based on luminance / brightness level.\n• Best for: Cutting out pitch-black backgrounds (such as fire effects, particles, dust, explosions, or black-background assets without green screen).\n• Also cuts bright white areas when adjusted.",
         }
     }
 
@@ -1350,7 +1350,7 @@ impl SourceItem {
                 self.transform.scale_y = 0.10;
                 self.transform.lock_aspect = false;
                 self.kind = SourceKind::TextGdiPlus {
-                    text: "SELAMAT DATANG DI NEXORA STUDIO LIVE • SIARAN BERKUALITAS TINGGI FULL HD 60 FPS • UPDATE INFORMASI TERKINI SETIAP SAAT".to_string(),
+                    text: "WELCOME TO NEXORA STUDIO LIVE • HIGH QUALITY FULL HD 60 FPS BROADCAST • REAL-TIME PRODUCTION WORKSPACE".to_string(),
                     font_size: 22.0,
                     color_rgba: [255, 255, 255, 255],
                     effect: TextAnimationEffect::ScrollLeft,
@@ -1373,7 +1373,7 @@ impl SourceItem {
                 self.transform.scale_y = 0.08;
                 self.transform.lock_aspect = false;
                 self.kind = SourceKind::TextGdiPlus {
-                    text: "Jangan lupa ikuti agenda acara hari ini • Hubungi redaksi untuk informasi lebih lanjut • Terima kasih telah menyaksikan".to_string(),
+                    text: "Stay tuned for today's live broadcast • Production powered by NEXORA Studio • Thank you for watching".to_string(),
                     font_size: 20.0,
                     color_rgba: [254, 240, 138, 255],
                     effect: TextAnimationEffect::ScrollLeft,
@@ -1465,7 +1465,7 @@ impl SourceItem {
                 self.transform.scale_y = 1.15;
                 self.transform.lock_aspect = false;
                 self.kind = SourceKind::TextGdiPlus {
-                    text: "TIM PRODUKSI NEXORA STUDIO\nEksekutif Produser: Studio Lead\nPengarah Acara: Broadcast Director\nEditor Visual: Creative Team\nTerima Kasih Atas Perhatian Anda".to_string(),
+                    text: "NEXORA STUDIO PRODUCTION TEAM\nExecutive Producer: Studio Lead\nBroadcast Director: Broadcast Director\nVisual Editor: Creative Team\nThank You For Watching".to_string(),
                     font_size: 24.0,
                     color_rgba: [255, 255, 255, 255],
                     effect: TextAnimationEffect::ScrollUp,

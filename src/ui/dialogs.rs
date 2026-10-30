@@ -404,15 +404,15 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
 
                                                     ui.label("Preview Helpers:");
                                                     ui.vertical(|ui| {
-                                                        ui.checkbox(&mut app.settings.show_safe_margins, "Tampilkan Safe Margin Guides (80% & 90%)");
-                                                        ui.checkbox(&mut app.settings.preview_fit_to_window, "Fit to Window (Otomatis skala kanvas)");
+                                                        ui.checkbox(&mut app.settings.show_safe_margins, "Show Safe Margin Guides (80% & 90%)");
+                                                        ui.checkbox(&mut app.settings.preview_fit_to_window, "Fit to Window (Auto Canvas Scale)");
                                                     });
                                                     ui.end_row();
                                                 });
                                         }
 
                                         SettingsCategory::VideoOutput => {
-                                            ui.label(RichText::new("RESOLUSI & ENKODING REKAMAN").small().strong().color(p.text_muted));
+                                            ui.label(RichText::new("RECORDING RESOLUTION & ENCODING").small().strong().color(p.text_muted));
                                             ui.add_space(4.0);
 
                                             egui::Grid::new("settings_video_grid")
@@ -450,7 +450,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                         let mut path_str = app.settings.output_directory.to_string_lossy().to_string();
                                                         ui.add_sized(
                                                             Vec2::new(FIELD_W, FIELD_H),
-                                                            standard_singleline_text(&mut path_str, "Folder rekaman..."),
+                                                            standard_singleline_text(&mut path_str, "Recordings folder..."),
                                                         );
                                                         app.settings.output_directory = PathBuf::from(path_str);
 
@@ -530,7 +530,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                         }
 
                                         SettingsCategory::AudioMixer => {
-                                            ui.label(RichText::new("SISTEM & PERANGKAT AUDIO").small().strong().color(p.text_muted));
+                                            ui.label(RichText::new("AUDIO SYSTEM & DEVICES").small().strong().color(p.text_muted));
                                             ui.add_space(4.0);
 
                                             egui::Grid::new("settings_audio_grid")
@@ -576,7 +576,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
 
 
                                         SettingsCategory::Update => {
-                                            ui.label(RichText::new("PEMBARUAN APLIKASI").small().strong().color(p.text_muted));
+                                            ui.label(RichText::new("APPLICATION UPDATE").small().strong().color(p.text_muted));
                                             ui.add_space(8.0);
 
                                             let updater_arc = app.updater.clone();
@@ -595,7 +595,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                 ui.label(RichText::new("NEXORA Studio Auto-Updater").heading().strong());
                                                 ui.add_space(2.0);
                                                 ui.label(
-                                                    RichText::new(format!("Versi Terpasang: v{} (Native 64-bit)", crate::platform::updater::CURRENT_VERSION))
+                                                    RichText::new(format!("Installed Version: v{} (Native 64-bit)", crate::platform::updater::CURRENT_VERSION))
                                                         .small()
                                                         .color(p.text_secondary),
                                                 );
@@ -619,7 +619,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                         }
                                                         ui.add_space(8.0);
                                                         ui.label(
-                                                            RichText::new("Klik untuk memeriksa ketersediaan versi rilis terbaru dari repositori GitHub.")
+                                                            RichText::new("Click to check for the latest release available on GitHub.")
                                                                 .small()
                                                                 .color(p.text_muted),
                                                         );
@@ -628,8 +628,8 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                     crate::platform::updater::UpdateStatus::Checking => {
                                                         ui.spinner();
                                                         ui.add_space(8.0);
-                                                        ui.label(RichText::new("Menghubungi server GitHub...").strong());
-                                                        ui.label(RichText::new("Memeriksa tag rilis dan repositori...").small().color(p.text_secondary));
+                                                        ui.label(RichText::new("Connecting to GitHub server...").strong());
+                                                        ui.label(RichText::new("Checking release tags and repository...").small().color(p.text_secondary));
                                                     }
 
                                                     crate::platform::updater::UpdateStatus::UpToDate { version, check_time } => {
@@ -651,9 +651,9 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                                             ui.label(RichText::new(icons::CIRCLE_CHECK).size(28.0).color(p.meter_ok));
                                                                             ui.add_space(8.0);
                                                                             ui.vertical(|ui| {
-                                                                                ui.label(RichText::new("Aplikasi Sudah Menggunakan Versi Terbaru").strong().color(p.meter_ok));
-                                                                                ui.label(RichText::new(format!("NEXORA Studio v{} adalah versi paling mutakhir.", version)).small());
-                                                                                ui.label(RichText::new(format!("Pengecekan terakhir pukul {} WIB", check_time)).small().color(p.text_muted));
+                                                                                ui.label(RichText::new("Application is Up to Date").strong().color(p.meter_ok));
+                                                                                ui.label(RichText::new(format!("NEXORA Studio v{} is the latest version.", version)).small());
+                                                                                ui.label(RichText::new(format!("Last checked at {}", check_time)).small().color(p.text_muted));
                                                                             });
                                                                         });
                                                                     });
@@ -669,7 +669,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                             egui::Layout::left_to_right(egui::Align::Center),
                                                             |ui| {
                                                                 let refresh_btn = egui::Button::new(
-                                                                    RichText::new(format!("{}  Periksa Ulang", icons::REFRESH)),
+                                                                    RichText::new(format!("{}  Check Again", icons::REFRESH)),
                                                                 )
                                                                 .min_size(Vec2::new(135.0, 30.0));
 
@@ -683,7 +683,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                                 ui.add_space(10.0);
 
                                                                 let github_btn = egui::Button::new(
-                                                                    RichText::new(format!("{}  Buka GitHub", icons::BRAND_GITHUB)),
+                                                                    RichText::new(format!("{}  Open GitHub", icons::BRAND_GITHUB)),
                                                                 )
                                                                 .min_size(Vec2::new(135.0, 30.0));
 
@@ -719,12 +719,12 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                                             ui.label(RichText::new(icons::CLOUD_DOWNLOAD).size(30.0).color(p.accent_primary));
                                                                             ui.add_space(8.0);
                                                                             ui.vertical(|ui| {
-                                                                                ui.label(RichText::new("Versi Baru Tersedia!").heading().strong().color(p.accent_primary));
-                                                                                ui.label(RichText::new(format!("Versi Saat Ini: v{}  ➜  Versi Baru: {}", current_version, latest_version)).strong());
-                                                                                ui.label(RichText::new(format!("Judul Rilis: {}", release_title)).small().color(p.text_secondary));
+                                                                                ui.label(RichText::new("New Version Available!").heading().strong().color(p.accent_primary));
+                                                                                ui.label(RichText::new(format!("Current Version: v{}  ➜  New Version: {}", current_version, latest_version)).strong());
+                                                                                ui.label(RichText::new(format!("Release Title: {}", release_title)).small().color(p.text_secondary));
                                                                                 if let Some(sz) = file_size_bytes {
                                                                                     let sz_mb = sz as f64 / (1024.0 * 1024.0);
-                                                                                    ui.label(RichText::new(format!("Ukuran Binary: {:.1} MB", sz_mb)).small().color(p.text_muted));
+                                                                                    ui.label(RichText::new(format!("Binary Size: {:.1} MB", sz_mb)).small().color(p.text_muted));
                                                                                 }
                                                                             });
                                                                         });
@@ -732,14 +732,14 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                                         ui.add_space(8.0);
                                                                         ui.separator();
                                                                         ui.add_space(4.0);
-                                                                        ui.label(RichText::new("Catatan Perubahan:").small().strong());
+                                                                        ui.label(RichText::new("Release Notes:").small().strong());
                                                                         ui.label(RichText::new(&release_notes).small().color(p.text_secondary));
 
                                                                         ui.add_space(10.0);
                                                                         ui.horizontal(|ui| {
                                                                             if let Some(ref dl_url) = download_url {
                                                                                 let dl_btn = egui::Button::new(
-                                                                                    RichText::new(format!("{}  Update Otomatis Sekarang", icons::DOWNLOAD))
+                                                                                    RichText::new(format!("{}  Auto-Update Now", icons::DOWNLOAD))
                                                                                         .strong()
                                                                                         .color(egui::Color32::WHITE),
                                                                                 )
@@ -757,7 +757,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                                             }
 
                                                                             let gh_btn = egui::Button::new(
-                                                                                RichText::new(format!("{}  Lihat di GitHub", icons::BRAND_GITHUB)),
+                                                                                RichText::new(format!("{}  View on GitHub", icons::BRAND_GITHUB)),
                                                                             )
                                                                             .min_size(Vec2::new(130.0, 32.0));
 
@@ -788,12 +788,12 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                                     .inner_margin(egui::Margin::symmetric(16, 14))
                                                                     .show(ui, |ui| {
                                                                         ui.set_width(CARD_W - 32.0);
-                                                                        ui.label(RichText::new(format!("Mengunduh Pembaruan {}...", latest_version)).strong());
+                                                                        ui.label(RichText::new(format!("Downloading Update {}...", latest_version)).strong());
                                                                         ui.add_space(6.0);
                                                                         ui.add(egui::ProgressBar::new(progress).show_percentage());
                                                                         ui.add_space(4.0);
                                                                         ui.label(
-                                                                            RichText::new("Sedang mengunduh file binary baru langsung dari GitHub. Mohon jangan menutup aplikasi...")
+                                                                            RichText::new("Downloading new binary directly from GitHub. Please do not close the application...")
                                                                                 .small()
                                                                                 .color(p.text_secondary),
                                                                         );
@@ -822,14 +822,14 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                                             ui.label(RichText::new(icons::CHECK).size(26.0).color(p.meter_ok));
                                                                             ui.add_space(6.0);
                                                                             ui.vertical(|ui| {
-                                                                                ui.label(RichText::new("Pembaruan Berhasil Diunduh!").heading().strong().color(p.meter_ok));
-                                                                                ui.label(RichText::new(format!("Versi {} siap dipasang ke sistem.", new_version)).small());
+                                                                                ui.label(RichText::new("Update Successfully Downloaded!").heading().strong().color(p.meter_ok));
+                                                                                ui.label(RichText::new(format!("Version {} is ready to install.", new_version)).small());
                                                                             });
                                                                         });
 
                                                                         ui.add_space(10.0);
                                                                         let restart_btn = egui::Button::new(
-                                                                            RichText::new(format!("{}  Restart Aplikasi Sekarang", icons::REFRESH))
+                                                                            RichText::new(format!("{}  Restart Application Now", icons::REFRESH))
                                                                                 .strong()
                                                                                 .color(egui::Color32::WHITE),
                                                                         )
@@ -838,7 +838,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
 
                                                                         if ui.add(restart_btn).clicked() {
                                                                             if let Err(e) = crate::platform::updater::apply_update_and_restart(downloaded_path) {
-                                                                                tracing::error!("Gagal menerapkan update: {}", e);
+                                                                                tracing::error!("Failed to apply update: {}", e);
                                                                             }
                                                                         }
                                                                     });
@@ -863,7 +863,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                                             ui.label(RichText::new(icons::ALERT_CIRCLE).size(22.0).color(p.meter_warn));
                                                                             ui.add_space(6.0);
                                                                             ui.vertical(|ui| {
-                                                                                ui.label(RichText::new("Pemberitahuan Pembaruan").strong().color(p.meter_warn));
+                                                                                ui.label(RichText::new("Update Notification").strong().color(p.meter_warn));
                                                                                 ui.label(RichText::new(error).small());
                                                                             });
                                                                         });
@@ -875,14 +875,14 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                                     Vec2::new(BTN_GROUP_W, 32.0),
                                                                     egui::Layout::left_to_right(egui::Align::Center),
                                                                     |ui| {
-                                                                        if ui.add(egui::Button::new(format!("{}  Coba Periksa Lagi", icons::REFRESH)).min_size(Vec2::new(145.0, 30.0))).clicked() {
+                                                                        if ui.add(egui::Button::new(format!("{}  Check Again", icons::REFRESH)).min_size(Vec2::new(145.0, 30.0))).clicked() {
                                                                             crate::platform::updater::check_for_updates_async(
                                                                                 app.updater.clone(),
                                                                                 ui.ctx().clone(),
                                                                             );
                                                                         }
                                                                         ui.add_space(10.0);
-                                                                        if ui.add(egui::Button::new(format!("{}  Buka GitHub Manual", icons::BRAND_GITHUB)).min_size(Vec2::new(155.0, 30.0))).clicked() {
+                                                                        if ui.add(egui::Button::new(format!("{}  Open GitHub Manually", icons::BRAND_GITHUB)).min_size(Vec2::new(155.0, 30.0))).clicked() {
                                                                             ui.ctx().open_url(egui::OpenUrl::new_tab(&repo_url));
                                                                         }
                                                                     },
@@ -895,7 +895,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                         }
 
                                         SettingsCategory::About => {
-                                            ui.label(RichText::new("TENTANG APLIKASI").small().strong().color(p.text_muted));
+                                            ui.label(RichText::new("ABOUT APPLICATION").small().strong().color(p.text_muted));
                                             ui.add_space(4.0);
 
                                             ui.horizontal(|ui| {
@@ -903,7 +903,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                 ui.add_space(6.0);
                                                 ui.vertical(|ui| {
                                                     ui.label(RichText::new("NEXORA Studio - Your Easy Studio").heading().strong());
-                                                    ui.label(RichText::new("Versi v0.3.0 (Native Windows 64-bit)").small().color(p.text_secondary));
+                                                    ui.label(RichText::new("Version v0.3.0 (Native Windows 64-bit)").small().color(p.text_secondary));
                                                 });
                                             });
 
@@ -950,7 +950,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                             ui.add_space(6.0);
 
                                             // Saweria Developer Support Card
-                                            ui.label(RichText::new("DUKUNGAN & DONASI DEVELOPER").small().strong().color(p.text_muted));
+                                            ui.label(RichText::new("DEVELOPER SUPPORT & DONATIONS").small().strong().color(p.text_muted));
                                             ui.add_space(4.0);
 
                                             egui::Frame::new()
@@ -962,17 +962,17 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                     ui.horizontal(|ui| {
                                                         ui.label(RichText::new(icons::HEART).size(20.0).color(egui::Color32::from_rgb(225, 112, 85)));
                                                         ui.add_space(4.0);
-                                                        ui.label(RichText::new("Dukung Pengembang NEXORA Studio").strong().size(13.0));
+                                                        ui.label(RichText::new("Support NEXORA Studio Developer").strong().size(13.0));
                                                     });
                                                     ui.add_space(3.0);
                                                     ui.label(
-                                                        RichText::new("Donasi sukarela melalui Saweria untuk membantu operasional & pembaruan fitur baru.")
+                                                        RichText::new("Voluntary donation via Saweria to support ongoing development and new features.")
                                                             .small()
                                                             .color(p.text_secondary),
                                                     );
                                                     ui.add_space(8.0);
                                                     let donate_btn = egui::Button::new(
-                                                        RichText::new(format!("{}  Dukung via Saweria", icons::HEART))
+                                                        RichText::new(format!("{}  Support via Saweria", icons::HEART))
                                                             .strong()
                                                             .size(12.5)
                                                             .color(egui::Color32::WHITE),
@@ -1055,9 +1055,9 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
             .show(ctx, |ui| {
                 block_window_body_drag(ui);
                 ui.add_space(4.0);
-                ui.label(RichText::new("Masukkan nama scene baru:").strong());
+                ui.label(RichText::new("Enter new scene name:").strong());
                 ui.label(
-                    RichText::new("Tekan OK untuk menggunakan nama default, atau ketik nama scene kustom.")
+                    RichText::new("Press OK to use default name, or enter a custom scene name.")
                         .size(11.0)
                         .color(ui.visuals().weak_text_color()),
                 );
@@ -1068,7 +1068,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
 
                 let text_resp = ui.add_sized(
                     Vec2::new(290.0, 24.0),
-                    standard_singleline_text(&mut app.add_scene_name_buffer, "Nama scene..."),
+                    standard_singleline_text(&mut app.add_scene_name_buffer, "Scene name..."),
                 );
 
                 if should_focus {
@@ -1093,7 +1093,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                         confirm_add = true;
                     }
                     if ui
-                        .add(egui::Button::new("Batal").min_size(Vec2::new(65.0, 24.0)))
+                        .add(egui::Button::new("Cancel").min_size(Vec2::new(65.0, 24.0)))
                         .clicked()
                     {
                         cancel_add = true;
@@ -1454,32 +1454,32 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                         });
                                     ui.end_row();
 
-                                    ui.label("Rounded Sisi (Sudut):");
+                                    ui.label("Corner Radius:");
                                     ui.horizontal(|ui| {
                                         any_changed |= ui.add(egui::Slider::new(corner_radius, 0.0..=160.0).suffix(" px")).changed();
-                                        if ui.small_button("0").on_hover_text("Persegi siku standar (0 px)").clicked() {
+                                        if ui.small_button("0").on_hover_text("Standard square (0 px)").clicked() {
                                             *corner_radius = 0.0;
                                             any_changed = true;
                                         }
-                                        if ui.small_button("16").on_hover_text("Rounded halus (16 px)").clicked() {
+                                        if ui.small_button("16").on_hover_text("Soft rounded (16 px)").clicked() {
                                             *corner_radius = 16.0;
                                             any_changed = true;
                                         }
-                                        if ui.small_button("32").on_hover_text("Rounded sedang (32 px)").clicked() {
+                                        if ui.small_button("32").on_hover_text("Medium rounded (32 px)").clicked() {
                                             *corner_radius = 32.0;
                                             any_changed = true;
                                         }
-                                        if ui.small_button("Circle").on_hover_text("Bulat penuh / Lingkaran").clicked() {
+                                        if ui.small_button("Circle").on_hover_text("Full circle / avatar").clicked() {
                                             *corner_radius = 999.0;
                                             any_changed = true;
                                         }
                                     });
                                     ui.end_row();
 
-                                    ui.label("Tebal Outline / Border:");
+                                    ui.label("Border Width:");
                                     ui.horizontal(|ui| {
                                         any_changed |= ui.add(egui::Slider::new(border_thickness, 0.0..=20.0).suffix(" px")).changed();
-                                        if ui.small_button("Off").on_hover_text("Tanpa outline / border (0 px)").clicked() {
+                                        if ui.small_button("Off").on_hover_text("No outline / border (0 px)").clicked() {
                                             *border_thickness = 0.0;
                                             any_changed = true;
                                         }
@@ -1499,19 +1499,19 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                     ui.end_row();
 
                                     if *border_thickness > 0.0 {
-                                        ui.label("Warna Outline / Border:");
+                                        ui.label("Border Color:");
                                         ui.horizontal(|ui| {
                                             any_changed |= ui.color_edit_button_srgba_unmultiplied(border_color_rgba).changed();
                                             let [r, g, b, _] = *border_color_rgba;
                                             ui.label(format!("#{:02X}{:02X}{:02X}", r, g, b));
 
                                             let color_presets: &[([u8; 4], &str)] = &[
-                                                ([255, 255, 255, 255], "Putih"),
+                                                ([255, 255, 255, 255], "White"),
                                                 ([0, 210, 255, 255], "Cyan"),
-                                                ([168, 85, 247, 255], "Ungu"),
-                                                ([239, 68, 68, 255], "Merah"),
-                                                ([34, 197, 94, 255], "Hijau"),
-                                                ([245, 158, 11, 255], "Emas"),
+                                                ([168, 85, 247, 255], "Purple"),
+                                                ([239, 68, 68, 255], "Red"),
+                                                ([34, 197, 94, 255], "Green"),
+                                                ([245, 158, 11, 255], "Gold"),
                                             ];
                                             for &(col, tip) in color_presets {
                                                 let btn_col = egui::Color32::from_rgb(col[0], col[1], col[2]);
@@ -1940,7 +1940,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                 } => {
                                     ui.label("TV Show Template:");
                                     egui::ComboBox::from_id_salt("prop_tv_text_template_combo")
-                                        .selected_text("Pilih Template TV Text Show (1-Klik)...")
+                                        .selected_text("Select TV Text Show Template (1-Click)...")
                                         .width(PROP_FIELD_W)
                                         .truncate()
                                         .show_ui(ui, |ui| {
@@ -2001,7 +2001,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                 .color_edit_button_srgba_unmultiplied(bg_color_rgba)
                                                 .changed();
                                             ui.label(
-                                                RichText::new("(Atur warna & transparansi bar TV)")
+                                                RichText::new("(Set TV bar color & opacity)")
                                                     .small(),
                                             );
                                         });
@@ -2054,7 +2054,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                             any_changed |= ui
                                                 .checkbox(
                                                     loop_animation,
-                                                    "Loop Berulang Tanpa Putus (Continuous Loop)",
+                                                    "Continuous Seamless Loop",
                                                 )
                                                 .changed();
                                             ui.horizontal(|ui| {
@@ -2282,7 +2282,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                     ui.end_row();
 
                                     if *slide_count > 0 {
-                                        ui.label("Slide Aktif:");
+                                        ui.label("Active Slide:");
                                         ui.horizontal(|ui| {
                                             let can_prev = *slide_index > 0;
                                             let can_next = *slide_index + 1 < *slide_count;
@@ -2290,7 +2290,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                 *slide_index = slide_index.saturating_sub(1);
                                                 any_changed = true;
                                             }
-                                            ui.label(RichText::new(format!("Slide {} dari {}", *slide_index + 1, slide_count)).strong());
+                                            ui.label(RichText::new(format!("Slide {} of {}", *slide_index + 1, slide_count)).strong());
                                             if ui.add_enabled(can_next, egui::Button::new(format!("Next {}", icons::ARROW_RIGHT)).min_size(Vec2::new(64.0, PROP_FIELD_H))).clicked() {
                                                 *slide_index = (*slide_index + 1).min(slide_count.saturating_sub(1));
                                                 any_changed = true;
@@ -2303,14 +2303,14 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                     let windows = app.capture_catalog.windows.clone();
                                     let current_hwnd = *window_hwnd;
                                     let current_title = windows.iter().find(|w| w.hwnd == current_hwnd).map(|w| w.title.as_str()).unwrap_or_else(|| {
-                                        if current_hwnd == 0 { "Deteksi Jendela Presentasi Otomatis" } else { "Jendela Tidak Ditemukan" }
+                                        if current_hwnd == 0 { "Auto-detect Presentation Window" } else { "Window Not Found" }
                                     });
                                     egui::ComboBox::from_id_salt("prop_ppt_win_combo")
                                         .selected_text(current_title)
                                         .width(PROP_FIELD_W)
                                         .truncate()
                                         .show_ui(ui, |ui| {
-                                            if ui.selectable_value(window_hwnd, 0, "Deteksi Jendela Presentasi Otomatis").clicked() {
+                                            if ui.selectable_value(window_hwnd, 0, "Auto-detect Presentation Window").clicked() {
                                                 any_changed = true;
                                             }
                                             for w in &windows {
@@ -2382,7 +2382,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                     ui.end_row();
 
                                     if *page_count > 0 {
-                                        ui.label("Halaman Aktif:");
+                                        ui.label("Active Page:");
                                         ui.horizontal(|ui| {
                                             let can_prev = *page_index > 0;
                                             let can_next = *page_index + 1 < *page_count;
@@ -2397,7 +2397,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                 *page_index = page_index.saturating_sub(1);
                                                 any_changed = true;
                                             }
-                                            ui.label(RichText::new(format!("Halaman {} dari {}", *page_index + 1, page_count)).strong());
+                                            ui.label(RichText::new(format!("Page {} of {}", *page_index + 1, page_count)).strong());
                                             if ui
                                                 .add_enabled(
                                                     can_next,
@@ -2446,7 +2446,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                     badge_offset_y,
                                     finish_text,
                                 } => {
-                                    ui.label("Mode Waktu:");
+                                    ui.label("Time Mode:");
                                     egui::ComboBox::from_id_salt("prop_time_mode")
                                         .selected_text(mode.label())
                                         .width(PROP_FIELD_W)
@@ -2457,12 +2457,12 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                         });
                                     ui.end_row();
 
-                                    ui.label("Kontrol Waktu:");
+                                    ui.label("Time Controls:");
                                     ui.horizontal(|ui| {
                                         let (run_icon, run_label) = if *is_running {
-                                            (icons::PLAYER_PAUSE, "Jeda")
+                                            (icons::PLAYER_PAUSE, "Pause")
                                         } else {
-                                            (icons::PLAYER_PLAY, "Mulai")
+                                            (icons::PLAYER_PLAY, "Start")
                                         };
                                         if ui.button(format!("{} {}", run_icon, run_label)).clicked() {
                                             *is_running = !*is_running;
@@ -2474,7 +2474,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                         }
 
                                         if *mode != TimeSourceMode::RealTimeClock {
-                                            if ui.button("-1m").on_hover_text("Mundurkan waktu 1 menit").clicked() {
+                                            if ui.button("-1m").on_hover_text("Rewind 1 minute").clicked() {
                                                 if *mode == TimeSourceMode::CountdownTimer {
                                                     *elapsed_sec = (*elapsed_sec + 60.0).min(*target_duration_sec as f32);
                                                 } else {
@@ -2482,7 +2482,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                 }
                                                 any_changed = true;
                                             }
-                                            if ui.button("+1m").on_hover_text("Majukan waktu 1 menit").clicked() {
+                                            if ui.button("+1m").on_hover_text("Advance 1 minute").clicked() {
                                                 if *mode == TimeSourceMode::CountdownTimer {
                                                     *elapsed_sec = (*elapsed_sec - 60.0).max(0.0);
                                                 } else {
@@ -2490,7 +2490,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                 }
                                                 any_changed = true;
                                             }
-                                            if ui.button("-10s").on_hover_text("Mundurkan 10 detik").clicked() {
+                                            if ui.button("-10s").on_hover_text("Rewind 10 seconds").clicked() {
                                                 if *mode == TimeSourceMode::CountdownTimer {
                                                     *elapsed_sec = (*elapsed_sec + 10.0).min(*target_duration_sec as f32);
                                                 } else {
@@ -2498,7 +2498,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                 }
                                                 any_changed = true;
                                             }
-                                            if ui.button("+10s").on_hover_text("Majukan 10 detik").clicked() {
+                                            if ui.button("+10s").on_hover_text("Advance 10 seconds").clicked() {
                                                 if *mode == TimeSourceMode::CountdownTimer {
                                                     *elapsed_sec = (*elapsed_sec - 10.0).max(0.0);
                                                 } else {
@@ -2511,18 +2511,18 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                     ui.end_row();
 
                                     if *mode == TimeSourceMode::CountdownTimer {
-                                        ui.label("Durasi Target:");
+                                        ui.label("Target Duration:");
                                         ui.horizontal(|ui| {
                                             let mut h = *target_duration_sec / 3600;
                                             let mut m = (*target_duration_sec % 3600) / 60;
                                             let mut s = *target_duration_sec % 60;
 
                                             let mut changed_dur = false;
-                                            ui.label("Jam:");
+                                            ui.label("Hr:");
                                             changed_dur |= ui.add(egui::DragValue::new(&mut h).range(0..=23)).changed();
-                                            ui.label("Mnt:");
+                                            ui.label("Min:");
                                             changed_dur |= ui.add(egui::DragValue::new(&mut m).range(0..=59)).changed();
-                                            ui.label("Dtk:");
+                                            ui.label("Sec:");
                                             changed_dur |= ui.add(egui::DragValue::new(&mut s).range(0..=59)).changed();
 
                                             if changed_dur {
@@ -2532,17 +2532,17 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                         });
                                         ui.end_row();
 
-                                        ui.label("Teks Waktu Habis:");
+                                        ui.label("Time-Up Text:");
                                         any_changed |= ui
                                             .add_sized(
                                                 Vec2::new(PROP_FIELD_W, PROP_FIELD_H),
-                                                standard_singleline_text(finish_text, "WAKTU HABIS! / SELESAI"),
+                                                standard_singleline_text(finish_text, "TIME'S UP! / FINISHED"),
                                             )
                                             .changed();
                                         ui.end_row();
                                     }
 
-                                    ui.label("Gaya Efek Visual:");
+                                    ui.label("Visual Effect Style:");
                                     egui::ComboBox::from_id_salt("prop_time_effect")
                                         .selected_text(effect.label())
                                         .width(PROP_FIELD_W)
@@ -2554,8 +2554,8 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                     ui.end_row();
 
                                     any_changed |= ui
-                                        .checkbox(show_badge, "Teks Badge (Label):")
-                                        .on_hover_text("Centang untuk mengaktifkan teks badge (label) di sudut")
+                                        .checkbox(show_badge, "Badge Text (Label):")
+                                        .on_hover_text("Check to enable corner badge text (label)")
                                         .changed();
                                     ui.add_enabled_ui(*show_badge, |ui| {
                                         any_changed |= ui
@@ -2568,17 +2568,17 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                     ui.end_row();
 
                                     if *show_badge {
-                                        ui.label("Ukuran Teks Badge:");
+                                        ui.label("Badge Font Size:");
                                         ui.horizontal(|ui| {
                                             any_changed |= ui.add(egui::Slider::new(badge_font_size, 8.0..=80.0).suffix(" px")).changed();
-                                            if ui.small_button("Reset").on_hover_text("Kembalikan ukuran font badge ke default 14px").clicked() {
+                                            if ui.small_button("Reset").on_hover_text("Reset badge font size to default 14px").clicked() {
                                                 *badge_font_size = 14.0;
                                                 any_changed = true;
                                             }
                                         });
                                         ui.end_row();
 
-                                        ui.label("Posisi / Anchor Badge:");
+                                        ui.label("Badge Position / Anchor:");
                                         egui::ComboBox::from_id_salt("prop_time_badge_pos")
                                             .selected_text(badge_position.label())
                                             .width(PROP_FIELD_W)
@@ -2589,20 +2589,20 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                             });
                                         ui.end_row();
 
-                                        ui.label("Geser Posisi X (Horisontal):");
+                                        ui.label("Offset X (Horizontal):");
                                         ui.horizontal(|ui| {
                                             any_changed |= ui.add(egui::Slider::new(badge_offset_x, -400.0..=400.0).suffix(" px")).changed();
-                                            if ui.small_button("0").on_hover_text("Reset pergeseran X ke 0").clicked() {
+                                            if ui.small_button("0").on_hover_text("Reset X offset to 0").clicked() {
                                                 *badge_offset_x = 0.0;
                                                 any_changed = true;
                                             }
                                         });
                                         ui.end_row();
 
-                                        ui.label("Geser Posisi Y (Vertikal):");
+                                        ui.label("Offset Y (Vertical):");
                                         ui.horizontal(|ui| {
                                             any_changed |= ui.add(egui::Slider::new(badge_offset_y, -250.0..=350.0).suffix(" px")).changed();
-                                            if ui.small_button("0").on_hover_text("Reset pergeseran Y ke 0").clicked() {
+                                            if ui.small_button("0").on_hover_text("Reset Y offset to 0").clicked() {
                                                 *badge_offset_y = 0.0;
                                                 any_changed = true;
                                             }
@@ -2610,7 +2610,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                         ui.end_row();
                                     }
 
-                                    ui.label("Jenis Font (Type):");
+                                    ui.label("Font Family:");
                                     egui::ComboBox::from_id_salt("prop_time_font_family")
                                         .selected_text(font_family.label())
                                         .width(PROP_FIELD_W)
@@ -2621,23 +2621,23 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                         });
                                     ui.end_row();
 
-                                    ui.label("Ukuran & Gaya Font:");
+                                    ui.label("Font Size & Style:");
                                     ui.horizontal(|ui| {
                                         any_changed |= ui.add(egui::Slider::new(font_size, 16.0..=140.0).suffix(" px")).changed();
-                                        any_changed |= ui.checkbox(bold_font, "Tebal (Bold)").changed();
+                                        any_changed |= ui.checkbox(bold_font, "Bold").changed();
                                     });
                                     ui.end_row();
 
-                                    ui.label("Format Waktu:");
+                                    ui.label("Time Format:");
                                     ui.horizontal(|ui| {
-                                        any_changed |= ui.checkbox(show_hours, "Tampilkan Jam").changed();
+                                        any_changed |= ui.checkbox(show_hours, "Show Hours").changed();
                                         if *mode == TimeSourceMode::RealTimeClock {
-                                            any_changed |= ui.checkbox(use_24h_format, "24 Jam").changed();
+                                            any_changed |= ui.checkbox(use_24h_format, "24-Hour").changed();
                                         }
                                     });
                                     ui.end_row();
 
-                                    ui.label("Warna Teks:");
+                                    ui.label("Text Color:");
                                     ui.horizontal(|ui| {
                                         any_changed |= ui.color_edit_button_srgba_unmultiplied(text_color_rgba).changed();
                                         let [r, g, b, _] = *text_color_rgba;
@@ -2645,7 +2645,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                     });
                                     ui.end_row();
 
-                                    ui.label("Warna Background:");
+                                    ui.label("Background Color:");
                                     ui.horizontal(|ui| {
                                         any_changed |= ui.color_edit_button_srgba_unmultiplied(bg_color_rgba).changed();
                                         let [r, g, b, a] = *bg_color_rgba;
@@ -2653,7 +2653,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                     });
                                     ui.end_row();
 
-                                    ui.label("Warna Aksen / Border:");
+                                    ui.label("Accent / Border Color:");
                                     ui.horizontal(|ui| {
                                         any_changed |= ui.color_edit_button_srgba_unmultiplied(accent_color_rgba).changed();
                                         let [r, g, b, _] = *accent_color_rgba;
@@ -2661,11 +2661,11 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                     });
                                     ui.end_row();
 
-                                    ui.label("Tebal Garis / Border:");
+                                    ui.label("Border Width:");
                                     ui.horizontal(|ui| {
                                         any_changed |= ui.add(egui::Slider::new(border_thickness, 0.0..=12.0).suffix(" px")).changed();
                                         if *border_thickness <= 0.0 {
-                                            ui.label(RichText::new("(Tanpa Border)").small().color(p.text_muted));
+                                            ui.label(RichText::new("(No Border)").small().color(p.text_muted));
                                         }
                                     });
                                     ui.end_row();
@@ -3299,13 +3299,13 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                             ui.vertical_centered(|ui| {
                                 ui.add_space(12.0);
                                 ui.label(
-                                    RichText::new(format!("{} Original Source (Tanpa Filter Transparansi)", icons::PHOTO))
+                                    RichText::new(format!("{} Original Source (No Transparency Filter)", icons::PHOTO))
                                         .size(13.0)
                                         .color(p.text_muted),
                                 );
                                 ui.add_space(4.0);
                                 ui.label(
-                                    RichText::new("Pilih 'Chroma Key', 'Color Key', atau 'Luma Key' di atas untuk menghapus background.")
+                                    RichText::new("Select 'Chroma Key', 'Color Key', or 'Luma Key' above to remove background.")
                                         .small()
                                         .color(p.text_muted),
                                 );
@@ -3317,7 +3317,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                 .num_columns(2)
                                 .spacing([12.0, 8.0])
                                 .show(ui, |ui| {
-                                    ui.label("Key Color Type:").on_hover_text("Pilih warna layar hijau / biru yang ingin dihilangkan");
+                                    ui.label("Key Color Type:").on_hover_text("Select green or blue screen color to remove");
                                     egui::ComboBox::from_id_salt("flt_chroma_preset_combo")
                                         .selected_text(src.filter.key_color_preset.label())
                                         .width(FLT_FIELD_W)
@@ -3338,7 +3338,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                         });
                                     ui.end_row();
 
-                                    ui.label("Key Color:").on_hover_text("Warna target yang akan dihapus menjadi transparan");
+                                    ui.label("Key Color:").on_hover_text("Target color to remove as transparent");
                                     ui.horizontal(|ui| {
                                         let mut col = egui::Color32::from_rgb(
                                             src.filter.key_color_rgb[0],
@@ -3352,8 +3352,8 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                         }
                                         ui.label(format!("#{:02X}{:02X}{:02X}", col.r(), col.g(), col.b())).on_hover_text("Hex Code RGB");
 
-                                        let picker_btn = ui.button(format!("{} Pipet Layar", icons::COLOR_PICKER))
-                                            .on_hover_text("Pipet Warna Layar: Klik lalu arahkan dan klik di area kanvas / layar manapun untuk mengambil sampel warna");
+                                        let picker_btn = ui.button(format!("{} Screen Eyedropper", icons::COLOR_PICKER))
+                                            .on_hover_text("Screen Eyedropper: Click then hover and click anywhere on canvas or screen to sample a color");
                                         if picker_btn.clicked() {
                                             app.eyedropper_active = true;
                                             app.eyedropper_armed = false;
@@ -3361,7 +3361,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                     });
                                     ui.end_row();
 
-                                    ui.label("Similarity:").on_hover_text("Ambang batas kemiripan warna. Nilai lebih tinggi menghapus rentang hijau/biru lebih luas.");
+                                    ui.label("Similarity:").on_hover_text("Color similarity threshold. Higher values remove a wider range of key color.");
                                     filters_changed |= ui.add(egui::Slider::new(&mut src.filter.similarity, 1..=1000)).changed();
                                     ui.end_row();
 
@@ -3369,11 +3369,11 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                     filters_changed |= ui.add(egui::Slider::new(&mut src.filter.smoothness, 1..=1000)).changed();
                                     ui.end_row();
 
-                                    ui.label("Spill Reduction:").on_hover_text("Membersihkan pantulan warna hijau/biru pada tepi rambut dan baju.");
+                                    ui.label("Spill Reduction:").on_hover_text("Cleans up green/blue reflections on hair and edges.");
                                     filters_changed |= ui.add(egui::Slider::new(&mut src.filter.spill_reduction, 0..=1000)).changed();
                                     ui.end_row();
 
-                                    ui.label("Opacity:").on_hover_text("Tingkat transparansi keseluruhan layer");
+                                    ui.label("Opacity:").on_hover_text("Overall layer transparency level");
                                     filters_changed |= ui.add(egui::Slider::new(&mut src.filter.opacity, 0.0..=1.0).fixed_decimals(2)).changed();
                                     ui.end_row();
                                 });
@@ -3383,7 +3383,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                 .num_columns(2)
                                 .spacing([12.0, 8.0])
                                 .show(ui, |ui| {
-                                    ui.label("Key Color:").on_hover_text("Pilih warna solid spesifik yang ingin dihilangkan dari gambar/video");
+                                    ui.label("Key Color:").on_hover_text("Select a specific solid color to remove from the image or video");
                                     ui.horizontal(|ui| {
                                         let mut col = egui::Color32::from_rgb(
                                             src.filter.key_color_rgb[0],
@@ -3396,34 +3396,34 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                         }
                                         ui.label(format!("#{:02X}{:02X}{:02X}", col.r(), col.g(), col.b()));
 
-                                        let picker_btn = ui.button(format!("{} Pipet Layar", icons::COLOR_PICKER))
-                                            .on_hover_text("Pipet Warna Layar: Klik lalu arahkan dan klik di area kanvas / layar manapun untuk mengambil sampel warna");
+                                        let picker_btn = ui.button(format!("{} Screen Eyedropper", icons::COLOR_PICKER))
+                                            .on_hover_text("Screen Eyedropper: Click then hover and click anywhere on canvas or screen to sample a color");
                                         if picker_btn.clicked() {
                                             app.eyedropper_active = true;
                                             app.eyedropper_armed = false;
                                         }
 
                                         // Quick Presets
-                                        if ui.small_button("Black").on_hover_text("Set ke Hitam").clicked() {
+                                        if ui.small_button("Black").on_hover_text("Set to Black").clicked() {
                                             src.filter.key_color_rgb = [0, 0, 0];
                                             filters_changed = true;
                                         }
-                                        if ui.small_button("White").on_hover_text("Set ke Putih").clicked() {
+                                        if ui.small_button("White").on_hover_text("Set to White").clicked() {
                                             src.filter.key_color_rgb = [255, 255, 255];
                                             filters_changed = true;
                                         }
                                     });
                                     ui.end_row();
 
-                                    ui.label("Similarity:").on_hover_text("Tingkat toleransi kemiripan warna target");
+                                    ui.label("Similarity:").on_hover_text("Target color similarity tolerance");
                                     filters_changed |= ui.add(egui::Slider::new(&mut src.filter.similarity, 1..=1000)).changed();
                                     ui.end_row();
 
-                                    ui.label("Smoothness:").on_hover_text("Kehalusan degradasi transparansi tepi");
+                                    ui.label("Smoothness:").on_hover_text("Edge transparency falloff smoothness");
                                     filters_changed |= ui.add(egui::Slider::new(&mut src.filter.smoothness, 1..=1000)).changed();
                                     ui.end_row();
 
-                                    ui.label("Opacity:").on_hover_text("Tingkat transparansi keseluruhan layer");
+                                    ui.label("Opacity:").on_hover_text("Overall layer transparency level");
                                     filters_changed |= ui.add(egui::Slider::new(&mut src.filter.opacity, 0.0..=1.0).fixed_decimals(2)).changed();
                                     ui.end_row();
                                 });
@@ -3433,16 +3433,16 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                 .num_columns(2)
                                 .spacing([12.0, 8.0])
                                 .show(ui, |ui| {
-                                    ui.label("Preset Cepat:").on_hover_text("Pilih preset penghapusan background gelap atau terang");
+                                    ui.label("Quick Presets:").on_hover_text("Select dark or bright background removal preset");
                                     ui.horizontal(|ui| {
-                                        if ui.add(egui::Button::new("Hapus Hitam (Api/Partikel)").min_size(Vec2::new(150.0, 22.0))).clicked() {
+                                        if ui.add(egui::Button::new("Remove Black (Fire/Particles)").min_size(Vec2::new(170.0, 22.0))).clicked() {
                                             src.filter.luma_min = 0.08;
                                             src.filter.luma_min_smooth = 0.06;
                                             src.filter.luma_max = 1.00;
                                             src.filter.luma_max_smooth = 0.04;
                                             filters_changed = true;
                                         }
-                                        if ui.add(egui::Button::new("Hapus Putih (Logo Putih)").min_size(Vec2::new(140.0, 22.0))).clicked() {
+                                        if ui.add(egui::Button::new("Remove White (White Logo)").min_size(Vec2::new(160.0, 22.0))).clicked() {
                                             src.filter.luma_min = 0.00;
                                             src.filter.luma_min_smooth = 0.02;
                                             src.filter.luma_max = 0.88;
@@ -3452,23 +3452,23 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                     });
                                     ui.end_row();
 
-                                    ui.label("Luma Min (Cut Black):").on_hover_text("Menghapus area hitam/gelap di bawah batas kecerahan ini");
+                                    ui.label("Luma Min (Cut Black):").on_hover_text("Removes dark areas below this brightness threshold");
                                     filters_changed |= ui.add(egui::Slider::new(&mut src.filter.luma_min, 0.0..=1.0).fixed_decimals(2)).changed();
                                     ui.end_row();
 
-                                    ui.label("Min Smoothness:").on_hover_text("Kehalusan tepi area hitam yang dihapus");
+                                    ui.label("Min Smoothness:").on_hover_text("Smoothness of removed dark edges");
                                     filters_changed |= ui.add(egui::Slider::new(&mut src.filter.luma_min_smooth, 0.0..=0.5).fixed_decimals(2)).changed();
                                     ui.end_row();
 
-                                    ui.label("Luma Max (Cut White):").on_hover_text("Menghapus area putih/terang di atas batas kecerahan ini (turunkan jika ingin menghapus background putih)");
+                                    ui.label("Luma Max (Cut White):").on_hover_text("Removes bright areas above this brightness threshold (lower to remove white background)");
                                     filters_changed |= ui.add(egui::Slider::new(&mut src.filter.luma_max, 0.0..=1.0).fixed_decimals(2)).changed();
                                     ui.end_row();
 
-                                    ui.label("Max Smoothness:").on_hover_text("Kehalusan tepi area putih yang dihapus");
+                                    ui.label("Max Smoothness:").on_hover_text("Smoothness of removed bright edges");
                                     filters_changed |= ui.add(egui::Slider::new(&mut src.filter.luma_max_smooth, 0.0..=0.5).fixed_decimals(2)).changed();
                                     ui.end_row();
 
-                                    ui.label("Opacity:").on_hover_text("Tingkat transparansi keseluruhan layer");
+                                    ui.label("Opacity:").on_hover_text("Overall layer transparency level");
                                     filters_changed |= ui.add(egui::Slider::new(&mut src.filter.opacity, 0.0..=1.0).fixed_decimals(2)).changed();
                                     ui.end_row();
                                 });
@@ -3783,7 +3783,7 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
 
             ui.horizontal(|ui| {
                 ui.label(
-                    RichText::new("Pilih jenis source dan konfigurasikan layer untuk ditambahkan ke scene:")
+                    RichText::new("Select source type and configure the layer to add to scene:")
                         .small()
                         .color(p.text_secondary),
                 );
@@ -3801,7 +3801,7 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                     |ui| {
                         ui.set_width(260.0);
                         ui.label(
-                            RichText::new("JENIS SOURCE (TIPE LAYER)")
+                            RichText::new("SOURCE TYPES (LAYER TYPE)")
                                 .small()
                                 .strong()
                                 .color(p.text_muted),
@@ -3891,7 +3891,7 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                     |ui| {
                         ui.set_width(350.0);
                         ui.label(
-                            RichText::new("PENGATURAN SOURCE")
+                            RichText::new("SOURCE SETTINGS")
                                 .small()
                                 .strong()
                                 .color(p.text_muted),
@@ -3909,27 +3909,27 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                         ui.add_space(6.0);
 
                         // Source Name Input
-                        ui.label(RichText::new("Nama Source:").strong().size(12.0));
+                        ui.label(RichText::new("Source Name:").strong().size(12.0));
                         ui.add_sized(
                             Vec2::new(340.0, 24.0),
-                            standard_singleline_text(&mut app.add_source_name_buffer, "Nama source..."),
+                            standard_singleline_text(&mut app.add_source_name_buffer, "Source name..."),
                         );
                         ui.add_space(6.0);
 
                         // Contextual settings per source type
                         match cur_selected {
                             crate::studio::source::AddSourceType::DisplayCapture => {
-                                ui.label("Pilih Layar Monitor:");
+                                ui.label("Select Display Monitor:");
                                 let displays = app.capture_catalog.displays.clone();
                                 if displays.is_empty() {
-                                    ui.label(RichText::new("Tidak ada monitor terdeteksi. Menggunakan Primary Display.").small().color(p.text_muted));
+                                    ui.label(RichText::new("No monitor detected. Using Primary Display.").small().color(p.text_muted));
                                 } else {
                                     let selected_id = if app.add_source_file_path.is_empty() {
                                         displays.first().map(|d| d.id.clone()).unwrap_or_default()
                                     } else {
                                         app.add_source_file_path.clone()
                                     };
-                                    let current_name = displays.iter().find(|d| d.id == selected_id).map(|d| d.name.as_str()).unwrap_or("Pilih Monitor");
+                                    let current_name = displays.iter().find(|d| d.id == selected_id).map(|d| d.name.as_str()).unwrap_or("Select Monitor");
                                     egui::ComboBox::from_id_salt("add_disp_combo")
                                         .selected_text(current_name)
                                         .width(330.0)
@@ -3943,14 +3943,14 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                                 }
                             }
                             crate::studio::source::AddSourceType::WindowCapture => {
-                                ui.label("Pilih Jendela Aplikasi:");
+                                ui.label("Select Application Window:");
                                 let windows = app.capture_catalog.windows.clone();
                                 if windows.is_empty() {
-                                    ui.label(RichText::new("Tidak ada jendela aplikasi terbuka terdeteksi.").small().color(p.text_muted));
+                                    ui.label(RichText::new("No open application windows detected.").small().color(p.text_muted));
                                 } else {
                                     let selected_hwnd: u64 = app.add_source_file_path.parse().unwrap_or(0);
                                     let current_title = windows.iter().find(|w| w.hwnd == selected_hwnd).map(|w| w.title.as_str()).unwrap_or_else(|| {
-                                        windows.first().map(|w| w.title.as_str()).unwrap_or("Pilih Jendela")
+                                        windows.first().map(|w| w.title.as_str()).unwrap_or("Select Window")
                                     });
                                     egui::ComboBox::from_id_salt("add_win_combo")
                                         .selected_text(current_title.chars().take(40).collect::<String>())
@@ -3966,9 +3966,9 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                                 }
                             }
                             crate::studio::source::AddSourceType::Image => {
-                                ui.label("Pilih File Gambar:");
+                                ui.label("Select Image File:");
                                 ui.horizontal(|ui| {
-                                    ui.add_sized(Vec2::new(225.0, 24.0), standard_singleline_text(&mut app.add_source_file_path, "Path file gambar..."));
+                                    ui.add_sized(Vec2::new(225.0, 24.0), standard_singleline_text(&mut app.add_source_file_path, "Image file path..."));
                                     if ui.button(format!("{} Browse...", icons::FOLDER_OPEN)).clicked() {
                                         if let Some(path) = crate::platform::pick_image_file_dialog() {
                                             app.add_source_file_path = path.to_string_lossy().to_string();
@@ -3979,12 +3979,12 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                                         }
                                     }
                                 });
-                                ui.label(RichText::new("Format yang didukung: .png, .jpg, .jpeg, .bmp, .webp, .gif").small().color(p.text_muted));
+                                ui.label(RichText::new("Supported formats: .png, .jpg, .jpeg, .bmp, .webp, .gif").small().color(p.text_muted));
                             }
                             crate::studio::source::AddSourceType::MediaSource => {
-                                ui.label("Pilih File Video atau Audio:");
+                                ui.label("Select Video or Audio File:");
                                 ui.horizontal(|ui| {
-                                    ui.add_sized(Vec2::new(225.0, 24.0), standard_singleline_text(&mut app.add_source_file_path, "Path file video/audio..."));
+                                    ui.add_sized(Vec2::new(225.0, 24.0), standard_singleline_text(&mut app.add_source_file_path, "Video/audio file path..."));
                                     if ui.button(format!("{} Browse...", icons::FOLDER_OPEN)).clicked() {
                                         if let Some(path) = crate::platform::pick_media_file_dialog() {
                                             app.add_source_file_path = path.to_string_lossy().to_string();
@@ -3995,26 +3995,26 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                                         }
                                     }
                                 });
-                                ui.label(RichText::new("Format yang didukung: .mp4, .mkv, .mov, .avi, .webm, .mp3, .wav").small().color(p.text_muted));
+                                ui.label(RichText::new("Supported formats: .mp4, .mkv, .mov, .avi, .webm, .mp3, .wav").small().color(p.text_muted));
                             }
                             crate::studio::source::AddSourceType::TextGdiPlus => {
-                                ui.label("Isi Teks:");
-                                ui.add_sized(Vec2::new(340.0, 24.0), standard_singleline_text(&mut app.add_source_text_content, "Masukkan teks yang ingin ditampilkan..."));
+                                ui.label("Text Content:");
+                                ui.add_sized(Vec2::new(340.0, 24.0), standard_singleline_text(&mut app.add_source_text_content, "Enter text to display..."));
                                 ui.add_space(4.0);
-                                ui.label(RichText::new("Teks berjalan (marquee) dan template TV show dapat disesuaikan di Properties.").small().color(p.text_muted));
+                                ui.label(RichText::new("Scrolling marquee and TV show templates can be customized in Properties.").small().color(p.text_muted));
                             }
                             crate::studio::source::AddSourceType::ColorSource => {
-                                ui.label("Warna Solid Background:");
+                                ui.label("Solid Background Color:");
                                 ui.horizontal(|ui| {
                                     ui.color_edit_button_srgba_unmultiplied(&mut app.add_source_color_rgba);
                                     let [r, g, b, _] = app.add_source_color_rgba;
                                     ui.label(RichText::new(format!("#{:02X}{:02X}{:02X}", r, g, b)).strong());
                                 });
                                 ui.add_space(4.0);
-                                ui.label(RichText::new("Dimensi canvas default 1920×1080 (16:9 fullscreen).").small().color(p.text_muted));
+                                ui.label(RichText::new("Default canvas dimension 1920×1080 (16:9 fullscreen).").small().color(p.text_muted));
                             }
                             crate::studio::source::AddSourceType::PowerPoint => {
-                                ui.label(RichText::new("Opsi 1: Tangkap Jendela PowerPoint Slide Show").strong().small());
+                                ui.label(RichText::new("Option 1: Capture PowerPoint Slide Show Window").strong().small());
                                 let windows = app.capture_catalog.windows.clone();
                                 let ppt_window = windows.iter().find(|w| w.title.to_lowercase().contains("powerpoint") || w.executable.to_lowercase().contains("powerpnt"));
                                 if let Some(w) = ppt_window {
@@ -4023,11 +4023,11 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                                         app.add_source_file_path = w.hwnd.to_string();
                                     }
                                 } else {
-                                    ui.label(RichText::new("Jalankan PowerPoint mode Slide Show untuk tangkapan interaktif.").small().color(p.text_muted));
+                                    ui.label(RichText::new("Start PowerPoint in Slide Show mode for interactive capture.").small().color(p.text_muted));
                                 }
 
                                 ui.add_space(4.0);
-                                ui.label(RichText::new("Opsi 2: Atau Pilih File Presentasi (.pptx / .ppt):").strong().small());
+                                ui.label(RichText::new("Option 2: Or Select Presentation File (.pptx / .ppt):").strong().small());
                                 ui.horizontal(|ui| {
                                     let mut display_p = if app.add_source_file_path.parse::<u64>().is_ok() { String::new() } else { app.add_source_file_path.clone() };
                                     if ui.add_sized(Vec2::new(225.0, 24.0), egui::TextEdit::singleline(&mut display_p)).changed() {
@@ -4044,12 +4044,12 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                                 });
                             }
                             crate::studio::source::AddSourceType::Pdf => {
-                                ui.label(RichText::new("File Dokumen / Presentasi PDF (.pdf):").strong().size(12.0));
+                                ui.label(RichText::new("PDF Document / Presentation File (.pdf):").strong().size(12.0));
                                 ui.horizontal(|ui| {
                                     let btn_w = 84.0;
                                     let input_w = (340.0 - btn_w - ui.spacing().item_spacing.x).max(120.0);
                                     let mut display_p = app.add_source_file_path.clone();
-                                    if ui.add_sized(Vec2::new(input_w, 24.0), standard_singleline_text(&mut display_p, "Pilih file PDF...")).changed() {
+                                    if ui.add_sized(Vec2::new(input_w, 24.0), standard_singleline_text(&mut display_p, "Select PDF file...")).changed() {
                                         app.add_source_file_path = display_p;
                                     }
                                     if ui.add(egui::Button::new(format!("{} Browse", icons::FOLDER_OPEN)).min_size(Vec2::new(btn_w, 24.0))).clicked() {
@@ -4062,26 +4062,26 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                                     }
                                 });
                                 ui.add_space(4.0);
-                                ui.label(RichText::new("PDF akan dibuka secara otomatis dalam mode Fullscreen (16:9) dengan navigasi halaman.").small().color(p.text_muted));
+                                ui.label(RichText::new("PDF is opened in 16:9 Fullscreen presentation mode with page navigation.").small().color(p.text_muted));
                             }
                             crate::studio::source::AddSourceType::BrowserSource => {
                                 ui.label("Web URL:");
                                 ui.add_sized(Vec2::new(340.0, 24.0), egui::TextEdit::singleline(&mut app.add_source_browser_url));
                                 ui.add_space(4.0);
-                                ui.label(RichText::new("Menyediakan URL dan dimensi rendering web untuk overlay siaran.").small().color(p.text_muted));
+                                ui.label(RichText::new("Provides web URL and rendering dimensions for broadcast overlays.").small().color(p.text_muted));
                             }
                             crate::studio::source::AddSourceType::WebcamDevice => {
-                                ui.label("Pilih Perangkat Kamera:");
+                                ui.label("Select Camera Device:");
                                 let cameras = app.capture_catalog.cameras.clone();
                                 if cameras.is_empty() {
-                                    ui.label(RichText::new("Tidak ada webcam online terdeteksi.").small().color(p.text_muted));
+                                    ui.label(RichText::new("No online webcams detected.").small().color(p.text_muted));
                                 } else {
                                     let selected_id = if app.add_source_file_path.is_empty() {
                                         cameras.first().map(|c| c.id.clone()).unwrap_or_default()
                                     } else {
                                         app.add_source_file_path.clone()
                                     };
-                                    let current_name = cameras.iter().find(|c| c.id == selected_id).map(|c| c.name.as_str()).unwrap_or("Pilih Kamera");
+                                    let current_name = cameras.iter().find(|c| c.id == selected_id).map(|c| c.name.as_str()).unwrap_or("Select Camera");
                                     egui::ComboBox::from_id_salt("add_cam_combo")
                                         .selected_text(current_name)
                                         .width(330.0)
@@ -4096,21 +4096,21 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                             }
                             crate::studio::source::AddSourceType::ImageSlideShow => {
                                 ui.label("Image Slide Show");
-                                ui.label(RichText::new("Slide Show dibuat dengan efek transisi fade. Foto-foto dapat ditambahkan dan diurutkan melalui tombol 'Manage Slide Show Images' di Properties.").small().color(p.text_muted));
+                                ui.label(RichText::new("Image slide show created with fade transitions. Photos can be added and reordered via 'Manage Slide Show Images' in Properties.").small().color(p.text_muted));
                             }
                             crate::studio::source::AddSourceType::TimeSource => {
-                                ui.label(RichText::new("Pilihan Mode & Gaya Waktu:").strong().small());
-                                ui.label(RichText::new("• Waktu Sekarang (Jam Real-time sinkron waktu Windows)").small());
-                                ui.label(RichText::new("• Hitung Maju (Stopwatch jam, menit, detik)").small());
-                                ui.label(RichText::new("• Hitung Mundur (Countdown timer presentasi/acara)").small());
+                                ui.label(RichText::new("Time Mode & Style Options:").strong().small());
+                                ui.label(RichText::new("• Real-Time Clock (Synchronized with Windows system time)").small());
+                                ui.label(RichText::new("• Stopwatch / Count-Up (Hours, minutes, seconds)").small());
+                                ui.label(RichText::new("• Countdown Timer (Presentations, events, exams)").small());
                                 ui.add_space(4.0);
-                                ui.label(RichText::new("Tersedia 4 gaya visual: Digital Neon, TV Broadcast Badge, Minimalis Bersih, dan Glassmorphism Card.").small().color(p.text_muted));
-                                ui.label(RichText::new("Font type, ukuran font (bisa diperbesar bebas), warna, serta tombol kontrol maju/mundur waktu dapat diatur di Properties.").small().color(p.text_muted));
+                                ui.label(RichText::new("Available in 4 visual styles: Digital Neon, TV Broadcast Badge, Clean Minimalist, and Glassmorphism Card.").small().color(p.text_muted));
+                                ui.label(RichText::new("Font family, scalable font size, colors, and advance/rewind controls can be adjusted in Properties.").small().color(p.text_muted));
                             }
                         }
 
                         ui.add_space(8.0);
-                        ui.checkbox(&mut app.add_source_open_properties, "Buka pengaturan lanjutan (Properties) setelah ditambahkan");
+                        ui.checkbox(&mut app.add_source_open_properties, "Open advanced settings (Properties) after adding");
 
                         // Error message
                         if let Some(err) = &app.add_source_error_message {
@@ -4147,7 +4147,7 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                                 }
 
                                 if ui
-                                    .add(egui::Button::new("Batal").min_size(Vec2::new(80.0, 28.0)))
+                                    .add(egui::Button::new("Cancel").min_size(Vec2::new(80.0, 28.0)))
                                     .clicked()
                                 {
                                     app.show_add_source_dialog = false;
@@ -4174,7 +4174,7 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
 fn validate_and_create_source(app: &mut NexoraApp) -> Option<crate::studio::source::SourceItem> {
     let name = app.add_source_name_buffer.trim().to_string();
     if name.is_empty() {
-        app.add_source_error_message = Some("Nama source tidak boleh kosong.".to_string());
+        app.add_source_error_message = Some("Source name cannot be empty.".to_string());
         return None;
     }
 
@@ -4217,11 +4217,11 @@ fn validate_and_create_source(app: &mut NexoraApp) -> Option<crate::studio::sour
         crate::studio::source::AddSourceType::Image => {
             let trimmed_path = app.add_source_file_path.trim();
             if trimmed_path.is_empty() {
-                app.add_source_error_message = Some("Silakan pilih file gambar terlebih dahulu.".to_string());
+                app.add_source_error_message = Some("Please select an image file first.".to_string());
                 return None;
             }
             if !std::path::Path::new(trimmed_path).exists() {
-                app.add_source_error_message = Some("File gambar tidak ditemukan pada path yang ditentukan.".to_string());
+                app.add_source_error_message = Some("Image file not found at the specified path.".to_string());
                 return None;
             }
             Some(SourceItem::new(
@@ -4235,11 +4235,11 @@ fn validate_and_create_source(app: &mut NexoraApp) -> Option<crate::studio::sour
         crate::studio::source::AddSourceType::MediaSource => {
             let trimmed_path = app.add_source_file_path.trim();
             if trimmed_path.is_empty() {
-                app.add_source_error_message = Some("Silakan pilih file media/video terlebih dahulu.".to_string());
+                app.add_source_error_message = Some("Please select a media/video file first.".to_string());
                 return None;
             }
             if !std::path::Path::new(trimmed_path).exists() {
-                app.add_source_error_message = Some("File media tidak ditemukan pada path yang ditentukan.".to_string());
+                app.add_source_error_message = Some("Media file not found at the specified path.".to_string());
                 return None;
             }
             Some(SourceItem::new(
@@ -4329,11 +4329,11 @@ fn validate_and_create_source(app: &mut NexoraApp) -> Option<crate::studio::sour
         crate::studio::source::AddSourceType::Pdf => {
             let trimmed_path = app.add_source_file_path.trim();
             if trimmed_path.is_empty() {
-                app.add_source_error_message = Some("Silakan pilih file PDF terlebih dahulu.".to_string());
+                app.add_source_error_message = Some("Please select a PDF file first.".to_string());
                 return None;
             }
             if !std::path::Path::new(trimmed_path).exists() {
-                app.add_source_error_message = Some("File PDF tidak ditemukan pada path yang ditentukan.".to_string());
+                app.add_source_error_message = Some("PDF file not found at the specified path.".to_string());
                 return None;
             }
             let doc_name = std::path::Path::new(trimmed_path)
@@ -4523,14 +4523,14 @@ pub fn render_eyedropper_overlay(ctx: &egui::Context, app: &mut NexoraApp) {
                                             .color(p_theme.text_primary),
                                     );
                                     ui.label(
-                                        RichText::new("Klik kanvas: Pilih Warna • Esc: Batal")
+                                        RichText::new("Click canvas: Pick Color • Esc: Cancel")
                                             .small()
                                             .color(p_theme.text_secondary),
                                     );
                                 });
                             } else {
                                 ui.label(
-                                    RichText::new("Arahkan ke kanvas...")
+                                    RichText::new("Hover over canvas...")
                                         .small()
                                         .color(p_theme.text_secondary),
                                 );
@@ -4693,7 +4693,7 @@ pub fn render_virtual_camera_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                     .find(|s| Some(s.id) == app.virtual_camera_dialog_draft_scene_id)
                     .map(|s| s.name.clone())
                     .or_else(|| app.studio.scenes.first().map(|s| s.name.clone()))
-                    .unwrap_or_else(|| "Pilih Scene...".to_string());
+                    .unwrap_or_else(|| "Select Scene...".to_string());
 
                 egui::ComboBox::from_id_salt("vcam_scene_selection_combo")
                     .width(VCAM_FIELD_W)

@@ -1348,14 +1348,14 @@ impl NexoraApp {
     pub fn copy_source_by_id(&mut self, src_id: uuid::Uuid) {
         if let Some(src) = self.studio.preview_scene().sources.iter().find(|s| s.id == src_id) {
             self.copied_source = Some(src.clone());
-            self.recording.last_message = format!("Disalin: {}", src.name);
+            self.recording.last_message = format!("Copied: {}", src.name);
         }
     }
 
     pub fn copy_selected_source(&mut self) {
         if let Some(src) = self.studio.preview_scene().selected_source() {
             self.copied_source = Some(src.clone());
-            self.recording.last_message = format!("Disalin: {}", src.name);
+            self.recording.last_message = format!("Copied: {}", src.name);
         }
     }
 
@@ -1363,7 +1363,7 @@ impl NexoraApp {
         if let Some(copied) = self.copied_source.clone() {
             let _ = self.studio.preview_scene_mut().paste_source(&copied);
             self.studio.sync_if_linked();
-            self.recording.last_message = format!("Ditempel ke '{}'", self.studio.preview_scene().name);
+            self.recording.last_message = format!("Pasted to '{}'", self.studio.preview_scene().name);
             true
         } else {
             false
