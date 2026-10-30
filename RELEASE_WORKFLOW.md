@@ -157,3 +157,4 @@ Setelah langkah di atas selesai, pengguna yang masih menggunakan versi lama akan
 1. Mendeteksi versi baru via background scanner saat aplikasi dibuka.
 2. Memunculkan badge hijau smooth **`Pembaruan tersedia: Update Sekarang`** di samping badge Studio Mode di Top Bar.
 3. Mengklik badge untuk mengunduh `nexora-studio.exe` langsung dari GitHub Releases dan menghapus file `.old` secara otomatis.
+

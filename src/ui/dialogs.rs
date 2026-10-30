@@ -162,14 +162,10 @@ pub fn render_library_drawer_if_open(ctx: &egui::Context, app: &mut NexoraApp) {
     }
 }
 
-/// Sinks drag events inside the window content body so that modal windows can ONLY be dragged
-/// by their Title Bar, preventing accidental window movement when clicking/dragging inside the body.
-pub fn block_window_body_drag(ui: &egui::Ui) {
-    ui.interact(
-        ui.max_rect(),
-        ui.id().with("__nexora_win_body_drag_blocker"),
-        egui::Sense::drag(),
-    );
+/// Ensures modal windows can only be repositioned via their title bar.
+/// egui::Window natively confines drag operations to its title bar.
+pub fn block_window_body_drag(_ui: &egui::Ui) {
+    // Intentionally no-op to prevent pointer drag contention between body and title bar.
 }
 
 /// Paints a sleek red circular close button on the top-right of the modal title bar,
@@ -179,6 +175,10 @@ pub fn decorate_modal_window(
     window_response: &egui::Response,
     open: &mut bool,
 ) {
+    if window_response.dragged() || window_response.drag_started() {
+        ctx.request_repaint();
+    }
+
     let outer_rect = window_response.rect;
     if outer_rect.width() <= 20.0 || outer_rect.height() <= 20.0 {
         return;
@@ -256,7 +256,6 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
             .fixed_pos(screen_rect.min)
             .interactable(false)
             .show(ctx, |ui| {
-                ui.allocate_response(screen_rect.size(), egui::Sense::click_and_drag());
                 ui.painter()
                     .rect_filled(screen_rect, egui::CornerRadius::ZERO, scrim_col);
             });

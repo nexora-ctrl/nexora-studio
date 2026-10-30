@@ -41,8 +41,14 @@ fn main() -> eframe::Result<()> {
         viewport = viewport.with_icon(app_icon);
     }
 
+    let mut wgpu_options = eframe::egui_wgpu::WgpuConfiguration::default();
+    wgpu_options.present_mode = eframe::egui_wgpu::wgpu::PresentMode::AutoVsync;
+    wgpu_options.desired_maximum_frame_latency = Some(1);
+
     let native_options = eframe::NativeOptions {
         viewport,
+        vsync: true,
+        wgpu_options,
         ..Default::default()
     };
 

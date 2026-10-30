@@ -1587,27 +1587,28 @@ impl eframe::App for NexoraApp {
         crate::ui::dialogs::render_eyedropper_overlay(ctx, self);
 
         // 7. Automatic Undo History Commit (settled after mouse release) & Background Auto-Save
-        let live_u_hash = self.compute_undoable_hash();
-        if live_u_hash != self.last_live_hash {
-            self.last_live_hash = live_u_hash;
-            self.last_change_time = time_sec;
-        }
         let pointer_down = ctx.input(|i| i.pointer.any_down());
-        if !pointer_down
-            && self.preview_drag_mode == PreviewDragMode::None
-            && live_u_hash != self.committed_hash
-            && (time_sec - self.last_change_time) >= 0.25
-        {
-            if self.undo_stack.len() >= 50 {
-                self.undo_stack.remove(0);
+        let is_modal_open = self.is_any_modal_open();
+
+        // Skip heavy JSON serialization while actively dragging or when a modal is open to ensure maximum FPS
+        if !pointer_down && self.preview_drag_mode == PreviewDragMode::None && !is_modal_open {
+            let live_u_hash = self.compute_undoable_hash();
+            if live_u_hash != self.last_live_hash {
+                self.last_live_hash = live_u_hash;
+                self.last_change_time = time_sec;
             }
-            self.undo_stack.push(self.committed_snapshot.clone());
-            self.redo_stack.clear();
-            self.committed_snapshot = UndoSnapshot {
-                studio: self.studio.clone(),
-                audio_mixer: self.audio_mixer.clone(),
-            };
-            self.committed_hash = live_u_hash;
+            if live_u_hash != self.committed_hash && (time_sec - self.last_change_time) >= 0.25 {
+                if self.undo_stack.len() >= 50 {
+                    self.undo_stack.remove(0);
+                }
+                self.undo_stack.push(self.committed_snapshot.clone());
+                self.redo_stack.clear();
+                self.committed_snapshot = UndoSnapshot {
+                    studio: self.studio.clone(),
+                    audio_mixer: self.audio_mixer.clone(),
+                };
+                self.committed_hash = live_u_hash;
+            }
         }
 
         if time_sec - self.last_autosave_check >= 1.5 {
@@ -1624,8 +1625,20 @@ impl eframe::App for NexoraApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
         }
 
-        // Request smooth 60fps repaint for live audio meters, timer, and canvas telemetry
-        ctx.request_repaint_after(Duration::from_millis(16));
+        // Responsive Repaint Engine:
+        // When actively dragging (moving mouse while holding button down) or processing new input events,
+        // immediately trigger a frame so drag positions track 1:1 with hardware pointer coordinates.
+        // When not dragging, maintain a smooth 60fps refresh cadence for audio meters, timers, and telemetry
+        // without saturating the Windows OS message pump.
+        let is_actively_dragging = ctx.input(|i| {
+            (i.pointer.is_moving() && i.pointer.any_down()) || !i.raw.events.is_empty()
+        });
+
+        if is_actively_dragging {
+            ctx.request_repaint();
+        } else {
+            ctx.request_repaint_after(Duration::from_millis(16));
+        }
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
