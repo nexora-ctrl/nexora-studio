@@ -3025,54 +3025,125 @@ fn render_audio_channel_strip(
 
     // Row 3: Live WASAPI Peak + Hold Level Meter Bar
     let meter_w = row_w.max(60.0);
-    let (meter_rect, _) = ui.allocate_exact_size(Vec2::new(meter_w, 6.0), Sense::hover());
+    let meter_h = 7.0_f32;
+    let (meter_rect, meter_resp) = ui.allocate_exact_size(Vec2::new(meter_w, meter_h), Sense::hover());
     let painter = ui.painter_at(meter_rect);
 
-    painter.rect_filled(meter_rect, CornerRadius::same(2), p.bg_canvas_well);
+    // Track background well with smooth rounded corners and subtle border
+    painter.rect_filled(meter_rect, CornerRadius::same(3), p.bg_canvas_well);
+    painter.rect_stroke(
+        meter_rect,
+        CornerRadius::same(3),
+        Stroke::new(0.5_f32, p.border_subtle),
+        egui::StrokeKind::Inside,
+    );
+
+    // Studio calibration tick marks at -9 dB (70%) and -3 dB (88%)
+    let mark_70_x = meter_rect.min.x + meter_rect.width() * 0.70;
+    let mark_88_x = meter_rect.min.x + meter_rect.width() * 0.88;
+    let tick_stroke = Stroke::new(1.0_f32, p.border_subtle.gamma_multiply(0.7));
+    painter.line_segment(
+        [
+            Pos2::new(mark_70_x, meter_rect.min.y + 1.0),
+            Pos2::new(mark_70_x, meter_rect.max.y - 1.0),
+        ],
+        tick_stroke,
+    );
+    painter.line_segment(
+        [
+            Pos2::new(mark_88_x, meter_rect.min.y + 1.0),
+            Pos2::new(mark_88_x, meter_rect.max.y - 1.0),
+        ],
+        tick_stroke,
+    );
 
     let level = channel.effective_level();
     if level > 0.005 {
+        // Safe green zone (0.0 .. 0.70)
         let green_end = level.min(0.70);
-        let green_rect = Rect::from_min_size(
+        let green_right_radius = if level <= 0.70 { 3 } else { 0 };
+        let green_rect = Rect::from_min_max(
             meter_rect.min,
-            Vec2::new(meter_rect.width() * green_end, meter_rect.height()),
+            Pos2::new(meter_rect.min.x + meter_rect.width() * green_end, meter_rect.max.y),
         );
-        painter.rect_filled(green_rect, CornerRadius::same(2), p.meter_ok);
+        let green_corner = CornerRadius {
+            nw: 3,
+            sw: 3,
+            ne: green_right_radius,
+            se: green_right_radius,
+        };
+        painter.rect_filled(green_rect, green_corner, p.meter_ok);
 
+        // Caution yellow zone (0.70 .. 0.88)
         if level > 0.70 {
-            let warn_end = level.min(0.90);
+            let warn_end = level.min(0.88);
+            let warn_right_radius = if level <= 0.88 { 3 } else { 0 };
             let warn_rect = Rect::from_min_max(
                 Pos2::new(meter_rect.min.x + meter_rect.width() * 0.70, meter_rect.min.y),
-                Pos2::new(
-                    meter_rect.min.x + meter_rect.width() * warn_end,
-                    meter_rect.max.y,
-                ),
+                Pos2::new(meter_rect.min.x + meter_rect.width() * warn_end, meter_rect.max.y),
             );
-            painter.rect_filled(warn_rect, CornerRadius::ZERO, p.meter_warn);
+            let warn_corner = CornerRadius {
+                nw: 0,
+                sw: 0,
+                ne: warn_right_radius,
+                se: warn_right_radius,
+            };
+            painter.rect_filled(warn_rect, warn_corner, p.meter_warn);
         }
 
-        if level > 0.90 {
+        // Clip red zone (0.88 .. 1.00)
+        if level > 0.88 {
+            let clip_end = level.min(1.0);
             let clip_rect = Rect::from_min_max(
-                Pos2::new(meter_rect.min.x + meter_rect.width() * 0.90, meter_rect.min.y),
-                Pos2::new(
-                    meter_rect.min.x + meter_rect.width() * level,
-                    meter_rect.max.y,
-                ),
+                Pos2::new(meter_rect.min.x + meter_rect.width() * 0.88, meter_rect.min.y),
+                Pos2::new(meter_rect.min.x + meter_rect.width() * clip_end, meter_rect.max.y),
             );
-            painter.rect_filled(clip_rect, CornerRadius::ZERO, p.meter_clip);
+            let clip_corner = CornerRadius {
+                nw: 0,
+                sw: 0,
+                ne: 3,
+                se: 3,
+            };
+            painter.rect_filled(clip_rect, clip_corner, p.meter_clip);
         }
     }
 
-    if channel.peak_hold > 0.005 {
-        let hold_x = meter_rect.min.x + meter_rect.width() * channel.peak_hold.clamp(0.0, 1.0);
-        painter.line_segment(
-            [
-                Pos2::new(hold_x, meter_rect.min.y),
-                Pos2::new(hold_x, meter_rect.max.y),
-            ],
-            Stroke::new(1.5_f32, p.text_primary),
+    // Professional Peak Hold Indicator:
+    // A clean, illuminated 2.5px pill marker matching signal intensity instead of an arbitrary black line
+    if channel.peak_hold > 0.008 && !channel.muted && !disabled {
+        let hold_norm = channel.peak_hold.clamp(0.0, 1.0);
+        let hold_center_x = (meter_rect.min.x + meter_rect.width() * hold_norm).clamp(
+            meter_rect.min.x + 1.5,
+            meter_rect.max.x - 1.5,
+        );
+        let pill_half_w = 1.25_f32;
+        let hold_rect = Rect::from_min_max(
+            Pos2::new(hold_center_x - pill_half_w, meter_rect.min.y),
+            Pos2::new(hold_center_x + pill_half_w, meter_rect.max.y),
+        );
+
+        let peak_color = if hold_norm > 0.88 {
+            p.meter_clip
+        } else if hold_norm > 0.70 {
+            p.meter_warn
+        } else {
+            p.meter_ok
+        };
+
+        painter.rect_filled(hold_rect, CornerRadius::same(1), peak_color);
+        painter.rect_stroke(
+            hold_rect,
+            CornerRadius::same(1),
+            Stroke::new(0.5_f32, egui::Color32::from_white_alpha(150)),
+            egui::StrokeKind::Inside,
         );
     }
+
+    meter_resp.on_hover_text(format!(
+        "Live Signal: {:.0}% | Peak Hold: {:.0}%",
+        level * 100.0,
+        channel.peak_hold * 100.0
+    ));
 }
 
 fn render_recording_controls_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {

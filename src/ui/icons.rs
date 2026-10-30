@@ -401,6 +401,10 @@ pub const CIRCLE_CHECK: &str = "\u{ea67}";
 pub const POINT_FILLED: &str = "\u{f698}";
 /// `ti-alert-circle` — Alert / Warning Indicator
 pub const ALERT_CIRCLE: &str = "\u{ea05}";
+/// `ti-cpu` — Hardware CPU / GPU
+pub const CPU: &str = "\u{ef8e}";
+/// `ti-info-circle` — Information / About
+pub const INFO_CIRCLE: &str = "\u{eac5}";
 
 
 

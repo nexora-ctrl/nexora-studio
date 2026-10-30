@@ -18,6 +18,8 @@ pub struct AudioChannel {
     pub current_peak: f32,
     #[serde(skip)]
     pub peak_hold: f32,
+    #[serde(skip)]
+    pub peak_hold_timer: f32,
 }
 
 impl AudioChannel {
@@ -45,7 +47,51 @@ impl AudioChannel {
         if self.muted || self.is_disabled() {
             0.0
         } else {
-            (self.current_peak * self.volume).clamp(0.0, 1.0)
+            self.current_peak.clamp(0.0, 1.0)
+        }
+    }
+
+    /// Smoothly updates live meter ballistics with frame-independent delta time:
+    /// - Fast responsive attack (~20ms) for snappy visual feedback
+    /// - Graceful exponential decay (~350ms) matching broadcast audio meter standards
+    /// - Peak hold that holds highest peak steadily for 1.2s before gently gliding down
+    pub fn update_level(&mut self, hw_peak: f32, dt: f32) {
+        if self.muted || self.is_disabled() {
+            self.current_peak = 0.0;
+            self.peak_hold = 0.0;
+            self.peak_hold_timer = 0.0;
+            return;
+        }
+
+        // Target level is hardware peak scaled by the channel volume slider (0.0 ..= 1.0)
+        let target = (hw_peak * self.volume).clamp(0.0, 1.0);
+
+        // Fast attack: jump up promptly to audio transients
+        if target > self.current_peak {
+            let attack_coeff = 1.0 - (-dt * 45.0).exp();
+            self.current_peak += (target - self.current_peak) * attack_coeff;
+        } else {
+            // Smooth release: exponential decay over ~350ms
+            let decay_coeff = (-dt * 5.0).exp();
+            self.current_peak *= decay_coeff;
+            if self.current_peak < 0.001 {
+                self.current_peak = 0.0;
+            }
+        }
+
+        // Peak hold ballistics
+        if self.current_peak >= self.peak_hold {
+            self.peak_hold = self.current_peak;
+            self.peak_hold_timer = 1.2; // Hold steady for 1.2 seconds
+        } else if self.peak_hold_timer > 0.0 {
+            self.peak_hold_timer = (self.peak_hold_timer - dt).max(0.0);
+        } else {
+            // Gently glide peak hold down towards current peak
+            let hold_decay = (-dt * 3.5).exp();
+            self.peak_hold = (self.peak_hold * hold_decay).max(self.current_peak);
+            if self.peak_hold < 0.001 {
+                self.peak_hold = 0.0;
+            }
         }
     }
 }
@@ -74,6 +120,7 @@ impl Default for AudioMixerState {
                 muted: false,
                 current_peak: 0.0,
                 peak_hold: 0.0,
+                peak_hold_timer: 0.0,
             },
             microphone: AudioChannel {
                 kind: AudioBusKind::MicrophoneInput,
@@ -87,6 +134,7 @@ impl Default for AudioMixerState {
                 muted: false,
                 current_peak: 0.0,
                 peak_hold: 0.0,
+                peak_hold_timer: 0.0,
             },
             sample_rate_hz: 48_000,
             last_meter_tick: 0.0,
@@ -154,11 +202,13 @@ impl AudioMixerState {
         self.microphone.muted = false;
     }
 
-    /// Updates live meter levels from Windows WASAPI streams (~30 Hz)
+    /// Updates live meter levels from Windows WASAPI streams with frame-rate independent ballistics
     pub fn tick_meters(&mut self, time_sec: f64) {
-        if time_sec - self.last_meter_tick < 0.030 {
-            return;
-        }
+        let dt = if self.last_meter_tick <= 0.0 {
+            0.016_f32
+        } else {
+            ((time_sec - self.last_meter_tick) as f32).clamp(0.001, 0.1)
+        };
         self.last_meter_tick = time_sec;
 
         #[cfg(target_os = "windows")]
@@ -170,26 +220,8 @@ impl AudioMixerState {
         #[cfg(not(target_os = "windows"))]
         let (hw_desk, hw_mic) = (0.0_f32, 0.0_f32);
 
-        if self.desktop_audio.muted || self.desktop_audio.is_disabled() {
-            self.desktop_audio.current_peak = 0.0;
-            self.desktop_audio.peak_hold = 0.0;
-        } else {
-            let scaled = (hw_desk * self.desktop_audio.volume).clamp(0.0, 1.0);
-            self.desktop_audio.current_peak =
-                scaled.max(self.desktop_audio.current_peak * 0.76);
-            self.desktop_audio.peak_hold =
-                (self.desktop_audio.peak_hold * 0.95).max(self.desktop_audio.current_peak);
-        }
-
-        if self.microphone.muted || self.microphone.is_disabled() {
-            self.microphone.current_peak = 0.0;
-            self.microphone.peak_hold = 0.0;
-        } else {
-            let scaled = (hw_mic * self.microphone.volume).clamp(0.0, 1.0);
-            self.microphone.current_peak = scaled.max(self.microphone.current_peak * 0.76);
-            self.microphone.peak_hold =
-                (self.microphone.peak_hold * 0.95).max(self.microphone.current_peak);
-        }
+        self.desktop_audio.update_level(hw_desk, dt);
+        self.microphone.update_level(hw_mic, dt);
     }
 }
 

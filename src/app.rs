@@ -14,6 +14,16 @@ use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 use std::time::Duration;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SettingsCategory {
+    #[default]
+    General,
+    VideoOutput,
+    HardwarePerformance,
+    AudioMixer,
+    About,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QuickScreenTemplate {
     FullScreenCamBottomRight,
@@ -98,6 +108,7 @@ pub struct NexoraApp {
     pub project_manager: ProjectManager,
     pub media_library: MediaLibrary,
     pub show_settings_dialog: bool,
+    pub settings_category: SettingsCategory,
     pub show_add_scene_dialog: bool,
     pub add_scene_name_buffer: String,
     pub show_rename_scene_dialog: bool,
@@ -257,6 +268,7 @@ impl NexoraApp {
             project_manager,
             media_library,
             show_settings_dialog: false,
+            settings_category: SettingsCategory::default(),
             show_add_scene_dialog: false,
             add_scene_name_buffer: String::new(),
             show_rename_scene_dialog: false,
@@ -1601,8 +1613,8 @@ impl eframe::App for NexoraApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
         }
 
-        // Request smooth repaint for live audio meters, timer, and canvas telemetry
-        ctx.request_repaint_after(Duration::from_millis(33));
+        // Request smooth 60fps repaint for live audio meters, timer, and canvas telemetry
+        ctx.request_repaint_after(Duration::from_millis(16));
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {

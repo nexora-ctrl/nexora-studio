@@ -1,6 +1,6 @@
 [package]
 name = "nexora-studio"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 authors = ["NEXORA Studio Contributors"]
 description = "Compact, modern native desktop screen recording studio for Windows"

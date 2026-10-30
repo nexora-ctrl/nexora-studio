@@ -1,4 +1,4 @@
-use crate::app::{NexoraApp, VirtualCameraOutputType};
+use crate::app::{NexoraApp, SettingsCategory, VirtualCameraOutputType};
 use crate::settings::{BitratePreset, MediaDecodeScale, ThemeMode, VideoPreset};
 use crate::studio::source::{
     MediaColorRange, SlideTransitionEffect, SourceColorTag, SourceItem, SourceKind,
@@ -31,6 +31,17 @@ pub(crate) fn standard_singleline_text_width<'a>(text: &'a mut String, hint: &'a
         edit = edit.hint_text(hint);
     }
     edit
+}
+
+pub(crate) fn truncate_str(text: &str, max_chars: usize) -> String {
+    let count = text.chars().count();
+    if count <= max_chars {
+        text.to_string()
+    } else {
+        let keep = max_chars.saturating_sub(1).max(6);
+        let s: String = text.chars().take(keep).collect();
+        format!("{}...", s)
+    }
 }
 
 pub fn render_library_drawer_if_open(ctx: &egui::Context, app: &mut NexoraApp) {
@@ -162,200 +173,495 @@ pub fn block_window_body_drag(ui: &egui::Ui) {
 }
 
 pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
-    // 1. Settings Modal Dialog
+    // Modal Backdrop / Scrim Shield: When any modal dialog is open, render a semi-transparent
+    // backdrop across the viewport that intercepts all background clicks and drags so underlying
+    // controls (canvas, dock, scene switches, recording controls) cannot be triggered accidentally.
+    if app.is_any_modal_open() && !app.eyedropper_active {
+        let screen_rect = ctx.screen_rect();
+        let scrim_col = match app.settings.theme {
+            ThemeMode::Dark => egui::Color32::from_black_alpha(130),
+            ThemeMode::Light => egui::Color32::from_black_alpha(65),
+        };
+        egui::Area::new(egui::Id::new("nexora_modal_scrim_layer"))
+            .order(egui::Order::Middle)
+            .fixed_pos(screen_rect.min)
+            .interactable(false)
+            .show(ctx, |ui| {
+                ui.allocate_response(screen_rect.size(), egui::Sense::click_and_drag());
+                ui.painter()
+                    .rect_filled(screen_rect, egui::CornerRadius::ZERO, scrim_col);
+            });
+    }
+
+    // 1. Preferences / Settings Modal Dialog (2-Column Category Layout matching OBS / Preferences standard)
     if app.show_settings_dialog {
         let mut open = app.show_settings_dialog;
+        let mut apply_triggered = false;
+        let mut save_and_close = false;
+        let mut cancel_triggered = false;
         let gpus = app.capture_catalog.gpus.clone();
-        egui::Window::new(format!("{} NEXORA Studio Settings", icons::SETTINGS))
-            .id(egui::Id::new("nexora_settings_modal_win"))
+
+        egui::Window::new(format!("{} Preferences", icons::SETTINGS))
+            .id(egui::Id::new("nexora_preferences_modal_win"))
+            .order(egui::Order::Foreground)
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .default_width(670.0)
+            .max_width(670.0)
             .auto_sized()
-            .default_width(485.0)
-            .max_width(485.0)
+            .default_height(420.0)
             .show(ctx, |ui| {
                 block_window_body_drag(ui);
-                const SETTINGS_FIELD_W: f32 = 290.0;
-                ui.set_width(465.0);
-                ui.set_max_width(465.0);
+                let p = ThemePalette::for_mode(app.settings.theme);
+                const LEFT_COL_W: f32 = 175.0;
+                const RIGHT_COL_W: f32 = 460.0;
+                const BODY_H: f32 = 360.0;
+                const FIELD_W: f32 = 270.0;
+                const FIELD_H: f32 = 24.0;
 
-                ui.heading("Appearance & Workspace");
+                ui.set_width(645.0);
+                ui.set_max_width(645.0);
+
+                // Two-Column Body: Categories on left, Category Content Options on right
                 ui.horizontal(|ui| {
-                    ui.label("UI Theme:");
-                    if ui
-                        .selectable_value(
-                            &mut app.settings.theme,
-                            ThemeMode::Dark,
-                            format!("{} Dark Mode", icons::MOON),
-                        )
-                        .clicked()
-                    {
-                        apply_studio_theme(ctx, app.settings.theme);
-                        let _ = app.settings.save();
-                    }
-                    if ui
-                        .selectable_value(
-                            &mut app.settings.theme,
-                            ThemeMode::Light,
-                            format!("{} Light Mode", icons::SUN),
-                        )
-                        .clicked()
-                    {
-                        apply_studio_theme(ctx, app.settings.theme);
-                        let _ = app.settings.save();
-                    }
+                    // Left Column: Categories List
+                    ui.allocate_ui_with_layout(
+                        Vec2::new(LEFT_COL_W, BODY_H),
+                        egui::Layout::top_down(egui::Align::Min),
+                        |ui| {
+                            ui.label(
+                                RichText::new("Categories")
+                                    .size(11.5)
+                                    .strong()
+                                    .color(p.text_secondary),
+                            );
+                            ui.add_space(3.0);
+
+                            // Inset frame container for categories list
+                            egui::Frame::new()
+                                .fill(p.bg_canvas_well)
+                                .stroke(Stroke::new(1.0_f32, p.border_subtle))
+                                .corner_radius(egui::CornerRadius::same(4))
+                                .inner_margin(egui::Margin::symmetric(4, 4))
+                                .show(ui, |ui| {
+                                    ui.set_width(LEFT_COL_W - 8.0);
+                                    ui.set_height(BODY_H - 25.0);
+
+                                    let cat_items = [
+                                        (SettingsCategory::General, icons::PALETTE, "General & Theme"),
+                                        (SettingsCategory::VideoOutput, icons::VIDEO, "Video & Output"),
+                                        (SettingsCategory::HardwarePerformance, icons::CPU, "Hardware & GPU"),
+                                        (SettingsCategory::AudioMixer, icons::VOLUME, "Audio & Mixer"),
+                                        (SettingsCategory::About, icons::INFO_CIRCLE, "About & System"),
+                                    ];
+
+                                    for (cat, icon, label) in cat_items {
+                                        let is_sel = app.settings_category == cat;
+                                        let (rect, resp) = ui.allocate_exact_size(
+                                            Vec2::new(LEFT_COL_W - 16.0, 32.0),
+                                            egui::Sense::click(),
+                                        );
+                                        if resp.clicked() {
+                                            app.settings_category = cat;
+                                        }
+
+                                        let bg_fill = if is_sel {
+                                            p.accent_primary.gamma_multiply(0.20)
+                                        } else if resp.hovered() {
+                                            p.bg_elevated
+                                        } else {
+                                            egui::Color32::TRANSPARENT
+                                        };
+
+                                        ui.painter().rect_filled(
+                                            rect,
+                                            egui::CornerRadius::same(3),
+                                            bg_fill,
+                                        );
+
+                                        if is_sel {
+                                            // Active category left accent stripe
+                                            let stripe_rect = egui::Rect::from_min_size(
+                                                rect.min,
+                                                Vec2::new(3.5, rect.height()),
+                                            );
+                                            ui.painter().rect_filled(
+                                                stripe_rect,
+                                                egui::CornerRadius { nw: 3, sw: 3, ne: 0, se: 0 },
+                                                p.accent_primary,
+                                            );
+                                        }
+
+                                        let text_col = if is_sel {
+                                            p.text_primary
+                                        } else {
+                                            p.text_secondary
+                                        };
+
+                                        let text_pos = egui::Pos2::new(rect.min.x + 12.0, rect.center().y);
+                                        ui.painter().text(
+                                            text_pos,
+                                            egui::Align2::LEFT_CENTER,
+                                            format!("{}  {}", icon, label),
+                                            egui::FontId::proportional(12.0),
+                                            text_col,
+                                        );
+                                    }
+                                });
+                        },
+                    );
+
+                    ui.add_space(8.0);
+
+                    // Right Column: Active Category Options
+                    ui.allocate_ui_with_layout(
+                        Vec2::new(RIGHT_COL_W, BODY_H),
+                        egui::Layout::top_down(egui::Align::Min),
+                        |ui| {
+                            // Header banner matching reference: [Icon] Category Title Options
+                            let (header_icon, header_title) = match app.settings_category {
+                                SettingsCategory::General => (icons::PALETTE, "General & Appearance Options"),
+                                SettingsCategory::VideoOutput => (icons::VIDEO, "Video & Recording Output Options"),
+                                SettingsCategory::HardwarePerformance => (icons::CPU, "Hardware GPU & Engine Options"),
+                                SettingsCategory::AudioMixer => (icons::VOLUME, "Audio System & Mixer Options"),
+                                SettingsCategory::About => (icons::INFO_CIRCLE, "About Application & System Options"),
+                            };
+
+                            egui::Frame::new()
+                                .fill(p.bg_canvas_well)
+                                .stroke(Stroke::new(1.0_f32, p.border_subtle))
+                                .corner_radius(egui::CornerRadius::same(4))
+                                .inner_margin(egui::Margin::symmetric(10, 6))
+                                .show(ui, |ui| {
+                                    ui.set_width(RIGHT_COL_W - 20.0);
+                                    ui.horizontal(|ui| {
+                                        ui.label(RichText::new(header_icon).size(16.0).color(p.accent_primary));
+                                        ui.label(RichText::new(header_title).size(13.0).strong().color(p.text_primary));
+                                    });
+                                });
+
+                            ui.add_space(6.0);
+
+                            // Options Content Body inside card
+                            egui::Frame::new()
+                                .fill(p.bg_panel)
+                                .stroke(Stroke::new(1.0_f32, p.border_subtle))
+                                .corner_radius(egui::CornerRadius::same(4))
+                                .inner_margin(egui::Margin::same(12))
+                                .show(ui, |ui| {
+                                    ui.set_width(RIGHT_COL_W - 24.0);
+                                    ui.set_height(BODY_H - 62.0);
+
+                                    match app.settings_category {
+                                        SettingsCategory::General => {
+                                            ui.label(RichText::new("TAMPILAN ANTARMUKA (THEME)").small().strong().color(p.text_muted));
+                                            ui.add_space(4.0);
+
+                                            egui::Grid::new("settings_general_grid")
+                                                .num_columns(2)
+                                                .spacing([12.0, 10.0])
+                                                .show(ui, |ui| {
+                                                    ui.label("UI Theme Mode:");
+                                                    ui.horizontal(|ui| {
+                                                        if ui.selectable_value(
+                                                            &mut app.settings.theme,
+                                                            ThemeMode::Dark,
+                                                            format!("{} Dark Mode", icons::MOON),
+                                                        ).clicked() {
+                                                            apply_studio_theme(ctx, app.settings.theme);
+                                                        }
+                                                        if ui.selectable_value(
+                                                            &mut app.settings.theme,
+                                                            ThemeMode::Light,
+                                                            format!("{} Light Mode", icons::SUN),
+                                                        ).clicked() {
+                                                            apply_studio_theme(ctx, app.settings.theme);
+                                                        }
+                                                    });
+                                                    ui.end_row();
+
+                                                    ui.label("Scenes Panel Mode:");
+                                                    ui.horizontal(|ui| {
+                                                        ui.selectable_value(
+                                                            &mut app.settings.scenes_view_mode,
+                                                            crate::settings::ScenesViewMode::List,
+                                                            format!("{} List Mode", icons::LIST),
+                                                        );
+                                                        ui.selectable_value(
+                                                            &mut app.settings.scenes_view_mode,
+                                                            crate::settings::ScenesViewMode::Grid,
+                                                            format!("{} Grid (16:9)", icons::LAYOUT_GRID),
+                                                        );
+                                                    });
+                                                    ui.end_row();
+
+                                                    ui.label("Workspace Mode:");
+                                                    ui.checkbox(&mut app.settings.panels.studio_mode, "Studio Mode (Dual Preview & Program)");
+                                                    ui.end_row();
+
+                                                    ui.label("Preview Helpers:");
+                                                    ui.vertical(|ui| {
+                                                        ui.checkbox(&mut app.settings.show_safe_margins, "Tampilkan Safe Margin Guides (80% & 90%)");
+                                                        ui.checkbox(&mut app.settings.preview_fit_to_window, "Fit to Window (Otomatis skala kanvas)");
+                                                    });
+                                                    ui.end_row();
+                                                });
+                                        }
+
+                                        SettingsCategory::VideoOutput => {
+                                            ui.label(RichText::new("RESOLUSI & ENKODING REKAMAN").small().strong().color(p.text_muted));
+                                            ui.add_space(4.0);
+
+                                            egui::Grid::new("settings_video_grid")
+                                                .num_columns(2)
+                                                .spacing([12.0, 10.0])
+                                                .show(ui, |ui| {
+                                                    ui.label("Resolution & FPS:");
+                                                    egui::ComboBox::from_id_salt("pref_res_fps")
+                                                        .selected_text(app.settings.video_preset.label())
+                                                        .width(FIELD_W)
+                                                        .show_ui(ui, |ui| {
+                                                            for preset in VideoPreset::all() {
+                                                                ui.selectable_value(&mut app.settings.video_preset, *preset, preset.label());
+                                                            }
+                                                        });
+                                                    ui.end_row();
+
+                                                    ui.label("Video Bitrate:");
+                                                    egui::ComboBox::from_id_salt("pref_bitrate")
+                                                        .selected_text(app.settings.bitrate_preset.label())
+                                                        .width(FIELD_W)
+                                                        .show_ui(ui, |ui| {
+                                                            for br in BitratePreset::all() {
+                                                                ui.selectable_value(&mut app.settings.bitrate_preset, *br, br.label());
+                                                            }
+                                                        });
+                                                    ui.end_row();
+
+                                                    ui.label("Container Format:");
+                                                    ui.label(RichText::new("MP4 (H.264 Video + AAC Audio)").monospace());
+                                                    ui.end_row();
+
+                                                    ui.label("Output Directory:");
+                                                    ui.vertical(|ui| {
+                                                        let mut path_str = app.settings.output_directory.to_string_lossy().to_string();
+                                                        ui.add_sized(
+                                                            Vec2::new(FIELD_W, FIELD_H),
+                                                            standard_singleline_text(&mut path_str, "Folder rekaman..."),
+                                                        );
+                                                        app.settings.output_directory = PathBuf::from(path_str);
+
+                                                        ui.add_space(3.0);
+                                                        ui.horizontal(|ui| {
+                                                            if ui.button(format!("{} Open Folder", icons::FOLDER_OPEN)).clicked() {
+                                                                let _ = crate::platform::open_folder_in_explorer(&app.settings.output_directory);
+                                                            }
+                                                            if ui.button("Default Folder").clicked() {
+                                                                app.settings.output_directory = crate::settings::AppSettings::default_recordings_dir();
+                                                            }
+                                                        });
+                                                    });
+                                                    ui.end_row();
+                                                });
+                                        }
+
+                                        SettingsCategory::HardwarePerformance => {
+                                            ui.label(RichText::new("HARDWARE & GRAPHICS ACCELERATION").small().strong().color(p.text_muted));
+                                            ui.add_space(4.0);
+
+                                            egui::Grid::new("settings_hw_grid")
+                                                .num_columns(2)
+                                                .spacing([12.0, 10.0])
+                                                .show(ui, |ui| {
+                                                    ui.label("Hardware GPU / VGA:");
+                                                    let current_gpu_idx = app.settings.preferred_gpu_index.unwrap_or(0);
+                                                    let selected_gpu_text = gpus
+                                                        .iter()
+                                                        .find(|g| g.index == current_gpu_idx)
+                                                        .map(|g| g.display_label())
+                                                        .unwrap_or_else(|| {
+                                                            if !app.settings.preferred_gpu_name.is_empty() {
+                                                                app.settings.preferred_gpu_name.clone()
+                                                            } else {
+                                                                "GPU 0: Default System VGA".to_string()
+                                                            }
+                                                        });
+
+                                                    egui::ComboBox::from_id_salt("pref_gpu_adapter")
+                                                        .selected_text(selected_gpu_text.clone())
+                                                        .width(FIELD_W)
+                                                        .truncate()
+                                                        .show_ui(ui, |ui| {
+                                                            for gpu in &gpus {
+                                                                let is_sel = app.settings.preferred_gpu_index == Some(gpu.index);
+                                                                if ui.selectable_label(is_sel, gpu.display_label()).clicked() {
+                                                                    app.settings.preferred_gpu_index = Some(gpu.index);
+                                                                    app.settings.preferred_gpu_name = gpu.name.clone();
+                                                                }
+                                                            }
+                                                        })
+                                                        .response
+                                                        .on_hover_text(selected_gpu_text);
+                                                    ui.end_row();
+
+                                                    ui.label("Media Decode Scale:");
+                                                    egui::ComboBox::from_id_salt("pref_decode_scale")
+                                                        .selected_text(app.settings.media_decode_scale.label())
+                                                        .width(FIELD_W)
+                                                        .truncate()
+                                                        .show_ui(ui, |ui| {
+                                                            for scale in MediaDecodeScale::all() {
+                                                                ui.selectable_value(&mut app.settings.media_decode_scale, *scale, scale.label());
+                                                            }
+                                                        });
+                                                    ui.end_row();
+
+                                                    ui.label("Graphics Pipeline:");
+                                                    ui.label(RichText::new("Direct3D 11 Hardware Compositor (NV12/BGRA)").monospace().size(11.0));
+                                                    ui.end_row();
+
+                                                    ui.label("Encoder Hardware:");
+                                                    ui.label(RichText::new("Windows Media Foundation (MF H.264 HW)").monospace().size(11.0));
+                                                    ui.end_row();
+                                                });
+                                        }
+
+                                        SettingsCategory::AudioMixer => {
+                                            ui.label(RichText::new("SISTEM & PERANGKAT AUDIO").small().strong().color(p.text_muted));
+                                            ui.add_space(4.0);
+
+                                            egui::Grid::new("settings_audio_grid")
+                                                .num_columns(2)
+                                                .spacing([12.0, 10.0])
+                                                .show(ui, |ui| {
+                                                    ui.label("Master Sample Rate:");
+                                                    ui.label(RichText::new("48.000 Hz (48 kHz Broadcast Standard)").monospace());
+                                                    ui.end_row();
+
+                                                    ui.label("Desktop Audio Device:");
+                                                    egui::ComboBox::from_id_salt("pref_desk_audio")
+                                                        .selected_text(truncate_str(&app.audio_mixer.desktop_audio.selected_device, 32))
+                                                        .width(FIELD_W)
+                                                        .truncate()
+                                                        .show_ui(ui, |ui| {
+                                                            for dev in &app.audio_mixer.desktop_audio.available_devices {
+                                                                ui.selectable_value(&mut app.audio_mixer.desktop_audio.selected_device, dev.clone(), dev);
+                                                            }
+                                                        });
+                                                    ui.end_row();
+
+                                                    ui.label("Microphone Device:");
+                                                    egui::ComboBox::from_id_salt("pref_mic_audio")
+                                                        .selected_text(truncate_str(&app.audio_mixer.microphone.selected_device, 32))
+                                                        .width(FIELD_W)
+                                                        .truncate()
+                                                        .show_ui(ui, |ui| {
+                                                            for dev in &app.audio_mixer.microphone.available_devices {
+                                                                ui.selectable_value(&mut app.audio_mixer.microphone.selected_device, dev.clone(), dev);
+                                                            }
+                                                        });
+                                                    ui.end_row();
+
+                                                    ui.label("Mixer Controls:");
+                                                    if ui.button(format!("{} Reset Levels & Devices", icons::REFRESH)).clicked() {
+                                                        app.audio_mixer.reset_levels();
+                                                        app.audio_mixer.refresh_devices_from_system();
+                                                    }
+                                                    ui.end_row();
+                                                });
+                                        }
+
+                                        SettingsCategory::About => {
+                                            ui.label(RichText::new("TENTANG APLIKASI").small().strong().color(p.text_muted));
+                                            ui.add_space(4.0);
+
+                                            ui.horizontal(|ui| {
+                                                ui.label(RichText::new(icons::DEVICE_DESKTOP).size(26.0).color(p.accent_primary));
+                                                ui.vertical(|ui| {
+                                                    ui.label(RichText::new("NEXORA Studio").heading().strong());
+                                                    ui.label(RichText::new("Native Windows Desktop Screen Recording & Live Studio").small().color(p.text_secondary));
+                                                });
+                                            });
+
+                                            ui.add_space(8.0);
+                                            ui.separator();
+                                            ui.add_space(8.0);
+
+                                            egui::Grid::new("settings_about_grid")
+                                                .num_columns(2)
+                                                .spacing([12.0, 8.0])
+                                                .show(ui, |ui| {
+                                                    ui.label("Versi Aplikasi:");
+                                                    ui.label(RichText::new("v0.4.0 (Native 64-bit)").strong());
+                                                    ui.end_row();
+
+                                                    ui.label("Target Platform:");
+                                                    ui.label(RichText::new(crate::platform::target_os_summary()).monospace());
+                                                    ui.end_row();
+
+                                                    ui.label("Tipografi Antarmuka:");
+                                                    ui.label("Rubik Light & Regular + Exo Medium (Offline OFL)");
+                                                    ui.end_row();
+
+                                                    ui.label("Sistem Ikon:");
+                                                    ui.label("Tabler Icons (5.936 icons offline embedded)");
+                                                    ui.end_row();
+
+                                                    ui.label("Keamanan & Privasi:");
+                                                    ui.label(RichText::new("100% Offline Lokal — Tanpa Cloud, Streaming, atau Login").color(p.meter_ok).strong());
+                                                    ui.end_row();
+                                                });
+                                        }
+                                    }
+                                });
+                        },
+                    );
                 });
 
+                ui.add_space(8.0);
                 ui.separator();
-                ui.heading("Hardware GPU / VGA & Video Output");
+                ui.add_space(6.0);
 
-                egui::Grid::new("settings_video_grid")
-                    .num_columns(2)
-                    .spacing([12.0, 8.0])
-                    .show(ui, |ui| {
-                        ui.label("Hardware GPU / VGA:");
-                        let current_gpu_idx = app.settings.preferred_gpu_index.unwrap_or(0);
-                        let selected_gpu_text = gpus
-                            .iter()
-                            .find(|g| g.index == current_gpu_idx)
-                            .map(|g| g.display_label())
-                            .unwrap_or_else(|| {
-                                if !app.settings.preferred_gpu_name.is_empty() {
-                                    app.settings.preferred_gpu_name.clone()
-                                } else {
-                                    "GPU 0: Default System VGA".to_string()
-                                }
-                            });
+                // Footer Bar matching reference image: Status on left, [OK] [Apply] [Cancel] on right
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(format!(
+                            "Platform: {}",
+                            crate::platform::target_os_summary()
+                        ))
+                        .small()
+                        .color(p.text_muted),
+                    );
 
-                        egui::ComboBox::from_id_salt("settings_gpu_adapter_combo")
-                            .selected_text(selected_gpu_text.clone())
-                            .width(SETTINGS_FIELD_W)
-                            .truncate()
-                            .show_ui(ui, |ui| {
-                                for gpu in &gpus {
-                                    let is_sel =
-                                        app.settings.preferred_gpu_index == Some(gpu.index);
-                                    if ui
-                                        .selectable_label(is_sel, gpu.display_label())
-                                        .clicked()
-                                    {
-                                        app.settings.preferred_gpu_index = Some(gpu.index);
-                                        app.settings.preferred_gpu_name = gpu.name.clone();
-                                        let _ = app.settings.save();
-                                    }
-                                }
-                            })
-                            .response
-                            .on_hover_text(selected_gpu_text);
-                        ui.end_row();
-
-                        ui.label("Media Video Decode:");
-                        egui::ComboBox::from_id_salt("settings_media_decode_scale_combo")
-                            .selected_text(app.settings.media_decode_scale.label())
-                            .width(SETTINGS_FIELD_W)
-                            .truncate()
-                            .show_ui(ui, |ui| {
-                                for scale in MediaDecodeScale::all() {
-                                    if ui
-                                        .selectable_value(
-                                            &mut app.settings.media_decode_scale,
-                                            *scale,
-                                            scale.label(),
-                                        )
-                                        .changed()
-                                    {
-                                        let _ = app.settings.save();
-                                    }
-                                }
-                            });
-                        ui.end_row();
-
-                        ui.label("Resolution & FPS:");
-                        egui::ComboBox::from_id_salt("preset_combo")
-                            .selected_text(app.settings.video_preset.label())
-                            .width(SETTINGS_FIELD_W)
-                            .truncate()
-                            .show_ui(ui, |ui| {
-                                for preset in VideoPreset::all() {
-                                    if ui
-                                        .selectable_value(
-                                            &mut app.settings.video_preset,
-                                            *preset,
-                                            preset.label(),
-                                        )
-                                        .changed()
-                                    {
-                                        let _ = app.settings.save();
-                                    }
-                                }
-                            });
-                        ui.end_row();
-
-                        ui.label("Video Bitrate:");
-                        egui::ComboBox::from_id_salt("bitrate_combo")
-                            .selected_text(app.settings.bitrate_preset.label())
-                            .width(SETTINGS_FIELD_W)
-                            .truncate()
-                            .show_ui(ui, |ui| {
-                                for br in BitratePreset::all() {
-                                    if ui
-                                        .selectable_value(
-                                            &mut app.settings.bitrate_preset,
-                                            *br,
-                                            br.label(),
-                                        )
-                                        .changed()
-                                    {
-                                        let _ = app.settings.save();
-                                    }
-                                }
-                            });
-                        ui.end_row();
-
-                        ui.label("Container Format:");
-                        ui.label(RichText::new("MP4 (H.264 + AAC)").monospace());
-                        ui.end_row();
-
-                        ui.label("Output Directory:");
-                        let mut path_str =
-                            app.settings.output_directory.to_string_lossy().to_string();
-                        if ui
-                            .add_sized(
-                                Vec2::new(SETTINGS_FIELD_W, 24.0),
-                                standard_singleline_text(&mut path_str, "Folder rekaman..."),
-                            )
-                            .changed()
-                        {
-                            app.settings.output_directory = PathBuf::from(path_str);
-                            let _ = app.settings.save();
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        // Cancel button
+                        if ui.add(egui::Button::new("Cancel").min_size(Vec2::new(72.0, 24.0))).clicked() {
+                            cancel_triggered = true;
                         }
-                        ui.end_row();
-                    });
 
-                ui.separator();
-                ui.allocate_ui_with_layout(
-                    Vec2::new(465.0, 26.0),
-                    egui::Layout::left_to_right(egui::Align::Center),
-                    |ui| {
-                        ui.label(
-                            RichText::new(format!(
-                                "Platform: {}",
-                                crate::platform::target_os_summary()
-                            ))
-                            .small(),
-                        );
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("Save & Close").clicked() {
-                                let _ = app.settings.save();
-                                app.show_settings_dialog = false;
-                            }
-                        });
-                    },
-                );
+                        // Apply button
+                        if ui.add(egui::Button::new("Apply").min_size(Vec2::new(72.0, 24.0))).clicked() {
+                            apply_triggered = true;
+                        }
+
+                        // OK button
+                        if ui.add(egui::Button::new(RichText::new("OK").strong()).min_size(Vec2::new(72.0, 24.0))).clicked() {
+                            save_and_close = true;
+                        }
+                    });
+                });
             });
 
-        if !open {
+        if save_and_close {
+            let _ = app.settings.save();
+            apply_studio_theme(ctx, app.settings.theme);
+            app.show_settings_dialog = false;
+        } else if apply_triggered {
+            let _ = app.settings.save();
+            apply_studio_theme(ctx, app.settings.theme);
+        } else if cancel_triggered || !open {
             app.show_settings_dialog = false;
         }
     }
@@ -367,6 +673,8 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
         let mut cancel_add = false;
 
         egui::Window::new(format!("{} Add Scene", icons::PLUS))
+            .id(egui::Id::new("nexora_add_scene_modal_win"))
+            .order(egui::Order::Foreground)
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
@@ -438,6 +746,8 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
     if app.show_rename_scene_dialog {
         let mut open = app.show_rename_scene_dialog;
         egui::Window::new("Rename Scene")
+            .id(egui::Id::new("nexora_rename_scene_modal_win"))
+            .order(egui::Order::Foreground)
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
@@ -471,6 +781,8 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
     if app.show_rename_source_dialog {
         let mut open = app.show_rename_source_dialog;
         egui::Window::new("Rename Source")
+            .id(egui::Id::new("nexora_rename_source_modal_win"))
+            .order(egui::Order::Foreground)
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
@@ -520,20 +832,31 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
         let mut gpu_or_scale_changed = false;
         let mut open_slideshow_manager = false;
 
-        let title = if let Some(src) = app.studio.preview_scene().selected_source() {
-            format!("Properties for '{}'", src.name)
+        let selected_src = app.studio.preview_scene().selected_source();
+        let (title, window_id) = if let Some(src) = selected_src {
+            let display_name = truncate_str(&src.name, 26);
+            (
+                format!("Properties for '{}'", display_name),
+                egui::Id::new("nexora_source_props_modal_win").with(src.id),
+            )
         } else {
-            "Source Properties".to_string()
+            (
+                "Source Properties".to_string(),
+                egui::Id::new("nexora_source_props_modal_win"),
+            )
         };
 
         egui::Window::new(title)
-            .id(egui::Id::new("nexora_source_properties_modal_win"))
+            .id(window_id)
+            .order(egui::Order::Foreground)
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
-            .auto_sized()
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
             .default_width(515.0)
             .max_width(515.0)
+            .auto_sized()
+            .default_height(250.0)
             .show(ctx, |ui| {
                 block_window_body_drag(ui);
                 let p = ThemePalette::for_mode(app.settings.theme);
@@ -1561,7 +1884,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                         any_changed |= ui
                                             .add_sized(
                                                 Vec2::new(input_w, PROP_FIELD_H),
-                                                standard_singleline_text(presentation_name, "Nama presentasi PPT..."),
+                                                standard_singleline_text_width(presentation_name, "Nama presentasi PPT...", input_w),
                                             )
                                             .changed();
                                         if ui
@@ -1592,12 +1915,12 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                         ui.horizontal(|ui| {
                                             let can_prev = *slide_index > 0;
                                             let can_next = *slide_index + 1 < *slide_count;
-                                            if ui.add_enabled(can_prev, egui::Button::new(format!("{} Prev", icons::ARROW_LEFT))).clicked() {
+                                            if ui.add_enabled(can_prev, egui::Button::new(format!("{} Prev", icons::ARROW_LEFT)).min_size(Vec2::new(64.0, PROP_FIELD_H))).clicked() {
                                                 *slide_index = slide_index.saturating_sub(1);
                                                 any_changed = true;
                                             }
                                             ui.label(RichText::new(format!("Slide {} dari {}", *slide_index + 1, slide_count)).strong());
-                                            if ui.add_enabled(can_next, egui::Button::new(format!("Next {}", icons::ARROW_RIGHT))).clicked() {
+                                            if ui.add_enabled(can_next, egui::Button::new(format!("Next {}", icons::ARROW_RIGHT)).min_size(Vec2::new(64.0, PROP_FIELD_H))).clicked() {
                                                 *slide_index = (*slide_index + 1).min(slide_count.saturating_sub(1));
                                                 any_changed = true;
                                             }
@@ -1661,7 +1984,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                         any_changed |= ui
                                             .add_sized(
                                                 Vec2::new(input_w, PROP_FIELD_H),
-                                                standard_singleline_text(document_name, "Nama dokumen PDF..."),
+                                                standard_singleline_text_width(document_name, "Nama dokumen PDF...", input_w),
                                             )
                                             .changed();
                                         if ui
@@ -1693,7 +2016,11 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                             let can_prev = *page_index > 0;
                                             let can_next = *page_index + 1 < *page_count;
                                             if ui
-                                                .add_enabled(can_prev, egui::Button::new(format!("{} Prev", icons::ARROW_LEFT)).min_size(Vec2::new(60.0, PROP_FIELD_H)))
+                                                .add_enabled(
+                                                    can_prev,
+                                                    egui::Button::new(format!("{} Prev", icons::ARROW_LEFT))
+                                                        .min_size(Vec2::new(64.0, PROP_FIELD_H)),
+                                                )
                                                 .clicked()
                                             {
                                                 *page_index = page_index.saturating_sub(1);
@@ -1701,7 +2028,11 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                             }
                                             ui.label(RichText::new(format!("Halaman {} dari {}", *page_index + 1, page_count)).strong());
                                             if ui
-                                                .add_enabled(can_next, egui::Button::new(format!("Next {}", icons::ARROW_RIGHT)).min_size(Vec2::new(60.0, PROP_FIELD_H)))
+                                                .add_enabled(
+                                                    can_next,
+                                                    egui::Button::new(format!("Next {}", icons::ARROW_RIGHT))
+                                                        .min_size(Vec2::new(64.0, PROP_FIELD_H)),
+                                                )
                                                 .clicked()
                                             {
                                                 *page_index = (*page_index + 1).min(page_count.saturating_sub(1));
@@ -1979,6 +2310,8 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                     ui.separator();
                     ui.label(RichText::new("Transform & Layout Preset").strong());
                     ui.horizontal_wrapped(|ui| {
+                        ui.spacing_mut().item_spacing = egui::vec2(5.0, 4.0);
+                        ui.spacing_mut().button_padding = egui::vec2(6.0, 3.0);
                         let preset_btn = |ui: &mut egui::Ui, label: &str| -> bool {
                             ui.add(
                                 egui::Button::new(RichText::new(label).size(11.5))
@@ -2103,17 +2436,13 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
 
                     ui.separator();
                     ui.add_space(6.0);
-                    ui.allocate_ui_with_layout(
-                        Vec2::new(ui.available_width(), 26.0),
+                    ui.with_layout(
                         egui::Layout::right_to_left(egui::Align::Center),
                         |ui| {
                             let ok_btn = egui::Button::new(
-                                RichText::new("OK")
-                                    .size(12.0)
-                                    .color(egui::Color32::WHITE),
+                                RichText::new("OK").size(12.5),
                             )
-                            .fill(p.accent_primary)
-                            .min_size(Vec2::new(84.0, 26.0));
+                            .min_size(Vec2::new(76.0, 24.0));
                             if ui.add(ok_btn).clicked() {
                                 close_clicked = true;
                             }
@@ -2178,6 +2507,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
 
         egui::Window::new(format!("{} Manage Slide Show Images", icons::PHOTO))
             .id(egui::Id::new("nexora_slideshow_manager_modal_win"))
+            .order(egui::Order::Foreground)
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
@@ -2528,6 +2858,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
 
         egui::Window::new(format!("{} Filters for '{}'", icons::FILTER, src_name))
             .id(egui::Id::new("nexora_source_filters_modal_win"))
+            .order(egui::Order::Foreground)
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
@@ -2817,6 +3148,8 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
             "{} Save Screen & Layout Preset",
             icons::DEVICE_FLOPPY
         ))
+        .id(egui::Id::new("nexora_save_preset_modal_win"))
+        .order(egui::Order::Foreground)
         .open(&mut open)
         .collapsible(false)
         .resizable(false)
@@ -3065,6 +3398,7 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
 
     egui::Window::new(format!("{} Add Source", icons::PLUS))
         .id(egui::Id::new("nexora_add_source_modal_win"))
+        .order(egui::Order::Foreground)
         .open(&mut open)
         .collapsible(false)
         .resizable(false)
@@ -3944,6 +4278,7 @@ pub fn render_virtual_camera_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
 
     egui::Window::new(format!("{} Virtual Camera", icons::CAMERA))
         .id(egui::Id::new("nexora_vcam_modal_win_v2"))
+        .order(egui::Order::Foreground)
         .open(&mut is_open)
         .collapsible(false)
         .resizable(false)
