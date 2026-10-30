@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 pub const GITHUB_REPO: &str = "nusambait/nexora-studio";
-pub const CURRENT_VERSION: &str = "0.4.0";
+pub const CURRENT_VERSION: &str = "0.5.0";
 
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct GithubAsset {
@@ -72,7 +72,7 @@ impl Default for UpdaterState {
     }
 }
 
-/// Parses semver string like "v0.4.0", "0.4.0", "0.4" into (major, minor, patch)
+/// Parses semver string like "v0.5.0", "0.5.0", "0.5" into (major, minor, patch)
 pub fn parse_version(s: &str) -> (u32, u32, u32) {
     let s = s.trim().trim_start_matches('v').trim_start_matches('V');
     let parts: Vec<u32> = s.split('.').filter_map(|p| p.parse().ok()).collect();
