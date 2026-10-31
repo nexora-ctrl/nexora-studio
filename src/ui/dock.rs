@@ -234,23 +234,47 @@ fn paint_icon_action_btn(
     let hovered = resp.hovered();
     let active = resp.is_pointer_button_down_on();
 
+    if hovered {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+
+    let is_dark = ui.visuals().dark_mode;
+
+    // 1. Bottom 3D shadow ledge when unpressed
+    if !active {
+        let shadow_rect = Rect::from_min_max(
+            Pos2::new(rect.min.x + 1.0, rect.max.y - 1.0),
+            Pos2::new(rect.max.x - 1.0, rect.max.y + 1.2),
+        );
+        let shadow_col = if is_dark {
+            Color32::from_black_alpha(100)
+        } else {
+            Color32::from_black_alpha(45)
+        };
+        ui.painter().rect_filled(shadow_rect, CornerRadius::same(5), shadow_col);
+    }
+
+    // 2. Physical 1.0px press-down displacement
+    let face_rect = if active {
+        rect.translate(Vec2::new(0.0, 1.0))
+    } else {
+        rect
+    };
+
     let bg_fill = if active {
-        p.border_subtle
+        if is_dark { Color32::from_rgb(22, 26, 34) } else { Color32::from_rgb(215, 220, 230) }
     } else if hovered {
-        p.bg_elevated
+        if is_dark { Color32::from_rgb(38, 44, 56) } else { Color32::from_rgb(244, 247, 252) }
     } else {
-        Color32::from_rgba_unmultiplied(
-            p.bg_elevated.r(),
-            p.bg_elevated.g(),
-            p.bg_elevated.b(),
-            175,
-        )
+        if is_dark { Color32::from_rgb(30, 34, 44) } else { Color32::from_rgb(232, 237, 246) }
     };
+
     let border_col = if hovered {
-        p.text_secondary
+        p.accent_primary.gamma_multiply(0.8)
     } else {
         p.border_subtle
     };
+
     let icon_col = accent_color.unwrap_or(if hovered {
         p.text_primary
     } else {
@@ -258,21 +282,39 @@ fn paint_icon_action_btn(
     });
 
     ui.painter()
-        .rect_filled(rect, CornerRadius::same(5), bg_fill);
+        .rect_filled(face_rect, CornerRadius::same(5), bg_fill);
     ui.painter().rect_stroke(
-        rect,
+        face_rect,
         CornerRadius::same(5),
         Stroke::new(1.0_f32, border_col),
         egui::StrokeKind::Inside,
     );
 
+    // 3. Top Specular Bevel Line (simulating 3D overhead light)
+    let top_y = face_rect.min.y + 1.0;
+    let top_highlight = if active {
+        Color32::from_black_alpha(60)
+    } else if is_dark {
+        Color32::from_white_alpha(32)
+    } else {
+        Color32::from_white_alpha(180)
+    };
+    ui.painter().line_segment(
+        [
+            Pos2::new(face_rect.min.x + 3.0, top_y),
+            Pos2::new(face_rect.max.x - 3.0, top_y),
+        ],
+        Stroke::new(1.0_f32, top_highlight),
+    );
+
+    // 4. Center icon content with tactile offset
     let font_id = egui::FontId::proportional(11.5);
     let galley = ui
         .painter()
         .layout_no_wrap(icon.to_string(), font_id, icon_col);
     let pos = Pos2::new(
-        rect.center().x - galley.size().x * 0.5,
-        rect.center().y - galley.size().y * 0.5,
+        face_rect.center().x - galley.size().x * 0.5,
+        face_rect.center().y - galley.size().y * 0.5,
     );
     ui.painter().galley(pos, galley, icon_col);
 
@@ -1094,50 +1136,42 @@ fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
     });
 
     regions.with_footer(ui, |ui| {
-        if ui
-            .add(
-                egui::Button::new(RichText::new(format!(" {} ", icons::PLUS)).small())
-                    .min_size(Vec2::new(26.0, 24.0)),
-            )
-            .on_hover_text("Add Scene")
-            .clicked()
-        {
+        let add_scene_btn = crate::ui::button_3d::Button3D::new("")
+            .icon(icons::PLUS)
+            .min_size(Vec2::new(26.0, 24.0))
+            .tooltip("Add Scene...");
+
+        if ui.add(add_scene_btn).clicked() {
             app.open_add_scene_dialog();
         }
 
         let can_delete = app.studio.scenes.len() > 1;
-        if ui
-            .add_enabled(
-                can_delete,
-                egui::Button::new(RichText::new(format!(" {} ", icons::MINUS)).small())
-                    .min_size(Vec2::new(26.0, 24.0)),
-            )
-            .on_hover_text("Remove selected Scene")
-            .clicked()
-        {
+        let del_scene_btn = crate::ui::button_3d::Button3D::new("")
+            .icon(icons::MINUS)
+            .min_size(Vec2::new(26.0, 24.0))
+            .enabled(can_delete)
+            .tooltip("Remove selected Scene");
+
+        if ui.add(del_scene_btn).clicked() {
             let id = app.studio.preview_scene_id;
             app.studio.delete_scene(id);
         }
 
-        if ui
-            .add(
-                egui::Button::new(RichText::new(format!("{} Duplicate", icons::COPY)).small())
-                    .min_size(Vec2::new(72.0, 24.0)),
-            )
-            .on_hover_text("Duplicate active Scene")
-            .clicked()
-        {
+        let dup_scene_btn = crate::ui::button_3d::Button3D::new("Duplicate")
+            .icon(icons::COPY)
+            .min_size(Vec2::new(72.0, 24.0))
+            .tooltip("Duplicate active Scene");
+
+        if ui.add(dup_scene_btn).clicked() {
             app.studio.duplicate_preview_scene();
         }
 
-        if ui
-            .add(
-                egui::Button::new(RichText::new(format!("{} Rename", icons::EDIT)).small())
-                    .min_size(Vec2::new(66.0, 24.0)),
-            )
-            .on_hover_text("Rename active Scene")
-            .clicked()
-        {
+        let ren_scene_btn = crate::ui::button_3d::Button3D::new("Rename")
+            .icon(icons::EDIT)
+            .min_size(Vec2::new(66.0, 24.0))
+            .tooltip("Rename active Scene");
+
+        if ui.add(ren_scene_btn).clicked() {
             app.rename_scene_buffer = app.studio.preview_scene().name.clone();
             app.show_rename_scene_dialog = true;
         }
@@ -2121,14 +2155,12 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
     });
 
     regions.with_footer(ui, |ui| {
-        let add_btn = ui.add(
-            egui::Button::new(
-                RichText::new(format!("{} Add Source", icons::PLUS)).size(11.5)
-            )
+        let add_btn = crate::ui::button_3d::Button3D::new("Add Source")
+            .icon(icons::PLUS)
             .min_size(Vec2::new(96.0, 24.0))
-        )
-        .on_hover_text("Add Source: Open complete layer addition dialog");
-        if add_btn.clicked() {
+            .tooltip("Add Source: Open complete layer addition dialog");
+
+        if ui.add(add_btn).clicked() {
             pending_action = Some(SourceContextAction::OpenAddSourceDialog(crate::studio::source::AddSourceType::DisplayCapture));
         }
 
@@ -2142,75 +2174,63 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
             .response
             .on_hover_text("Select source type directly from pop-up menu");
 
-        if ui
-            .add_enabled(
-                selected_id.is_some(),
-                egui::Button::new(RichText::new(format!(" {} ", icons::MINUS)).small())
-                    .min_size(Vec2::new(26.0, 24.0)),
-            )
-            .on_hover_text("Remove selected Source")
-            .clicked()
-        {
+        let has_sel = selected_id.is_some();
+
+        let rem_btn = crate::ui::button_3d::Button3D::new("")
+            .icon(icons::MINUS)
+            .min_size(Vec2::new(26.0, 24.0))
+            .enabled(has_sel)
+            .tooltip("Remove selected Source");
+
+        if ui.add(rem_btn).clicked() {
             if let Some(id) = selected_id {
                 pending_action = Some(SourceContextAction::Remove(id));
             }
         }
 
-        if ui
-            .add_enabled(
-                selected_id.is_some(),
-                egui::Button::new(
-                    RichText::new(format!("{} Properties", icons::SETTINGS)).small(),
-                )
-                .min_size(Vec2::new(80.0, 24.0)),
-            )
-            .on_hover_text("Open Source Properties (Configure Monitor, Window, Camera, etc.)")
-            .clicked()
-        {
+        let prop_btn = crate::ui::button_3d::Button3D::new("Properties")
+            .icon(icons::SETTINGS)
+            .min_size(Vec2::new(80.0, 24.0))
+            .enabled(has_sel)
+            .tooltip("Open Source Properties (Configure Monitor, Window, Camera, etc.)");
+
+        if ui.add(prop_btn).clicked() {
             if let Some(id) = selected_id {
                 pending_action = Some(SourceContextAction::OpenProperties(id));
             }
         }
 
-        if ui
-            .add_enabled(
-                selected_id.is_some(),
-                egui::Button::new(
-                    RichText::new(format!("{} Filters", icons::FILTER)).small(),
-                )
-                .min_size(Vec2::new(68.0, 24.0)),
-            )
-            .on_hover_text("Open Filters (Chroma Key, Color Key, Luma Key)")
-            .clicked()
-        {
+        let flt_btn = crate::ui::button_3d::Button3D::new("Filters")
+            .icon(icons::FILTER)
+            .min_size(Vec2::new(68.0, 24.0))
+            .enabled(has_sel)
+            .tooltip("Open Filters (Chroma Key, Color Key, Luma Key)");
+
+        if ui.add(flt_btn).clicked() {
             if let Some(id) = selected_id {
                 pending_action = Some(SourceContextAction::OpenFilters(id));
             }
         }
 
-        if ui
-            .add_enabled(
-                selected_id.is_some(),
-                egui::Button::new(RichText::new(format!(" {} ", icons::ARROW_UP)).small())
-                    .min_size(Vec2::new(26.0, 24.0)),
-            )
-            .on_hover_text("Move Source Up (Bring Forward — Closer to Front of Screen)")
-            .clicked()
-        {
+        let up_btn = crate::ui::button_3d::Button3D::new("")
+            .icon(icons::ARROW_UP)
+            .min_size(Vec2::new(26.0, 24.0))
+            .enabled(has_sel)
+            .tooltip("Move Source Up (Bring Forward — Closer to Front of Screen)");
+
+        if ui.add(up_btn).clicked() {
             if let Some(id) = selected_id {
                 pending_action = Some(SourceContextAction::MoveUp(id));
             }
         }
 
-        if ui
-            .add_enabled(
-                selected_id.is_some(),
-                egui::Button::new(RichText::new(format!(" {} ", icons::ARROW_DOWN)).small())
-                    .min_size(Vec2::new(26.0, 24.0)),
-            )
-            .on_hover_text("Move Source Down (Send Backward — Behind Other Layers)")
-            .clicked()
-        {
+        let down_btn = crate::ui::button_3d::Button3D::new("")
+            .icon(icons::ARROW_DOWN)
+            .min_size(Vec2::new(26.0, 24.0))
+            .enabled(has_sel)
+            .tooltip("Move Source Down (Send Backward — Behind Other Layers)");
+
+        if ui.add(down_btn).clicked() {
             if let Some(id) = selected_id {
                 pending_action = Some(SourceContextAction::MoveDown(id));
             }
@@ -2549,18 +2569,12 @@ fn execute_source_context_action(app: &mut NexoraApp, action: SourceContextActio
         SourceContextAction::ResetTransform(id) => {
             let scene = app.studio.preview_scene_mut();
             scene.selected_source_id = Some(id);
-            if let Some(src) = scene.selected_source_mut() {
-                src.transform.reset_transform();
-            }
-            app.studio.sync_if_linked();
+            app.reset_source_to_original_size(id);
         }
         SourceContextAction::FitToScreen(id) => {
             let scene = app.studio.preview_scene_mut();
             scene.selected_source_id = Some(id);
-            if let Some(src) = scene.selected_source_mut() {
-                src.transform.fit_to_screen();
-            }
-            app.studio.sync_if_linked();
+            app.fit_source_to_screen(id);
         }
         SourceContextAction::RotateCw90(id) => {
             let scene = app.studio.preview_scene_mut();
@@ -2938,47 +2952,36 @@ fn render_audio_mixer_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) 
     });
 
     regions.with_footer(ui, |ui| {
-        if ui
-            .add(
-                egui::Button::new(
-                    RichText::new(format!("{} Refresh", icons::REFRESH)).small(),
-                )
-                .min_size(Vec2::new(72.0, 24.0)),
-            )
-            .on_hover_text("Rescan Windows WASAPI audio playback and microphone devices")
-            .clicked()
-        {
+        let refresh_btn = crate::ui::button_3d::Button3D::new("Refresh")
+            .icon(icons::REFRESH)
+            .min_size(Vec2::new(72.0, 24.0))
+            .tooltip("Rescan Windows WASAPI audio playback and microphone devices");
+
+        if ui.add(refresh_btn).clicked() {
             app.audio_mixer.refresh_devices_from_system();
         }
 
         let both_muted =
             app.audio_mixer.desktop_audio.muted && app.audio_mixer.microphone.muted;
-        let mute_all_label = if both_muted {
-            format!("{} Unmute All", icons::VOLUME)
-        } else {
-            format!("{} Mute All", icons::VOLUME_OFF)
-        };
-        if ui
-            .add(
-                egui::Button::new(RichText::new(mute_all_label).small())
-                    .min_size(Vec2::new(82.0, 24.0)),
-            )
-            .on_hover_text("Mute or unmute all audio channels")
-            .clicked()
-        {
+        let mute_all_label = if both_muted { "Unmute All" } else { "Mute All" };
+        let mute_all_icon = if both_muted { icons::VOLUME } else { icons::VOLUME_OFF };
+
+        let mute_btn = crate::ui::button_3d::Button3D::new(mute_all_label)
+            .icon(mute_all_icon)
+            .min_size(Vec2::new(82.0, 24.0))
+            .tooltip("Mute or unmute all audio channels");
+
+        if ui.add(mute_btn).clicked() {
             let target = !both_muted;
             app.audio_mixer.desktop_audio.muted = target;
             app.audio_mixer.microphone.muted = target;
         }
 
-        if ui
-            .add(
-                egui::Button::new(RichText::new("Reset").small())
-                    .min_size(Vec2::new(52.0, 24.0)),
-            )
-            .on_hover_text("Reset audio channel levels to default")
-            .clicked()
-        {
+        let reset_btn = crate::ui::button_3d::Button3D::new("Reset")
+            .min_size(Vec2::new(52.0, 24.0))
+            .tooltip("Reset audio channel levels to default");
+
+        if ui.add(reset_btn).clicked() {
             app.audio_mixer.reset_levels();
         }
     });
@@ -3270,38 +3273,31 @@ fn render_recording_controls_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size:
         ui.add_space(1.5);
 
         // Start / Pause / Stop Recording Button Row (Full-width, No Icon)
-        ui.horizontal(|ui| {
-            let is_idle = app.recording.status == RecordingStatus::Idle;
+        let is_idle = app.recording.status == RecordingStatus::Idle;
+        let btn_full_w = ui.available_width();
 
-            if is_idle {
-                let start_btn = egui::Button::new(
-                    RichText::new("Start Recording")
-                        .size(12.0)
-                        .color(Color32::WHITE),
-                )
-                .fill(p.rec_red)
-                .min_size(Vec2::new(body_size.x, 26.0));
+        if is_idle {
+            let start_btn = crate::ui::button_3d::Button3D::danger("Start Recording")
+                .min_size(Vec2::new(btn_full_w, 26.0))
+                .tooltip("Start local MP4 recording session");
 
-                if ui
-                    .add(start_btn)
-                    .on_hover_text("Start local MP4 recording session")
-                    .clicked()
-                {
-                    let _ = app.recording.start_session(
-                        &app.settings.output_directory,
-                        &app.settings.container_format,
-                    );
-                }
+            if ui.add(start_btn).clicked() {
+                let _ = app.recording.start_session(
+                    &app.settings.output_directory,
+                    &app.settings.container_format,
+                );
+            }
+        } else {
+            let pause_label = if app.recording.status == RecordingStatus::Paused {
+                "Resume"
             } else {
-                let pause_label = if app.recording.status == RecordingStatus::Paused {
-                    "Resume"
-                } else {
-                    "Pause"
-                };
-                let half_w = ((body_size.x - 4.0) * 0.5).max(40.0);
+                "Pause"
+            };
+            let half_w = ((btn_full_w - 4.0) * 0.5).max(40.0);
+            ui.horizontal(|ui| {
                 if ui
                     .add(
-                        egui::Button::new(RichText::new(pause_label).size(12.0))
+                        crate::ui::button_3d::Button3D::warning(pause_label)
                             .min_size(Vec2::new(half_w, 26.0)),
                     )
                     .clicked()
@@ -3309,56 +3305,35 @@ fn render_recording_controls_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size:
                     app.recording.toggle_pause();
                 }
 
-                let stop_btn = egui::Button::new(
-                    RichText::new("Stop")
-                        .size(12.0)
-                        .color(Color32::WHITE),
-                )
-                .fill(p.accent_program)
-                .min_size(Vec2::new(half_w, 26.0));
+                let stop_btn = crate::ui::button_3d::Button3D::danger("Stop")
+                    .min_size(Vec2::new(half_w, 26.0));
 
                 if ui.add(stop_btn).clicked() {
                     let _ = app.recording.stop_session();
                 }
-            }
-        });
+            });
+        }
 
-        ui.add_space(1.5);
+        ui.add_space(2.0);
 
         // Virtual Camera Button Row (Full-width, Identical Size to Recording, No Icon)
-        ui.horizontal(|ui| {
-            let vcam_active = app.virtual_camera_active;
-            let (vcam_label, vcam_fill, vcam_text_col) = if vcam_active {
-                (
-                    "Stop Virtual Camera",
-                    p.accent_preview,
-                    Color32::WHITE,
-                )
-            } else {
-                (
-                    "Start Virtual Camera",
-                    p.bg_elevated,
-                    p.text_primary,
-                )
-            };
+        let vcam_active = app.virtual_camera_active;
+        let vcam_btn = if vcam_active {
+            crate::ui::button_3d::Button3D::primary("Stop Virtual Camera")
+                .min_size(Vec2::new(btn_full_w, 26.0))
+                .selected(true)
+                .tooltip("Stop Virtual Camera (Right-click for Settings)")
+        } else {
+            crate::ui::button_3d::Button3D::new("Start Virtual Camera")
+                .min_size(Vec2::new(btn_full_w, 26.0))
+                .tooltip("Start Virtual Camera (Right-click for Settings)")
+        };
 
-            let vcam_btn = egui::Button::new(
-                RichText::new(vcam_label)
-                    .size(12.0)
-                    .color(vcam_text_col),
-            )
-            .fill(vcam_fill)
-            .min_size(Vec2::new(body_size.x, 26.0));
+        let vcam_resp = ui.add(vcam_btn);
 
-            let vcam_resp = ui.add(vcam_btn).on_hover_text(if vcam_active {
-                "Stop Virtual Camera (Right-click for Settings)"
-            } else {
-                "Start Virtual Camera (Right-click for Settings)"
-            });
-
-            if vcam_resp.clicked() {
-                app.toggle_virtual_camera();
-            }
+        if vcam_resp.clicked() {
+            app.toggle_virtual_camera();
+        }
 
             vcam_resp.context_menu(|ui| {
                 if ui.button(format!("{}  Virtual Camera Settings...", icons::SETTINGS)).clicked() {
@@ -3366,7 +3341,6 @@ fn render_recording_controls_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size:
                     ui.close_menu();
                 }
             });
-        });
 
         // Output Destination Path (Diposisikan di paling bawah dengan teks kecil rapi)
         ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
@@ -3394,28 +3368,22 @@ fn render_recording_controls_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size:
     });
 
     regions.with_footer(ui, |ui| {
-        if ui
-            .add(
-                egui::Button::new(
-                    RichText::new(format!("{} Open Folder", icons::FOLDER_OPEN)).small(),
-                )
-                .min_size(Vec2::new(90.0, 24.0)),
-            )
-            .on_hover_text("Open output directory in Windows Explorer")
-            .clicked()
-        {
+        let open_btn = crate::ui::button_3d::Button3D::new("Open Folder")
+            .icon(icons::FOLDER_OPEN)
+            .min_size(Vec2::new(90.0, 24.0))
+            .tooltip("Open output directory in Windows Explorer");
+
+        if ui.add(open_btn).clicked() {
             let _ = crate::platform::open_folder_in_explorer(&app.settings.output_directory);
         }
-        if ui
-            .add(
-                egui::Button::new(
-                    RichText::new(format!("{} Library", icons::MOVIE)).small(),
-                )
-                .min_size(Vec2::new(72.0, 24.0)),
-            )
-            .on_hover_text("Open Recording Library drawer")
-            .clicked()
-        {
+
+        let lib_btn = crate::ui::button_3d::Button3D::new("Library")
+            .icon(icons::MOVIE)
+            .min_size(Vec2::new(72.0, 24.0))
+            .selected(app.settings.panels.show_library_drawer)
+            .tooltip("Open Recording Library drawer");
+
+        if ui.add(lib_btn).clicked() {
             app.settings.panels.show_library_drawer =
                 !app.settings.panels.show_library_drawer;
             if app.settings.panels.show_library_drawer {
@@ -3423,16 +3391,13 @@ fn render_recording_controls_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size:
                     .scan_directory(&app.settings.output_directory);
             }
         }
-        if ui
-            .add(
-                egui::Button::new(
-                    RichText::new(format!("{} VCam", icons::SETTINGS)).small(),
-                )
-                .min_size(Vec2::new(65.0, 24.0)),
-            )
-            .on_hover_text("Virtual Camera Settings (Output Type: Program, Preview, Scene)")
-            .clicked()
-        {
+
+        let vcam_btn = crate::ui::button_3d::Button3D::new("VCam")
+            .icon(icons::SETTINGS)
+            .min_size(Vec2::new(65.0, 24.0))
+            .tooltip("Virtual Camera Settings (Output Type: Program, Preview, Scene)");
+
+        if ui.add(vcam_btn).clicked() {
             app.open_virtual_camera_dialog();
         }
     });

@@ -1,4 +1,4 @@
-﻿use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -429,6 +429,31 @@ impl LiveCaptureEngine {
                     let py = ((v.clamp(0.0, 1.0) * (h - 1) as f32).round() as u32).min(h - 1);
                     let p = rgba.get_pixel(px, py);
                     return Some([p[0], p[1], p[2]]);
+                }
+            }
+        }
+        None
+    }
+
+    /// Returns the pixel width and height (w, h) of the given capture key or image if available
+    pub fn get_frame_dimensions(&self, key: &str) -> Option<(usize, usize)> {
+        if let Some((_, tex)) = self.textures.get(key) {
+            let [w, h] = tex.size();
+            if w > 0 && h > 0 {
+                return Some((w, h));
+            }
+        }
+        if let Ok(guard) = self.shared.lock() {
+            if let Some(frame) = guard.latest_frames.get(key) {
+                if frame.width > 0 && frame.height > 0 {
+                    return Some((frame.width, frame.height));
+                }
+            }
+        }
+        if let Some(path_str) = key.strip_prefix("IMG:") {
+            if let Ok((w, h)) = image::image_dimensions(path_str) {
+                if w > 0 && h > 0 {
+                    return Some((w as usize, h as usize));
                 }
             }
         }
@@ -1105,6 +1130,26 @@ mod win32_capture {
 
             if ok != 0 {
                 Some((dst_w, dst_h, rgba))
+            } else {
+                None
+            }
+        }
+    }
+
+    pub fn get_window_size(hwnd_u64: u64) -> Option<(u32, u32)> {
+        unsafe {
+            let hwnd = hwnd_u64 as usize as HWND;
+            if IsWindowVisible(hwnd) == 0 {
+                return None;
+            }
+            let mut rect: RECT = zeroed();
+            if GetWindowRect(hwnd, &mut rect) == 0 {
+                return None;
+            }
+            let w = (rect.right - rect.left).max(0) as u32;
+            let h = (rect.bottom - rect.top).max(0) as u32;
+            if w > 0 && h > 0 {
+                Some((w, h))
             } else {
                 None
             }
@@ -2390,3 +2435,14 @@ mod win32_capture {
         });
     }
 }
+
+#[cfg(target_os = "windows")]
+pub fn get_window_size(hwnd_u64: u64) -> Option<(u32, u32)> {
+    win32_capture::get_window_size(hwnd_u64)
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn get_window_size(_hwnd_u64: u64) -> Option<(u32, u32)> {
+    None
+}
+

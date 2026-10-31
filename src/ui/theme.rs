@@ -96,6 +96,8 @@ pub fn apply_studio_theme(ctx: &egui::Context, mode: ThemeMode) {
     // Spacing with comfortable window margins for clean modal breathing room
     style.spacing.item_spacing = egui::vec2(6.0, 5.0);
     style.spacing.button_padding = egui::vec2(7.0, 3.5);
+    style.spacing.menu_margin = Margin::symmetric(6, 5);
+    style.spacing.combo_width = 130.0;
     style.spacing.window_margin = Margin {
         left: 14,
         right: 14,
@@ -117,21 +119,40 @@ pub fn apply_studio_theme(ctx: &egui::Context, mode: ThemeMode) {
     visuals.panel_fill = p.bg_panel;
     visuals.window_fill = p.bg_panel;
     visuals.window_highlight_topmost = true;
-    // Distinct subtle grayish background for modal window headers / title bars to signify draggable handle
-    visuals.widgets.open.weak_bg_fill = match mode {
-        ThemeMode::Dark => Color32::from_rgb(38, 42, 50),
-        ThemeMode::Light => Color32::from_rgb(228, 232, 238),
-    };
     visuals.extreme_bg_color = p.bg_canvas_well;
     visuals.faint_bg_color = p.bg_elevated;
     visuals.override_text_color = Some(p.text_primary);
 
-    visuals.window_stroke = Stroke::new(1.0_f32, p.border_subtle);
-    visuals.selection.bg_fill = p.accent_primary.gamma_multiply(0.28);
+    visuals.window_stroke = Stroke::new(1.0_f32, p.border_strong);
+    visuals.selection.bg_fill = match mode {
+        ThemeMode::Dark => Color32::from_rgb(38, 56, 88),
+        ThemeMode::Light => Color32::from_rgb(212, 228, 252),
+    };
     visuals.selection.stroke = Stroke::new(1.0_f32, p.accent_primary);
 
-    let radius = CornerRadius::same(4);
+    let radius = CornerRadius::same(5);
     visuals.clip_rect_margin = 0.0;
+    visuals.menu_corner_radius = CornerRadius::same(6);
+    visuals.popup_shadow = egui::epaint::Shadow {
+        offset: [0, 4],
+        blur: 16,
+        spread: 0,
+        color: if mode == ThemeMode::Dark {
+            Color32::from_black_alpha(160)
+        } else {
+            Color32::from_black_alpha(65)
+        },
+    };
+    visuals.window_shadow = egui::epaint::Shadow {
+        offset: [0, 8],
+        blur: 24,
+        spread: 0,
+        color: if mode == ThemeMode::Dark {
+            Color32::from_black_alpha(180)
+        } else {
+            Color32::from_black_alpha(75)
+        },
+    };
 
     visuals.widgets.noninteractive.bg_fill = p.bg_panel;
     visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, p.border_subtle);
@@ -139,25 +160,62 @@ pub fn apply_studio_theme(ctx: &egui::Context, mode: ThemeMode) {
     visuals.widgets.noninteractive.corner_radius = radius;
     visuals.widgets.noninteractive.expansion = 0.0;
 
-    visuals.widgets.inactive.bg_fill = p.bg_elevated;
-    visuals.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, p.border_subtle);
+    // 3D Tactile Styling for all standard egui buttons and ComboBox dropdowns:
+    // Solid background fills (no transparent washouts), defined border bevels, and sunken feedback
+    visuals.widgets.inactive.bg_fill = match mode {
+        ThemeMode::Dark => Color32::from_rgb(28, 32, 42),
+        ThemeMode::Light => Color32::from_rgb(234, 239, 248),
+    };
+    visuals.widgets.inactive.weak_bg_fill = match mode {
+        ThemeMode::Dark => Color32::from_rgb(26, 30, 40),
+        ThemeMode::Light => Color32::from_rgb(236, 241, 250),
+    };
+    visuals.widgets.inactive.bg_stroke = Stroke::new(
+        1.0_f32,
+        match mode {
+            ThemeMode::Dark => Color32::from_rgb(52, 58, 74),
+            ThemeMode::Light => Color32::from_rgb(175, 186, 204),
+        },
+    );
     visuals.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, p.text_primary);
     visuals.widgets.inactive.corner_radius = radius;
     visuals.widgets.inactive.expansion = 0.0;
 
-    visuals.widgets.hovered.bg_fill = p.accent_primary.gamma_multiply(0.22);
+    visuals.widgets.hovered.bg_fill = match mode {
+        ThemeMode::Dark => Color32::from_rgb(38, 44, 58),
+        ThemeMode::Light => Color32::from_rgb(244, 248, 254),
+    };
+    visuals.widgets.hovered.weak_bg_fill = match mode {
+        ThemeMode::Dark => Color32::from_rgb(36, 42, 54),
+        ThemeMode::Light => Color32::from_rgb(244, 248, 254),
+    };
     visuals.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, p.accent_primary);
     visuals.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, p.text_primary);
     visuals.widgets.hovered.corner_radius = radius;
     visuals.widgets.hovered.expansion = 0.0;
 
-    visuals.widgets.active.bg_fill = p.accent_primary.gamma_multiply(0.35);
+    visuals.widgets.active.bg_fill = match mode {
+        ThemeMode::Dark => Color32::from_rgb(22, 26, 34),
+        ThemeMode::Light => Color32::from_rgb(214, 220, 232),
+    };
+    visuals.widgets.active.weak_bg_fill = match mode {
+        ThemeMode::Dark => Color32::from_rgb(20, 24, 32),
+        ThemeMode::Light => Color32::from_rgb(212, 218, 230),
+    };
     visuals.widgets.active.bg_stroke = Stroke::new(1.0_f32, p.accent_primary);
-    visuals.widgets.active.fg_stroke = Stroke::new(1.0_f32, p.text_primary);
+    visuals.widgets.active.fg_stroke = Stroke::new(1.0_f32, p.accent_primary);
     visuals.widgets.active.corner_radius = radius;
     visuals.widgets.active.expansion = 0.0;
 
-    visuals.widgets.open.bg_fill = p.accent_primary.gamma_multiply(0.22);
+    // Dropdown open / expanded state
+    visuals.widgets.open.bg_fill = match mode {
+        ThemeMode::Dark => Color32::from_rgb(34, 40, 52),
+        ThemeMode::Light => Color32::from_rgb(224, 230, 242),
+    };
+    visuals.widgets.open.weak_bg_fill = match mode {
+        ThemeMode::Dark => Color32::from_rgb(34, 40, 52),
+        ThemeMode::Light => Color32::from_rgb(224, 230, 242),
+    };
     visuals.widgets.open.bg_stroke = Stroke::new(1.0_f32, p.accent_primary);
     visuals.widgets.open.fg_stroke = Stroke::new(1.0_f32, p.text_primary);
     visuals.widgets.open.corner_radius = radius;

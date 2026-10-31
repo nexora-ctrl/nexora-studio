@@ -30,18 +30,21 @@ pub fn render_preview_workspace(ui: &mut egui::Ui, app: &mut NexoraApp, time_sec
                 );
                 ui.separator();
 
-                if ui
-                    .selectable_label(app.settings.preview_fit_to_window, "Fit to Window")
-                    .on_hover_text("Automatically scale 16:9 canvas while preserving aspect ratio")
-                    .clicked()
-                {
+                let fit_btn = crate::ui::button_3d::Button3D::new("Fit to Window")
+                    .selected(app.settings.preview_fit_to_window)
+                    .min_size(Vec2::new(0.0, 21.0))
+                    .tooltip("Automatically scale 16:9 canvas while preserving aspect ratio");
+                if ui.add(fit_btn).clicked() {
                     app.settings.preview_fit_to_window = true;
                 }
 
                 for (zoom_val, label) in [(0.75, "75%"), (1.0, "100%"), (1.15, "115%")] {
                     let active = !app.settings.preview_fit_to_window
                         && (app.settings.preview_zoom - zoom_val).abs() < 0.02;
-                    if ui.selectable_label(active, label).clicked() {
+                    let zoom_btn = crate::ui::button_3d::Button3D::new(label)
+                        .selected(active)
+                        .min_size(Vec2::new(0.0, 21.0));
+                    if ui.add(zoom_btn).clicked() {
                         app.settings.preview_fit_to_window = false;
                         app.settings.preview_zoom = zoom_val;
                     }
@@ -51,27 +54,39 @@ pub fn render_preview_workspace(ui: &mut egui::Ui, app: &mut NexoraApp, time_sec
                 ui.checkbox(&mut app.settings.show_safe_margins, "Safe Guides")
                     .on_hover_text("Show broadcast 90% action-safe guide overlay on Preview");
 
+                let snap_label = if app.settings.snapping_enabled {
+                    format!("{} Snap: ON", icons::MAGNET)
+                } else {
+                    format!("{} Snap: OFF", icons::MAGNET)
+                };
+                let snap_btn = crate::ui::button_3d::Button3D::new(snap_label)
+                    .selected(app.settings.snapping_enabled)
+                    .min_size(Vec2::new(0.0, 21.0))
+                    .tooltip("Toggle Canvas Magnetic Snapping (Center & screen edges. Hold Ctrl to bypass)");
+                if ui.add(snap_btn).clicked() {
+                    app.settings.snapping_enabled = !app.settings.snapping_enabled;
+                    let _ = app.settings.save();
+                }
+
                 ui.separator();
 
                 // Quick Transform & Crop Controls for Selected Source in Preview
                 let has_selected = app.studio.preview_scene().selected_source().is_some();
                 ui.add_enabled_ui(has_selected, |ui| {
                     ui.label(RichText::new("Transform:").small().color(p.text_secondary));
-                    if ui
-                        .button("Fit Fullscreen")
-                        .on_hover_text("Reset selected source to fill 16:9 canvas and clear crop")
-                        .clicked()
-                    {
+                    let fit_fs_btn = crate::ui::button_3d::Button3D::new("Fit Fullscreen")
+                        .min_size(Vec2::new(0.0, 21.0))
+                        .tooltip("Reset selected source to fill 16:9 canvas and clear crop");
+                    if ui.add(fit_fs_btn).clicked() {
                         if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
                             src.transform.reset_full_canvas();
                         }
                         app.studio.sync_if_linked();
                     }
-                    if ui
-                        .button("PiP Corner")
-                        .on_hover_text("Place selected source as Picture-in-Picture in bottom-right")
-                        .clicked()
-                    {
+                    let pip_btn = crate::ui::button_3d::Button3D::new("PiP Corner")
+                        .min_size(Vec2::new(0.0, 21.0))
+                        .tooltip("Place selected source as Picture-in-Picture in bottom-right");
+                    if ui.add(pip_btn).clicked() {
                         if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
                             src.transform.preset_pip_bottom_right();
                         }
@@ -80,17 +95,15 @@ pub fn render_preview_workspace(ui: &mut egui::Ui, app: &mut NexoraApp, time_sec
 
                     let crop_btn_active = app.preview_crop_mode || ui.input(|i| i.modifiers.alt);
                     let crop_btn_text = if crop_btn_active {
-                        "✂ Crop Mode: ON (Drag Edges)"
+                        "✂ Crop Mode: ON"
                     } else {
                         "✂ Crop (Hold Alt / Click)"
                     };
-                    if ui
-                        .selectable_label(crop_btn_active, crop_btn_text)
-                        .on_hover_text(
-                            "OBS-Style Crop: Hold ALT while dragging any handle in Preview, or toggle this button to crop edges directly on canvas",
-                        )
-                        .clicked()
-                    {
+                    let crop_btn = crate::ui::button_3d::Button3D::new(crop_btn_text)
+                        .selected(crop_btn_active)
+                        .min_size(Vec2::new(0.0, 21.0))
+                        .tooltip("OBS-Style Crop: Hold ALT while dragging any handle in Preview, or toggle this button to crop edges directly on canvas");
+                    if ui.add(crop_btn).clicked() {
                         app.preview_crop_mode = !app.preview_crop_mode;
                     }
 
@@ -100,16 +113,16 @@ pub fn render_preview_workspace(ui: &mut egui::Ui, app: &mut NexoraApp, time_sec
                         .selected_source()
                         .map(|s| s.transform.has_crop())
                         .unwrap_or(false);
-                    if has_crop
-                        && ui
-                            .button("Reset Crop")
-                            .on_hover_text("Remove all crop margins on selected source")
-                            .clicked()
-                    {
-                        if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
-                            src.transform.reset_crop();
+                    if has_crop {
+                        let reset_crop_btn = crate::ui::button_3d::Button3D::new("Reset Crop")
+                            .min_size(Vec2::new(0.0, 21.0))
+                            .tooltip("Remove all crop margins on selected source");
+                        if ui.add(reset_crop_btn).clicked() {
+                            if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
+                                src.transform.reset_crop();
+                            }
+                            app.studio.sync_if_linked();
                         }
-                        app.studio.sync_if_linked();
                     }
 
                     if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
@@ -234,26 +247,17 @@ fn render_transition_bridge(ui: &mut egui::Ui, app: &mut NexoraApp, height: f32)
                     TransitionEffect::Fade => format!("FADE {}", icons::ARROW_RIGHT),
                 };
 
-                let trans_btn = egui::Button::new(
-                    RichText::new(action_label)
-                        .strong()
-                        .size(11.5)
-                        .color(Color32::WHITE),
-                )
-                .fill(if pending {
-                    p.accent_primary
+                let trans_btn = if pending {
+                    crate::ui::button_3d::Button3D::primary(action_label)
+                        .min_size(Vec2::new(74.0, 30.0))
+                        .tooltip("Send current Preview scene & layout to Program Output using the selected transition effect")
                 } else {
-                    p.border_strong
-                })
-                .min_size(Vec2::new(74.0, 30.0));
+                    crate::ui::button_3d::Button3D::new(action_label)
+                        .min_size(Vec2::new(74.0, 30.0))
+                        .tooltip("Send current Preview scene & layout to Program Output using the selected transition effect")
+                };
 
-                if ui
-                    .add(trans_btn)
-                    .on_hover_text(
-                        "Send current Preview scene & layout to Program Output using the selected transition effect",
-                    )
-                    .clicked()
-                {
+                if ui.add(trans_btn).clicked() {
                     app.studio.transition_preview_to_program();
                 }
 
@@ -264,21 +268,21 @@ fn render_transition_bridge(ui: &mut egui::Ui, app: &mut NexoraApp, height: f32)
                         .color(p.text_secondary),
                 );
                 ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 3.0;
+                    ui.spacing_mut().item_spacing.x = 4.0;
                     let is_cut = app.studio.transition_effect == TransitionEffect::Cut;
-                    if ui
-                        .selectable_label(is_cut, RichText::new("Cut").size(10.5))
-                        .on_hover_text("Instant Cut transition (0 ms)")
-                        .clicked()
-                    {
+                    let cut_btn = crate::ui::button_3d::Button3D::new("Cut")
+                        .selected(is_cut)
+                        .min_size(Vec2::new(34.0, 20.0))
+                        .tooltip("Instant Cut transition (0 ms)");
+                    if ui.add(cut_btn).clicked() {
                         app.studio.transition_effect = TransitionEffect::Cut;
                     }
                     let is_fade = app.studio.transition_effect == TransitionEffect::Fade;
-                    if ui
-                        .selectable_label(is_fade, RichText::new("Fade").size(10.5))
-                        .on_hover_text("Smooth Crossfade transition")
-                        .clicked()
-                    {
+                    let fade_btn = crate::ui::button_3d::Button3D::new("Fade")
+                        .selected(is_fade)
+                        .min_size(Vec2::new(34.0, 20.0))
+                        .tooltip("Smooth Crossfade transition");
+                    if ui.add(fade_btn).clicked() {
                         app.studio.transition_effect = TransitionEffect::Fade;
                     }
                 });
@@ -472,8 +476,8 @@ fn render_single_viewport_card(
 
                     if let Some((cur_idx, total_count, pres_label)) = maybe_pres {
                         ui.add_space(8.0);
-                        let next_btn = egui::Button::new(RichText::new(format!("Next {}", icons::ARROW_RIGHT)).size(11.5))
-                            .min_size(Vec2::new(48.0, 19.0));
+                        let next_btn = crate::ui::button_3d::Button3D::new(format!("Next {}", icons::ARROW_RIGHT))
+                            .min_size(Vec2::new(52.0, 20.0));
                         if ui.add(next_btn).clicked() {
                             app.advance_presentation_slide(1);
                         }
@@ -485,8 +489,8 @@ fn render_single_viewport_card(
                                 .strong(),
                         );
 
-                        let prev_btn = egui::Button::new(RichText::new(format!("{} Prev", icons::ARROW_LEFT)).size(11.5))
-                            .min_size(Vec2::new(48.0, 19.0));
+                        let prev_btn = crate::ui::button_3d::Button3D::new(format!("{} Prev", icons::ARROW_LEFT))
+                            .min_size(Vec2::new(52.0, 20.0));
                         if ui.add(prev_btn).clicked() {
                             app.advance_presentation_slide(-1);
                         }
@@ -653,6 +657,9 @@ fn render_single_viewport_card(
                     }
                 }
 
+                let ctrl_held = ui.input(|i| i.modifiers.ctrl || i.modifiers.command);
+                let snapping_active = app.settings.snapping_enabled && !ctrl_held;
+
                 // Apply active drag delta (Move, 8-Handle Resize, or Alt-Crop)
                 if response.dragged() && app.preview_drag_mode != PreviewDragMode::None {
                     let delta = response.drag_delta();
@@ -660,13 +667,16 @@ fn render_single_viewport_card(
                         let mode = app.preview_drag_mode;
                         if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
                             if !src.locked {
-                                apply_transform_drag(
+                                let guides = apply_transform_drag(
                                     &mut src.transform,
                                     mode,
                                     delta,
                                     canvas_rect.size(),
                                     shift_held,
+                                    snapping_active,
+                                    &mut app.drag_raw_pos,
                                 );
+                                app.snap_guides_active = guides;
                             }
                         }
                         app.studio.sync_if_linked();
@@ -677,6 +687,8 @@ fn render_single_viewport_card(
                     || !ui.input(|i| i.pointer.primary_down() || i.pointer.secondary_down())
                 {
                     app.preview_drag_mode = PreviewDragMode::None;
+                    app.snap_guides_active = (false, false, false, false, false, false);
+                    app.drag_raw_pos = None;
                 }
 
                 // Update cursor icon secara instan (zero latency) berdasarkan hover / active drag state terkini
@@ -760,9 +772,8 @@ fn render_single_viewport_card(
                         app.copy_selected_source();
                     } else if ctrl {
                         if ui.input(|i| i.key_pressed(egui::Key::F)) {
-                            if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
-                                src.transform.fit_to_screen();
-                                app.studio.sync_if_linked();
+                            if let Some(src_id) = app.studio.preview_scene().selected_source_id {
+                                app.fit_source_to_screen(src_id);
                             }
                         } else if ui.input(|i| i.key_pressed(egui::Key::S)) {
                             if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
@@ -775,10 +786,37 @@ fn render_single_viewport_card(
                                 app.studio.sync_if_linked();
                             }
                         } else if ui.input(|i| i.key_pressed(egui::Key::R)) {
-                            if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
-                                src.transform.reset_transform();
-                                app.studio.sync_if_linked();
+                            if let Some(src_id) = app.studio.preview_scene().selected_source_id {
+                                app.reset_source_to_original_size(src_id);
                             }
+                        }
+                    } else if !ctrl {
+                        // Arrow keys: fine nudge layer position (1px or 10px with Shift)
+                        let shift = ui.input(|i| i.modifiers.shift);
+                        let step = if shift { 10.0 } else { 1.0 };
+                        let dx = step / canvas_rect.width().max(1.0);
+                        let dy = step / canvas_rect.height().max(1.0);
+
+                        let mut nudged = false;
+                        if ui.input(|i| i.key_pressed(egui::Key::ArrowLeft)) {
+                            if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
+                                if !src.locked { src.transform.pos_x -= dx; nudged = true; }
+                            }
+                        } else if ui.input(|i| i.key_pressed(egui::Key::ArrowRight)) {
+                            if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
+                                if !src.locked { src.transform.pos_x += dx; nudged = true; }
+                            }
+                        } else if ui.input(|i| i.key_pressed(egui::Key::ArrowUp)) {
+                            if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
+                                if !src.locked { src.transform.pos_y -= dy; nudged = true; }
+                            }
+                        } else if ui.input(|i| i.key_pressed(egui::Key::ArrowDown)) {
+                            if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
+                                if !src.locked { src.transform.pos_y += dy; nudged = true; }
+                            }
+                        }
+                        if nudged {
+                            app.studio.sync_if_linked();
                         }
                     }
                 }
@@ -1057,6 +1095,60 @@ fn render_single_viewport_card(
                 }
             }
 
+            // Dynamic Magnetic Snapping Visual Guides in Preview
+            if role == ViewportRole::Preview && app.preview_drag_mode != PreviewDragMode::None {
+                let (snap_cx, snap_left, snap_right, snap_cy, snap_top, snap_bottom) =
+                    app.snap_guides_active;
+                let guide_color = Color32::from_rgba_unmultiplied(0, 210, 255, 170); // Subtle cyan guide
+                let guide_stroke = Stroke::new(1.0_f32, guide_color);
+                let edge_stroke = Stroke::new(1.5_f32, guide_color);
+
+                // Vertical Center Line Guide
+                if snap_cx {
+                    let cx = canvas_rect.center().x;
+                    painter.line_segment(
+                        [Pos2::new(cx, canvas_rect.min.y), Pos2::new(cx, canvas_rect.max.y)],
+                        guide_stroke,
+                    );
+                }
+                // Horizontal Center Line Guide
+                if snap_cy {
+                    let cy = canvas_rect.center().y;
+                    painter.line_segment(
+                        [Pos2::new(canvas_rect.min.x, cy), Pos2::new(canvas_rect.max.x, cy)],
+                        guide_stroke,
+                    );
+                }
+                // Left Canvas Edge Guide
+                if snap_left {
+                    painter.line_segment(
+                        [canvas_rect.left_top(), canvas_rect.left_bottom()],
+                        edge_stroke,
+                    );
+                }
+                // Right Canvas Edge Guide
+                if snap_right {
+                    painter.line_segment(
+                        [canvas_rect.right_top(), canvas_rect.right_bottom()],
+                        edge_stroke,
+                    );
+                }
+                // Top Canvas Edge Guide
+                if snap_top {
+                    painter.line_segment(
+                        [canvas_rect.left_top(), canvas_rect.right_top()],
+                        edge_stroke,
+                    );
+                }
+                // Bottom Canvas Edge Guide
+                if snap_bottom {
+                    painter.line_segment(
+                        [canvas_rect.left_bottom(), canvas_rect.right_bottom()],
+                        edge_stroke,
+                    );
+                }
+            }
+
             // Broadcast Safe Margins Guide (90% action safe) in Preview
             if role == ViewportRole::Preview && app.settings.show_safe_margins {
                 let safe_rect = canvas_rect.shrink2(Vec2::new(
@@ -1170,10 +1262,9 @@ fn render_single_viewport_card(
                             }
                             ui.separator();
                             if ui.add(egui::Button::new("Fit to screen").shortcut_text("Ctrl+F")).clicked() {
-                                if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
-                                    src.transform.fit_to_screen();
+                                if let Some(src_id) = app.studio.preview_scene().selected_source_id {
+                                    app.fit_source_to_screen(src_id);
                                 }
-                                app.studio.sync_if_linked();
                                 ui.close_menu();
                             }
                             if ui.add(egui::Button::new("Stretch to screen").shortcut_text("Ctrl+S")).clicked() {
@@ -1206,10 +1297,9 @@ fn render_single_viewport_card(
                             }
                             ui.separator();
                             if ui.add(egui::Button::new(format!("{}  Reset Transform", icons::REFRESH)).shortcut_text("Ctrl+R")).clicked() {
-                                if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
-                                    src.transform.reset_transform();
+                                if let Some(src_id) = app.studio.preview_scene().selected_source_id {
+                                    app.reset_source_to_original_size(src_id);
                                 }
-                                app.studio.sync_if_linked();
                                 ui.close_menu();
                             }
                         });
@@ -1461,7 +1551,9 @@ fn apply_transform_drag(
     delta_px: Vec2,
     canvas_size: Vec2,
     shift_held: bool,
-) {
+    snapping: bool,
+    raw_pos: &mut Option<(f32, f32)>,
+) -> (bool, bool, bool, bool, bool, bool) {
     let (old_vx, old_vy, old_vw, old_vh) = t.visible_norm_rect();
     let (u0, v0, u1, v1) = t.uv_bounds();
     let uv_w = (u1 - u0).max(0.05);
@@ -1480,8 +1572,71 @@ fn apply_transform_drag(
 
     match mode {
         PreviewDragMode::Move => {
-            t.pos_x = (t.pos_x + dx).clamp(-0.90, 0.96);
-            t.pos_y = (t.pos_y + dy).clamp(-0.90, 0.96);
+            let mut snap_cx = false;
+            let mut snap_left = false;
+            let mut snap_right = false;
+            let mut snap_cy = false;
+            let mut snap_top = false;
+            let mut snap_bottom = false;
+
+            // Accumulate the RAW (unsnapped) pointer-following position across the whole drag.
+            // Snapping is then applied on top of the raw position each frame, so once the
+            // pointer moves past the threshold the layer releases naturally (no "sticky" lock).
+            let (raw_x, raw_y) = raw_pos.unwrap_or((t.pos_x, t.pos_y));
+            let raw_x = (raw_x + dx).clamp(-0.90, 0.96);
+            let raw_y = (raw_y + dy).clamp(-0.90, 0.96);
+            *raw_pos = Some((raw_x, raw_y));
+
+            let mut new_pos_x = raw_x;
+            let mut new_pos_y = raw_y;
+
+            if snapping {
+                let full_w = t.effective_width_norm();
+                let full_h = t.effective_height_norm();
+                let vis_w = (full_w * (u1 - u0)).max(0.02);
+                let vis_h = (full_h * (v1 - v0)).max(0.02);
+
+                let cur_vis_x = new_pos_x + full_w * u0;
+                let cur_vis_y = new_pos_y + full_h * v0;
+
+                // Subtle, OBS-like sensitivity: 6 screen pixels
+                let threshold_x = 6.0 / canvas_w;
+                let threshold_y = 6.0 / canvas_h;
+
+                // Center X Snap (0.5)
+                let center_x = cur_vis_x + vis_w * 0.5;
+                if (center_x - 0.5).abs() < threshold_x {
+                    new_pos_x = (0.5 - vis_w * 0.5) - full_w * u0;
+                    snap_cx = true;
+                } else if (cur_vis_x - 0.0).abs() < threshold_x {
+                    // Left Edge Snap (0.0)
+                    new_pos_x = 0.0 - full_w * u0;
+                    snap_left = true;
+                } else if ((cur_vis_x + vis_w) - 1.0).abs() < threshold_x {
+                    // Right Edge Snap (1.0)
+                    new_pos_x = (1.0 - vis_w) - full_w * u0;
+                    snap_right = true;
+                }
+
+                // Center Y Snap (0.5)
+                let center_y = cur_vis_y + vis_h * 0.5;
+                if (center_y - 0.5).abs() < threshold_y {
+                    new_pos_y = (0.5 - vis_h * 0.5) - full_h * v0;
+                    snap_cy = true;
+                } else if (cur_vis_y - 0.0).abs() < threshold_y {
+                    // Top Edge Snap (0.0)
+                    new_pos_y = 0.0 - full_h * v0;
+                    snap_top = true;
+                } else if ((cur_vis_y + vis_h) - 1.0).abs() < threshold_y {
+                    // Bottom Edge Snap (1.0)
+                    new_pos_y = (1.0 - vis_h) - full_h * v0;
+                    snap_bottom = true;
+                }
+            }
+
+            t.pos_x = new_pos_x;
+            t.pos_y = new_pos_y;
+            return (snap_cx, snap_left, snap_right, snap_cy, snap_top, snap_bottom);
         }
         PreviewDragMode::ResizeBottomRight => {
             if t.lock_aspect && !shift_held {
@@ -1586,6 +1741,7 @@ fn apply_transform_drag(
         }
         PreviewDragMode::None => {}
     }
+    (false, false, false, false, false, false)
 }
 
 pub(crate) fn render_scene_thumbnail(

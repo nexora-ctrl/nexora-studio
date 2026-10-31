@@ -321,6 +321,8 @@ pub const EYE_OFF: &str = "\u{ecf0}";
 pub const LOCK: &str = "\u{eae2}";
 /// `ti-lock-open` — Source Layer Unlocked
 pub const LOCK_OPEN: &str = "\u{eae1}";
+/// `ti-magnet` — Canvas Magnetic Snapping
+pub const MAGNET: &str = "\u{eae3}";
 
 /// `ti-plus` — Add Scene / Add Source
 pub const PLUS: &str = "\u{eb0b}";

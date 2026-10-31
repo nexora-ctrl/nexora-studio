@@ -958,11 +958,11 @@ impl Default for SourceTransform {
 
 impl SourceTransform {
     pub fn effective_width_norm(&self) -> f32 {
-        (self.scale * self.scale_x).clamp(0.05, 2.5)
+        (self.scale * self.scale_x).clamp(0.005, 10.0)
     }
 
     pub fn effective_height_norm(&self) -> f32 {
-        (self.scale * self.scale_y).clamp(0.05, 2.5)
+        (self.scale * self.scale_y).clamp(0.005, 10.0)
     }
 
     pub fn has_crop(&self) -> bool {
@@ -1103,6 +1103,47 @@ impl SourceTransform {
         self.rotation_deg = 0;
         self.flip_h = false;
         self.flip_v = false;
+    }
+
+    /// Resets layer to exact native 1:1 pixel size and aspect ratio on the canvas (OBS-style Reset Transform)
+    pub fn reset_to_native_size(&mut self, norm_w: f32, norm_h: f32) {
+        self.pos_x = 0.0;
+        self.pos_y = 0.0;
+        self.scale = 1.0;
+        self.scale_x = norm_w.max(0.001);
+        self.scale_y = norm_h.max(0.001);
+        self.reset_crop();
+        self.rotation_deg = 0;
+        self.flip_h = false;
+        self.flip_v = false;
+        self.lock_aspect = true;
+    }
+
+    /// Scales layer to fit within the canvas while strictly preserving its original aspect ratio and centering it (OBS-style Fit to Screen)
+    pub fn fit_to_screen_with_native_size(&mut self, norm_w: f32, norm_h: f32) {
+        self.reset_crop();
+        self.rotation_deg = 0;
+        self.flip_h = false;
+        self.flip_v = false;
+        self.lock_aspect = true;
+
+        if norm_w <= 0.0001 || norm_h <= 0.0001 {
+            self.reset_full_canvas();
+            return;
+        }
+
+        // Scale so that it fits cleanly within canvas boundaries (1.0x1.0) without stretching or distortion
+        let (fit_w, fit_h) = if norm_w >= norm_h {
+            (1.0, (norm_h / norm_w).clamp(0.01, 1.0))
+        } else {
+            ((norm_w / norm_h).clamp(0.01, 1.0), 1.0)
+        };
+
+        self.scale = 1.0;
+        self.scale_x = fit_w;
+        self.scale_y = fit_h;
+        self.pos_x = (1.0 - fit_w) * 0.5;
+        self.pos_y = (1.0 - fit_h) * 0.5;
     }
 }
 

@@ -1078,17 +1078,17 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         // Cancel button
-                        if ui.add(egui::Button::new("Cancel").min_size(Vec2::new(72.0, 24.0))).clicked() {
+                        if ui.add(crate::ui::button_3d::Button3D::new("Cancel").min_size(Vec2::new(72.0, 24.0))).clicked() {
                             cancel_triggered = true;
                         }
 
                         // Apply button
-                        if ui.add(egui::Button::new("Apply").min_size(Vec2::new(72.0, 24.0))).clicked() {
+                        if ui.add(crate::ui::button_3d::Button3D::new("Apply").min_size(Vec2::new(72.0, 24.0))).clicked() {
                             apply_triggered = true;
                         }
 
                         // OK button
-                        if ui.add(egui::Button::new(RichText::new("OK").strong()).min_size(Vec2::new(72.0, 24.0))).clicked() {
+                        if ui.add(crate::ui::button_3d::Button3D::primary("OK").min_size(Vec2::new(72.0, 24.0))).clicked() {
                             save_and_close = true;
                         }
                     });
@@ -1163,13 +1163,13 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 8.0;
                     if ui
-                        .add(egui::Button::new(RichText::new("  OK  ").strong()).min_size(Vec2::new(65.0, 24.0)))
+                        .add(crate::ui::button_3d::Button3D::primary("OK").min_size(Vec2::new(65.0, 24.0)))
                         .clicked()
                     {
                         confirm_add = true;
                     }
                     if ui
-                        .add(egui::Button::new("Cancel").min_size(Vec2::new(65.0, 24.0)))
+                        .add(crate::ui::button_3d::Button3D::new("Cancel").min_size(Vec2::new(65.0, 24.0)))
                         .clicked()
                     {
                         cancel_add = true;
@@ -1196,7 +1196,6 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
     // 2. Rename Scene Modal Dialog
     if app.show_rename_scene_dialog {
         let mut open = app.show_rename_scene_dialog;
-        let p = ThemePalette::for_mode(app.settings.theme);
         let win_resp = egui::Window::new("Rename Scene")
             .id(egui::Id::new("nexora_rename_scene_modal_win"))
             .order(egui::Order::Foreground)
@@ -1217,13 +1216,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 8.0;
                     if ui
-                        .add(
-                            egui::Button::new(
-                                RichText::new("Apply").strong().color(egui::Color32::WHITE),
-                            )
-                            .fill(p.accent_preview)
-                            .min_size(Vec2::new(70.0, 24.0)),
-                        )
+                        .add(crate::ui::button_3d::Button3D::primary("Apply").min_size(Vec2::new(70.0, 24.0)))
                         .clicked()
                     {
                         let trimmed = app.rename_scene_buffer.trim();
@@ -1234,7 +1227,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                         app.show_rename_scene_dialog = false;
                     }
                     if ui
-                        .add(egui::Button::new("Cancel").min_size(Vec2::new(70.0, 24.0)))
+                        .add(crate::ui::button_3d::Button3D::new("Cancel").min_size(Vec2::new(70.0, 24.0)))
                         .clicked()
                     {
                         app.show_rename_scene_dialog = false;
@@ -1254,7 +1247,6 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
     // 3. Rename Source Modal Dialog (F2 / Right-Click -> Rename...)
     if app.show_rename_source_dialog {
         let mut open = app.show_rename_source_dialog;
-        let p = ThemePalette::for_mode(app.settings.theme);
         let win_resp = egui::Window::new("Rename Source")
             .id(egui::Id::new("nexora_rename_source_modal_win"))
             .order(egui::Order::Foreground)
@@ -1275,13 +1267,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 8.0;
                     if ui
-                        .add(
-                            egui::Button::new(
-                                RichText::new("Apply").strong().color(egui::Color32::WHITE),
-                            )
-                            .fill(p.accent_preview)
-                            .min_size(Vec2::new(70.0, 24.0)),
-                        )
+                        .add(crate::ui::button_3d::Button3D::primary("Apply").min_size(Vec2::new(70.0, 24.0)))
                         .clicked()
                     {
                         let trimmed = app.rename_source_buffer.trim();
@@ -1295,7 +1281,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                         app.show_rename_source_dialog = false;
                     }
                     if ui
-                        .add(egui::Button::new("Cancel").min_size(Vec2::new(70.0, 24.0)))
+                        .add(crate::ui::button_3d::Button3D::new("Cancel").min_size(Vec2::new(70.0, 24.0)))
                         .clicked()
                     {
                         app.show_rename_source_dialog = false;
@@ -1401,20 +1387,11 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                         | SourceKind::WebcamDevice { .. }
                                 );
                                 if is_device_source {
-                                    if ui
-                                        .add(
-                                            egui::Button::new(
-                                                RichText::new(format!(
-                                                    "{} Refresh Devices",
-                                                    icons::REFRESH
-                                                ))
-                                                .size(11.5),
-                                            )
-                                            .min_size(Vec2::new(116.0, 22.0)),
-                                        )
-                                        .on_hover_text("Re-scan connected displays, cameras, and open windows")
-                                        .clicked()
-                                    {
+                                    let refresh_btn = crate::ui::button_3d::Button3D::new("Refresh Devices")
+                                        .icon(icons::REFRESH)
+                                        .min_size(Vec2::new(120.0, 22.0))
+                                        .tooltip("Re-scan connected displays, cameras, and open windows");
+                                    if ui.add(refresh_btn).clicked() {
                                         refresh_catalog = true;
                                     }
                                 }
@@ -1693,15 +1670,11 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                 standard_singleline_text(file_path, "Select .mp4, .mkv, .mp3, .wav..."),
                                             )
                                             .changed();
-                                        if ui
-                                            .add(
-                                                egui::Button::new(format!("{} Browse...", icons::FOLDER_OPEN))
-                                                    .min_size(Vec2::new(btn_w, PROP_FIELD_H)),
-                                            )
-                                            .on_hover_text(
-                                                "Browse local Video (.mp4, .mkv, .mov, .avi) or Audio (.mp3, .wav, .flac, .m4a) file",
-                                            )
-                                            .clicked()
+                                        let browse_btn = crate::ui::button_3d::Button3D::new("Browse...")
+                                            .icon(icons::FOLDER_OPEN)
+                                            .min_size(Vec2::new(btn_w, PROP_FIELD_H))
+                                            .tooltip("Browse local Video (.mp4, .mkv, .mov, .avi) or Audio (.mp3, .wav, .flac, .m4a) file");
+                                        if ui.add(browse_btn).clicked()
                                         {
                                             if let Some(picked) =
                                                 crate::platform::pick_media_file_dialog()
@@ -1878,19 +1851,28 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                 standard_singleline_text(file_path, "Select .png, .jpg, .webp..."),
                                             )
                                             .changed();
-                                        if ui
-                                            .add(
-                                                egui::Button::new(format!("{} Browse...", icons::FOLDER_OPEN))
-                                                    .min_size(Vec2::new(btn_w, PROP_FIELD_H)),
-                                            )
-                                            .on_hover_text("Browse local image file (.png, .jpg, .bmp, .webp)")
-                                            .clicked()
+                                        let browse_btn = crate::ui::button_3d::Button3D::new("Browse...")
+                                            .icon(icons::FOLDER_OPEN)
+                                            .min_size(Vec2::new(btn_w, PROP_FIELD_H))
+                                            .tooltip("Browse local image file (.png, .jpg, .bmp, .webp)");
+                                        if ui.add(browse_btn).clicked()
                                         {
                                             if let Some(picked) =
                                                 crate::platform::pick_image_file_dialog()
                                             {
-                                                *file_path =
-                                                    picked.to_string_lossy().to_string();
+                                                let p_str = picked.to_string_lossy().to_string();
+                                                *file_path = p_str.clone();
+                                                if let Ok((w, h)) = image::image_dimensions(&p_str) {
+                                                    let (cw, ch) = app.settings.video_preset.dimensions();
+                                                    let norm_w = w as f32 / cw.max(1) as f32;
+                                                    let norm_h = h as f32 / ch.max(1) as f32;
+                                                    if norm_w > 1.0 || norm_h > 1.0 {
+                                                        src.transform.fit_to_screen_with_native_size(norm_w, norm_h);
+                                                    } else {
+                                                        src.transform.reset_to_native_size(norm_w, norm_h);
+                                                        src.transform.center_to_screen();
+                                                    }
+                                                }
                                                 any_changed = true;
                                             }
                                         }
@@ -2390,12 +2372,10 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                 standard_singleline_text_width(presentation_name, "Nama presentasi PPT...", input_w),
                                             )
                                             .changed();
-                                        if ui
-                                            .add(
-                                                egui::Button::new(format!("{} Browse", icons::FOLDER_OPEN))
-                                                    .min_size(Vec2::new(btn_w, PROP_FIELD_H)),
-                                            )
-                                            .clicked()
+                                        let browse_btn = crate::ui::button_3d::Button3D::new("Browse")
+                                            .icon(icons::FOLDER_OPEN)
+                                            .min_size(Vec2::new(btn_w, PROP_FIELD_H));
+                                        if ui.add(browse_btn).clicked()
                                         {
                                             if let Some(path) = crate::platform::pick_powerpoint_file_dialog() {
                                                 let p_str = path.to_string_lossy().to_string();
@@ -2490,12 +2470,10 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                 standard_singleline_text_width(document_name, "Nama dokumen PDF...", input_w),
                                             )
                                             .changed();
-                                        if ui
-                                            .add(
-                                                egui::Button::new(format!("{} Browse", icons::FOLDER_OPEN))
-                                                    .min_size(Vec2::new(btn_w, PROP_FIELD_H)),
-                                            )
-                                            .clicked()
+                                        let browse_btn = crate::ui::button_3d::Button3D::new("Browse")
+                                            .icon(icons::FOLDER_OPEN)
+                                            .min_size(Vec2::new(btn_w, PROP_FIELD_H));
+                                        if ui.add(browse_btn).clicked()
                                         {
                                             if let Some(path) = crate::platform::pick_pdf_file_dialog() {
                                                 let p_str = path.to_string_lossy().to_string();
@@ -2817,13 +2795,39 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                         ui.spacing_mut().button_padding = egui::vec2(6.0, 3.0);
                         let preset_btn = |ui: &mut egui::Ui, label: &str| -> bool {
                             ui.add(
-                                egui::Button::new(RichText::new(label).size(11.5))
+                                crate::ui::button_3d::Button3D::new(label)
                                     .min_size(Vec2::new(0.0, 22.0)),
                             )
                             .clicked()
                         };
                         if preset_btn(ui, "Fit to Screen") {
-                            src.transform.fit_to_screen();
+                            let (cw, ch) = app.settings.video_preset.dimensions();
+                            if let Some((nw, nh)) = NexoraApp::resolve_source_dimensions(
+                                src,
+                                &app.capture_engine,
+                                &app.capture_catalog,
+                            ) {
+                                let norm_w = nw as f32 / cw.max(1) as f32;
+                                let norm_h = nh as f32 / ch.max(1) as f32;
+                                src.transform.fit_to_screen_with_native_size(norm_w, norm_h);
+                            } else {
+                                src.transform.fit_to_screen();
+                            }
+                            any_changed = true;
+                        }
+                        if preset_btn(ui, "Original Size (1:1)") {
+                            let (cw, ch) = app.settings.video_preset.dimensions();
+                            if let Some((nw, nh)) = NexoraApp::resolve_source_dimensions(
+                                src,
+                                &app.capture_engine,
+                                &app.capture_catalog,
+                            ) {
+                                let norm_w = nw as f32 / cw.max(1) as f32;
+                                let norm_h = nh as f32 / ch.max(1) as f32;
+                                src.transform.reset_to_native_size(norm_w, norm_h);
+                            } else {
+                                src.transform.reset_transform();
+                            }
                             any_changed = true;
                         }
                         if preset_btn(ui, "Stretch") {
@@ -2891,7 +2895,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                         if src.transform.has_crop()
                             && ui
                                 .add(
-                                    egui::Button::new(RichText::new("Reset Crop").size(11.5))
+                                    crate::ui::button_3d::Button3D::new("Reset Crop")
                                         .min_size(Vec2::new(0.0, 22.0)),
                                 )
                                 .clicked()
@@ -2945,11 +2949,8 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                         Vec2::new(495.0, 26.0),
                         egui::Layout::right_to_left(egui::Align::Center),
                         |ui| {
-                            let ok_btn = egui::Button::new(
-                                RichText::new("OK").strong().size(12.0).color(egui::Color32::WHITE),
-                            )
-                            .fill(p.accent_preview)
-                            .min_size(Vec2::new(80.0, 26.0));
+                            let ok_btn = crate::ui::button_3d::Button3D::primary("OK")
+                                .min_size(Vec2::new(80.0, 26.0));
                             if ui.add(ok_btn).clicked() {
                                 close_clicked = true;
                             }
@@ -3640,18 +3641,15 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                         egui::Layout::right_to_left(egui::Align::Center),
                         |ui| {
                             if ui
-                                .add(
-                                    egui::Button::new(
-                                        RichText::new("Done").strong().size(12.0).color(egui::Color32::WHITE),
-                                    )
-                                    .fill(p.accent_preview)
-                                    .min_size(Vec2::new(76.0, 24.0)),
-                                )
+                                .add(crate::ui::button_3d::Button3D::primary("Done").min_size(Vec2::new(76.0, 24.0)))
                                 .clicked()
                             {
                                 done_clicked = true;
                             }
-                            if ui.add(egui::Button::new(format!("{} Reset Default", icons::REFRESH)).min_size(Vec2::new(115.0, 24.0))).clicked() {
+                            let reset_btn = crate::ui::button_3d::Button3D::new("Reset Default")
+                                .icon(icons::REFRESH)
+                                .min_size(Vec2::new(115.0, 24.0));
+                            if ui.add(reset_btn).clicked() {
                                 let k = src.filter.kind;
                                 src.filter = crate::studio::source::SourceFilterConfig::default();
                                 src.filter.kind = k;
@@ -3713,13 +3711,15 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
             }
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                if ui
-                    .button(format!("{} Save Preset", icons::DEVICE_FLOPPY))
-                    .clicked()
-                {
+                let save_btn = crate::ui::button_3d::Button3D::primary("Save Preset")
+                    .icon(icons::DEVICE_FLOPPY)
+                    .min_size(Vec2::new(100.0, 24.0));
+                if ui.add(save_btn).clicked() {
                     save_triggered = true;
                 }
-                if ui.button("Cancel").clicked() {
+                let cancel_btn = crate::ui::button_3d::Button3D::new("Cancel")
+                    .min_size(Vec2::new(70.0, 24.0));
+                if ui.add(cancel_btn).clicked() {
                     cancel_triggered = true;
                 }
             });
@@ -4152,7 +4152,10 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                                 ui.label("Select Image File:");
                                 ui.horizontal(|ui| {
                                     ui.add_sized(Vec2::new(225.0, 24.0), standard_singleline_text(&mut app.add_source_file_path, "Image file path..."));
-                                    if ui.button(format!("{} Browse...", icons::FOLDER_OPEN)).clicked() {
+                                    let browse_btn = crate::ui::button_3d::Button3D::new("Browse...")
+                                        .icon(icons::FOLDER_OPEN)
+                                        .min_size(Vec2::new(95.0, 24.0));
+                                    if ui.add(browse_btn).clicked() {
                                         if let Some(path) = crate::platform::pick_image_file_dialog() {
                                             app.add_source_file_path = path.to_string_lossy().to_string();
                                             if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
@@ -4168,7 +4171,10 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                                 ui.label("Select Video or Audio File:");
                                 ui.horizontal(|ui| {
                                     ui.add_sized(Vec2::new(225.0, 24.0), standard_singleline_text(&mut app.add_source_file_path, "Video/audio file path..."));
-                                    if ui.button(format!("{} Browse...", icons::FOLDER_OPEN)).clicked() {
+                                    let browse_btn = crate::ui::button_3d::Button3D::new("Browse...")
+                                        .icon(icons::FOLDER_OPEN)
+                                        .min_size(Vec2::new(95.0, 24.0));
+                                    if ui.add(browse_btn).clicked() {
                                         if let Some(path) = crate::platform::pick_media_file_dialog() {
                                             app.add_source_file_path = path.to_string_lossy().to_string();
                                             if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
@@ -4216,7 +4222,10 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                                     if ui.add_sized(Vec2::new(225.0, 24.0), egui::TextEdit::singleline(&mut display_p)).changed() {
                                         app.add_source_file_path = display_p;
                                     }
-                                    if ui.button(format!("{} Browse...", icons::FOLDER_OPEN)).clicked() {
+                                    let browse_btn = crate::ui::button_3d::Button3D::new("Browse...")
+                                        .icon(icons::FOLDER_OPEN)
+                                        .min_size(Vec2::new(95.0, 24.0));
+                                    if ui.add(browse_btn).clicked() {
                                         if let Some(path) = crate::platform::pick_powerpoint_file_dialog() {
                                             app.add_source_file_path = path.to_string_lossy().to_string();
                                             if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
@@ -4235,7 +4244,10 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                                     if ui.add_sized(Vec2::new(input_w, 24.0), standard_singleline_text(&mut display_p, "Select PDF file...")).changed() {
                                         app.add_source_file_path = display_p;
                                     }
-                                    if ui.add(egui::Button::new(format!("{} Browse", icons::FOLDER_OPEN)).min_size(Vec2::new(btn_w, 24.0))).clicked() {
+                                    let browse_btn = crate::ui::button_3d::Button3D::new("Browse")
+                                        .icon(icons::FOLDER_OPEN)
+                                        .min_size(Vec2::new(btn_w, 24.0));
+                                    if ui.add(browse_btn).clicked() {
                                         if let Some(path) = crate::platform::pick_pdf_file_dialog() {
                                             app.add_source_file_path = path.to_string_lossy().to_string();
                                             if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
@@ -4310,13 +4322,9 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                             Vec2::new(ui.available_width(), 28.0),
                             egui::Layout::right_to_left(egui::Align::Center),
                             |ui| {
-                                let add_btn = egui::Button::new(
-                                    RichText::new(format!("{} Add Source", icons::PLUS))
-                                        .strong()
-                                        .color(egui::Color32::WHITE),
-                                )
-                                .fill(p.accent_primary)
-                                .min_size(Vec2::new(125.0, 28.0));
+                                let add_btn = crate::ui::button_3d::Button3D::primary("Add Source")
+                                    .icon(icons::PLUS)
+                                    .min_size(Vec2::new(125.0, 28.0));
 
                                 if ui.add(add_btn).clicked() {
                                     if let Some(item) = validate_and_create_source(app) {
@@ -4329,10 +4337,10 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                                     }
                                 }
 
-                                if ui
-                                    .add(egui::Button::new("Cancel").min_size(Vec2::new(80.0, 28.0)))
-                                    .clicked()
-                                {
+                                let cancel_btn = crate::ui::button_3d::Button3D::new("Cancel")
+                                    .min_size(Vec2::new(80.0, 28.0));
+
+                                if ui.add(cancel_btn).clicked() {
                                     app.show_add_source_dialog = false;
                                 }
                             },
@@ -4411,13 +4419,25 @@ fn validate_and_create_source(app: &mut NexoraApp) -> Option<crate::studio::sour
                 app.add_source_error_message = Some("Image file not found at the specified path.".to_string());
                 return None;
             }
-            Some(SourceItem::new(
+            let mut item = SourceItem::new(
                 name,
                 SourceKind::ImageSource {
                     file_path: trimmed_path.to_string(),
                     opacity: 1.0,
                 },
-            ))
+            );
+            if let Ok((w, h)) = image::image_dimensions(trimmed_path) {
+                let (cw, ch) = app.settings.video_preset.dimensions();
+                let norm_w = w as f32 / cw.max(1) as f32;
+                let norm_h = h as f32 / ch.max(1) as f32;
+                if norm_w > 1.0 || norm_h > 1.0 {
+                    item.transform.fit_to_screen_with_native_size(norm_w, norm_h);
+                } else {
+                    item.transform.reset_to_native_size(norm_w, norm_h);
+                    item.transform.center_to_screen();
+                }
+            }
+            Some(item)
         }
         crate::studio::source::AddSourceType::MediaSource => {
             let trimmed_path = app.add_source_file_path.trim();
@@ -4923,16 +4943,13 @@ pub fn render_virtual_camera_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
             // OK and Cancel buttons
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.add(
-                    egui::Button::new(RichText::new("Cancel").size(12.0))
-                        .min_size(Vec2::new(72.0, 24.0))
+                    crate::ui::button_3d::Button3D::new("Cancel").min_size(Vec2::new(72.0, 24.0))
                 ).clicked() {
                     app.show_virtual_camera_dialog = false;
                 }
 
                 if ui.add(
-                    egui::Button::new(RichText::new("OK").strong().size(12.0).color(egui::Color32::WHITE))
-                        .fill(p.accent_preview)
-                        .min_size(Vec2::new(72.0, 24.0))
+                    crate::ui::button_3d::Button3D::primary("OK").min_size(Vec2::new(72.0, 24.0))
                 ).clicked() {
                     app.virtual_camera_output_type = app.virtual_camera_dialog_draft_type;
                     app.virtual_camera_scene_id = app.virtual_camera_dialog_draft_scene_id;

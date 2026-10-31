@@ -183,6 +183,7 @@ impl MediaDecodeScale {
 /// A saved Screen & Layout configuration profile including scenes, sources,
 /// screen/camera transforms, audio mixer devices & levels, and UI dock layout.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ScreenLayoutPreset {
     pub name: String,
     pub updated_at: String,
@@ -191,10 +192,30 @@ pub struct ScreenLayoutPreset {
     pub preview_fit_to_window: bool,
     pub preview_zoom: f32,
     pub show_safe_margins: bool,
+    pub snapping_enabled: bool,
     pub video_preset: VideoPreset,
     pub bitrate_preset: BitratePreset,
     pub studio: StudioState,
     pub audio_mixer: AudioMixerState,
+}
+
+impl Default for ScreenLayoutPreset {
+    fn default() -> Self {
+        Self {
+            name: "Default Studio Layout".to_string(),
+            updated_at: String::new(),
+            panels: PanelVisibility::default(),
+            dock_height: 245.0,
+            preview_fit_to_window: true,
+            preview_zoom: 1.0,
+            show_safe_margins: true,
+            snapping_enabled: true,
+            video_preset: VideoPreset::FullHd60,
+            bitrate_preset: BitratePreset::High12Mbps,
+            studio: StudioState::default(),
+            audio_mixer: AudioMixerState::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -209,6 +230,7 @@ pub struct AppSettings {
     pub preview_fit_to_window: bool,
     pub preview_zoom: f32,
     pub show_safe_margins: bool,
+    pub snapping_enabled: bool,
     pub window_size: (f32, f32),
     pub window_pos: Option<(f32, f32)>,
     pub window_maximized: bool,
@@ -235,6 +257,7 @@ impl Default for AppSettings {
             preview_fit_to_window: true,
             preview_zoom: 1.0,
             show_safe_margins: true,
+            snapping_enabled: true,
             window_size: (1340.0, 760.0),
             window_pos: None,
             window_maximized: true,

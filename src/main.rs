@@ -180,6 +180,7 @@ mod tests {
             preview_fit_to_window: true,
             preview_zoom: 1.0,
             show_safe_margins: true,
+            snapping_enabled: true,
             video_preset: settings.video_preset,
             bitrate_preset: settings.bitrate_preset,
             studio: StudioState::default(),
@@ -287,6 +288,55 @@ mod tests {
         let updater = UpdaterState::default();
         assert_eq!(updater.status, UpdateStatus::Idle);
         assert_eq!(updater.current_version, "0.6.0");
+    }
+
+    #[test]
+    fn test_reset_transform_to_native_dimensions_and_aspect_ratio() {
+        use crate::studio::source::SourceTransform;
+
+        let mut transform = SourceTransform::default();
+        // Modify transform (rotated, cropped, flipped, stretched)
+        transform.rotate_cw_90();
+        transform.flip_horizontal();
+        transform.crop_left = 0.2;
+        transform.scale_x = 1.0;
+        transform.scale_y = 1.0;
+
+        // Native square image (500x500) on 1920x1080 canvas
+        let canvas_w = 1920.0_f32;
+        let canvas_h = 1080.0_f32;
+        let native_w = 500.0_f32;
+        let native_h = 500.0_f32;
+        let norm_w = native_w / canvas_w;
+        let norm_h = native_h / canvas_h;
+
+        // Reset to native size
+        transform.reset_to_native_size(norm_w, norm_h);
+
+        assert_eq!(transform.rotation_deg, 0);
+        assert!(!transform.flip_h);
+        assert!(!transform.flip_v);
+        assert!(!transform.has_crop());
+        assert!(transform.lock_aspect);
+        assert_eq!(transform.pos_x, 0.0);
+        assert_eq!(transform.pos_y, 0.0);
+        assert!((transform.scale_x - norm_w).abs() < 1e-4);
+        assert!((transform.scale_y - norm_h).abs() < 1e-4);
+
+        // Aspect ratio on canvas: (scale_x * canvas_w) / (scale_y * canvas_h) == 1.0 (square 1:1)
+        let rendered_px_w = transform.effective_width_norm() * canvas_w;
+        let rendered_px_h = transform.effective_height_norm() * canvas_h;
+        assert!((rendered_px_w - 500.0).abs() < 0.1);
+        assert!((rendered_px_h - 500.0).abs() < 0.1);
+
+        // Fit to screen with native size
+        transform.fit_to_screen_with_native_size(norm_w, norm_h);
+        assert!(transform.lock_aspect);
+        // Height should fit canvas (1080), width should be 1080 (500:500 aspect ratio)
+        let fit_px_w = transform.effective_width_norm() * canvas_w;
+        let fit_px_h = transform.effective_height_norm() * canvas_h;
+        assert!((fit_px_h - 1080.0).abs() < 0.1);
+        assert!((fit_px_w - 1080.0).abs() < 0.1);
     }
 }
 

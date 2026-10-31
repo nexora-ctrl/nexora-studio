@@ -154,6 +154,9 @@ pub struct NexoraApp {
     pub show_virtual_camera_dialog: bool,
     pub virtual_camera_dialog_draft_type: VirtualCameraOutputType,
     pub virtual_camera_dialog_draft_scene_id: Option<uuid::Uuid>,
+    pub perf_monitor: crate::platform::perf::PerformanceMonitor,
+    pub snap_guides_active: (bool, bool, bool, bool, bool, bool),
+    pub drag_raw_pos: Option<(f32, f32)>,
     undo_stack: Vec<UndoSnapshot>,
     redo_stack: Vec<UndoSnapshot>,
     committed_snapshot: UndoSnapshot,
@@ -237,6 +240,7 @@ impl NexoraApp {
                 preview_fit_to_window: settings.preview_fit_to_window,
                 preview_zoom: settings.preview_zoom,
                 show_safe_margins: settings.show_safe_margins,
+                snapping_enabled: settings.snapping_enabled,
                 video_preset: settings.video_preset,
                 bitrate_preset: settings.bitrate_preset,
                 studio: studio.clone(),
@@ -316,6 +320,9 @@ impl NexoraApp {
             show_virtual_camera_dialog: false,
             virtual_camera_dialog_draft_type: VirtualCameraOutputType::Program,
             virtual_camera_dialog_draft_scene_id: None,
+            perf_monitor: crate::platform::perf::PerformanceMonitor::new(),
+            snap_guides_active: (false, false, false, false, false, false),
+            drag_raw_pos: None,
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             committed_snapshot: initial_snapshot,
@@ -1032,6 +1039,7 @@ impl NexoraApp {
             preview_fit_to_window: self.settings.preview_fit_to_window,
             preview_zoom: self.settings.preview_zoom,
             show_safe_margins: self.settings.show_safe_margins,
+            snapping_enabled: self.settings.snapping_enabled,
             video_preset: self.settings.video_preset,
             bitrate_preset: self.settings.bitrate_preset,
             studio: self.studio.clone(),
@@ -1062,6 +1070,7 @@ impl NexoraApp {
             self.settings.preview_fit_to_window = preset.preview_fit_to_window;
             self.settings.preview_zoom = preset.preview_zoom;
             self.settings.show_safe_margins = preset.show_safe_margins;
+            self.settings.snapping_enabled = preset.snapping_enabled;
             self.settings.video_preset = preset.video_preset;
             self.settings.bitrate_preset = preset.bitrate_preset;
             self.settings.active_layout_name = preset.name.clone();
@@ -1379,6 +1388,173 @@ impl NexoraApp {
         }
     }
 
+    /// Resolves the true native pixel dimensions (width, height) of any source kind
+    pub fn resolve_source_dimensions(
+        src: &crate::studio::source::SourceItem,
+        capture_engine: &crate::capture::LiveCaptureEngine,
+        capture_catalog: &crate::capture::CaptureCatalog,
+    ) -> Option<(u32, u32)> {
+        use crate::studio::source::SourceKind;
+        match &src.kind {
+            SourceKind::ImageSource { file_path, .. } => {
+                let key = format!("IMG:{}", file_path);
+                if let Some((w, h)) = capture_engine.get_frame_dimensions(&key) {
+                    return Some((w as u32, h as u32));
+                }
+                if let Ok((w, h)) = image::image_dimensions(file_path) {
+                    return Some((w, h));
+                }
+                None
+            }
+            SourceKind::ImageSlideShow { files, .. } => {
+                for f in files {
+                    if !f.trim().is_empty() {
+                        let key = format!("IMG:{}", f);
+                        if let Some((w, h)) = capture_engine.get_frame_dimensions(&key) {
+                            return Some((w as u32, h as u32));
+                        }
+                        if let Ok((w, h)) = image::image_dimensions(f) {
+                            return Some((w, h));
+                        }
+                    }
+                }
+                None
+            }
+            SourceKind::MediaSource { file_path, .. } => {
+                let key = format!("MEDIA:{}", file_path);
+                if let Some((w, h)) = capture_engine.get_frame_dimensions(&key) {
+                    return Some((w as u32, h as u32));
+                }
+                if let Ok((w, h)) = image::image_dimensions(file_path) {
+                    return Some((w, h));
+                }
+                Some((1920, 1080))
+            }
+            SourceKind::DisplayCapture { monitor_id, resolution, .. } => {
+                if let Some(disp) = capture_catalog.find_display(monitor_id) {
+                    if disp.width > 0 && disp.height > 0 {
+                        return Some((disp.width, disp.height));
+                    }
+                }
+                if resolution.0 > 0 && resolution.1 > 0 {
+                    return Some(*resolution);
+                }
+                let key = format!("DISP:{}:true", monitor_id);
+                if let Some((w, h)) = capture_engine.get_frame_dimensions(&key) {
+                    return Some((w as u32, h as u32));
+                }
+                None
+            }
+            SourceKind::WindowCapture { window_hwnd, .. }
+            | SourceKind::GameCapture { window_hwnd, .. } => {
+                let key_cur = format!("WIN:{}:true", window_hwnd);
+                if let Some((w, h)) = capture_engine.get_frame_dimensions(&key_cur) {
+                    return Some((w as u32, h as u32));
+                }
+                let key_nocur = format!("WIN:{}:false", window_hwnd);
+                if let Some((w, h)) = capture_engine.get_frame_dimensions(&key_nocur) {
+                    return Some((w as u32, h as u32));
+                }
+                if *window_hwnd != 0 {
+                    if let Some(dims) = crate::capture::get_window_size(*window_hwnd) {
+                        return Some(dims);
+                    }
+                }
+                None
+            }
+            SourceKind::WebcamDevice { resolution, device_id, .. } => {
+                if resolution.0 > 0 && resolution.1 > 0 {
+                    return Some(*resolution);
+                }
+                let key = format!("CAM:{}:{}x{}", device_id, resolution.0, resolution.1);
+                if let Some((w, h)) = capture_engine.get_frame_dimensions(&key) {
+                    return Some((w as u32, h as u32));
+                }
+                Some((1280, 720))
+            }
+            SourceKind::PowerPointSource { window_hwnd, slides, slide_index, .. } => {
+                if *window_hwnd != 0 {
+                    if let Some(dims) = crate::capture::get_window_size(*window_hwnd) {
+                        return Some(dims);
+                    }
+                }
+                if let Some(slide_path) = slides.get(*slide_index).or_else(|| slides.first()) {
+                    if let Ok((w, h)) = image::image_dimensions(slide_path) {
+                        return Some((w, h));
+                    }
+                }
+                Some((1920, 1080))
+            }
+            SourceKind::PdfSource { pages, page_index, .. } => {
+                if let Some(page_path) = pages.get(*page_index).or_else(|| pages.first()) {
+                    if let Ok((w, h)) = image::image_dimensions(page_path) {
+                        return Some((w, h));
+                    }
+                }
+                Some((1920, 1080))
+            }
+            SourceKind::ColorSource { width, height, .. } => Some((*width, *height)),
+            SourceKind::BrowserSource { width, height, .. } => Some((*width, *height)),
+            SourceKind::TimeSource { .. } => Some((380, 110)),
+            SourceKind::TextGdiPlus { .. } => Some((800, 120)),
+            _ => None,
+        }
+    }
+
+    /// Resets source transform to its 1:1 original native pixel size and natural aspect ratio
+    pub fn reset_source_to_original_size(&mut self, source_id: uuid::Uuid) {
+        let (canvas_w, canvas_h) = self.settings.video_preset.dimensions();
+        let scene = self.studio.preview_scene_mut();
+        if let Some(src) = scene.sources.iter_mut().find(|s| s.id == source_id) {
+            let maybe_dims = Self::resolve_source_dimensions(
+                src,
+                &self.capture_engine,
+                &self.capture_catalog,
+            );
+            if let Some((nw, nh)) = maybe_dims {
+                if nw > 0 && nh > 0 {
+                    let norm_w = nw as f32 / canvas_w.max(1) as f32;
+                    let norm_h = nh as f32 / canvas_h.max(1) as f32;
+                    src.transform.reset_to_native_size(norm_w, norm_h);
+                    self.recording.last_message = format!("Reset '{}' ke ukuran asli ({}x{})", src.name, nw, nh);
+                } else {
+                    src.transform.reset_transform();
+                    self.recording.last_message = format!("Reset transform '{}'", src.name);
+                }
+            } else {
+                src.transform.reset_transform();
+                self.recording.last_message = format!("Reset transform '{}'", src.name);
+            }
+        }
+        self.studio.sync_if_linked();
+    }
+
+    /// Fits source cleanly inside canvas while preserving its original aspect ratio and centering it
+    pub fn fit_source_to_screen(&mut self, source_id: uuid::Uuid) {
+        let (canvas_w, canvas_h) = self.settings.video_preset.dimensions();
+        let scene = self.studio.preview_scene_mut();
+        if let Some(src) = scene.sources.iter_mut().find(|s| s.id == source_id) {
+            let maybe_dims = Self::resolve_source_dimensions(
+                src,
+                &self.capture_engine,
+                &self.capture_catalog,
+            );
+            if let Some((nw, nh)) = maybe_dims {
+                if nw > 0 && nh > 0 {
+                    let norm_w = nw as f32 / canvas_w.max(1) as f32;
+                    let norm_h = nh as f32 / canvas_h.max(1) as f32;
+                    src.transform.fit_to_screen_with_native_size(norm_w, norm_h);
+                    self.recording.last_message = format!("Fit '{}' to screen ({}x{})", src.name, nw, nh);
+                } else {
+                    src.transform.fit_to_screen();
+                }
+            } else {
+                src.transform.fit_to_screen();
+            }
+        }
+        self.studio.sync_if_linked();
+    }
+
     pub fn can_undo(&self) -> bool {
         !self.undo_stack.is_empty() || self.compute_undoable_hash() != self.committed_hash
     }
@@ -1484,6 +1660,7 @@ impl eframe::App for NexoraApp {
             crate::platform::updater::check_for_updates_async(self.updater.clone(), ctx.clone());
         }
 
+        self.perf_monitor.on_frame();
         let time_sec = ctx.input(|i| i.time);
         self.audio_mixer.tick_meters(time_sec);
         self.sync_active_capture_requests();

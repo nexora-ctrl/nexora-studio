@@ -76,6 +76,72 @@ pub fn render_status_bar(ctx: &egui::Context, app: &NexoraApp) {
                     );
                 }
 
+                ui.separator();
+
+                // Real-Time Render FPS
+                let real_fps = app.perf_monitor.render_fps;
+                let fps_color = if real_fps >= 55.0 {
+                    p.meter_ok
+                } else if real_fps >= 30.0 {
+                    p.meter_warn
+                } else {
+                    p.rec_red
+                };
+                ui.label(
+                    RichText::new(format!("{:.1} FPS", real_fps))
+                        .small()
+                        .monospace()
+                        .strong()
+                        .color(fps_color),
+                )
+                .on_hover_text("Real-time measured UI & canvas render framerate");
+
+                ui.separator();
+
+                // CPU Load (%)
+                let cpu_pct = app.perf_monitor.cpu_usage_pct;
+                let cpu_color = if cpu_pct > 75.0 {
+                    p.rec_red
+                } else if cpu_pct > 40.0 {
+                    p.meter_warn
+                } else {
+                    p.text_primary
+                };
+                ui.label(
+                    RichText::new(format!("CPU: {:.1}%", cpu_pct))
+                        .small()
+                        .monospace()
+                        .color(cpu_color),
+                )
+                .on_hover_text("Overall system CPU utilization");
+
+                ui.separator();
+
+                // RAM Usage (MB)
+                let ram_mb = app.perf_monitor.ram_usage_mb;
+                ui.label(
+                    RichText::new(format!("RAM: {:.0} MB", ram_mb))
+                        .small()
+                        .monospace()
+                        .color(p.text_secondary),
+                )
+                .on_hover_text("NEXORA Studio process working set memory");
+
+                // Dropped frames indicator when recording
+                if app.recording.status == crate::recording::RecordingStatus::Recording {
+                    ui.separator();
+                    let dropped = app.recording.dropped_frames;
+                    let drop_color = if dropped > 0 { p.rec_red } else { p.meter_ok };
+                    ui.label(
+                        RichText::new(format!("Drop: {}", dropped))
+                            .small()
+                            .monospace()
+                            .strong()
+                            .color(drop_color),
+                    )
+                    .on_hover_text("Encoder dropped frames during current recording session");
+                }
+
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if let Some((msg, inst)) = &app.screenshot_notify {
                         if inst.elapsed().as_secs() < 5 {

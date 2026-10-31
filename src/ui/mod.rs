@@ -1,3 +1,4 @@
+pub mod button_3d;
 pub mod dialogs;
 pub mod dock;
 pub mod icons;

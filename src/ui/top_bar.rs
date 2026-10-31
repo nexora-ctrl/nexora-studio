@@ -3,7 +3,7 @@ use crate::recording::RecordingStatus;
 use crate::settings::ThemeMode;
 use crate::ui::icons;
 use crate::ui::theme::{apply_studio_theme, ThemePalette};
-use egui::{Color32, CornerRadius, RichText, Stroke};
+use egui::{Color32, CornerRadius, RichText, Stroke, Vec2};
 
 pub fn render_top_bar(ctx: &egui::Context, app: &mut NexoraApp) {
     let p = ThemePalette::for_mode(app.settings.theme);
@@ -55,33 +55,31 @@ pub fn render_top_bar(ctx: &egui::Context, app: &mut NexoraApp) {
                 // Undo / Redo Quick Buttons
                 let can_undo = app.can_undo();
                 let undo_steps = app.undo_count();
-                if ui
-                    .add_enabled(
-                        can_undo,
-                        egui::Button::new(RichText::new(format!("{} Undo", icons::UNDO)).size(12.2)),
-                    )
-                    .on_hover_text(format!(
+                let undo_btn = crate::ui::button_3d::Button3D::new("Undo")
+                    .icon(icons::UNDO)
+                    .min_size(Vec2::new(0.0, 22.0))
+                    .enabled(can_undo)
+                    .tooltip(format!(
                         "Undo last change (Ctrl+Z) — {} step(s) available",
                         undo_steps
-                    ))
-                    .clicked()
-                {
+                    ));
+
+                if ui.add(undo_btn).clicked() {
                     app.undo();
                 }
 
                 let can_redo = app.can_redo();
                 let redo_steps = app.redo_count();
-                if ui
-                    .add_enabled(
-                        can_redo,
-                        egui::Button::new(RichText::new(format!("{} Redo", icons::REDO)).size(12.2)),
-                    )
-                    .on_hover_text(format!(
+                let redo_btn = crate::ui::button_3d::Button3D::new("Redo")
+                    .icon(icons::REDO)
+                    .min_size(Vec2::new(0.0, 22.0))
+                    .enabled(can_redo)
+                    .tooltip(format!(
                         "Redo change (Ctrl+Y / Ctrl+Shift+Z) — {} step(s) available",
                         redo_steps
-                    ))
-                    .clicked()
-                {
+                    ));
+
+                if ui.add(redo_btn).clicked() {
                     app.redo();
                 }
 
@@ -376,16 +374,17 @@ pub fn render_top_bar(ctx: &egui::Context, app: &mut NexoraApp) {
                 });
 
                 // Studio Mode quick pill
-                let studio_btn_text = if app.settings.panels.studio_mode {
-                    format!("{} Studio Mode: ON", icons::LAYOUT_COLUMNS)
+                let (studio_label, studio_icon) = if app.settings.panels.studio_mode {
+                    ("Studio Mode: ON", icons::LAYOUT_COLUMNS)
                 } else {
-                    format!("{} Studio Mode: Single", icons::LAYOUT_COLUMNS)
+                    ("Studio Mode: Single", icons::LAYOUT_COLUMNS)
                 };
-                if ui
-                    .selectable_label(app.settings.panels.studio_mode, studio_btn_text)
-                    .on_hover_text("Toggle Dual Preview + Program Studio workspace")
-                    .clicked()
-                {
+                let studio_btn = crate::ui::button_3d::Button3D::new(studio_label)
+                    .icon(studio_icon)
+                    .selected(app.settings.panels.studio_mode)
+                    .min_size(Vec2::new(0.0, 22.0))
+                    .tooltip("Toggle Dual Preview + Program Studio workspace");
+                if ui.add(studio_btn).clicked() {
                     app.settings.panels.studio_mode = !app.settings.panels.studio_mode;
                     let _ = app.settings.save();
                 }
@@ -398,20 +397,12 @@ pub fn render_top_bar(ctx: &egui::Context, app: &mut NexoraApp) {
 
                 if update_available {
                     ui.add_space(4.0);
-                    let badge_btn = egui::Button::new(
-                        RichText::new(format!("{} Update Available · Update Now", icons::SPARKLES))
-                            .size(11.5)
-                            .strong()
-                            .color(Color32::WHITE),
-                    )
-                    .fill(Color32::from_rgb(34, 197, 94))
-                    .corner_radius(CornerRadius::same(12));
+                    let badge_btn = crate::ui::button_3d::Button3D::success("Update Available · Update Now")
+                        .icon(icons::SPARKLES)
+                        .min_size(Vec2::new(0.0, 22.0))
+                        .tooltip("A new version of NEXORA Studio is available! Click to open Update Preferences.");
 
-                    if ui
-                        .add(badge_btn)
-                        .on_hover_text("A new version of NEXORA Studio is available! Click to open Update Preferences.")
-                        .clicked()
-                    {
+                    if ui.add(badge_btn).clicked() {
                         app.show_settings_dialog = true;
                         app.settings_category = SettingsCategory::Update;
                     }
@@ -420,23 +411,23 @@ pub fn render_top_bar(ctx: &egui::Context, app: &mut NexoraApp) {
                 // Right-aligned indicators and controls
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // Settings Dialog trigger
-                    if ui
-                        .button(format!("{} Settings", icons::SETTINGS))
-                        .on_hover_text("Configure video resolution, FPS, bitrate, and output path")
-                        .clicked()
-                    {
+                    let settings_btn = crate::ui::button_3d::Button3D::new("Settings")
+                        .icon(icons::SETTINGS)
+                        .min_size(Vec2::new(0.0, 22.0))
+                        .tooltip("Configure video resolution, FPS, bitrate, and output path");
+
+                    if ui.add(settings_btn).clicked() {
                         app.show_settings_dialog = !app.show_settings_dialog;
                     }
 
                     // Recording Library Drawer toggle
-                    if ui
-                        .selectable_label(
-                            app.settings.panels.show_library_drawer,
-                            format!("{} Library", icons::MOVIE),
-                        )
-                        .on_hover_text("Toggle Recording Library side drawer")
-                        .clicked()
-                    {
+                    let lib_btn = crate::ui::button_3d::Button3D::new("Library")
+                        .icon(icons::MOVIE)
+                        .min_size(Vec2::new(0.0, 22.0))
+                        .selected(app.settings.panels.show_library_drawer)
+                        .tooltip("Toggle Recording Library side drawer");
+
+                    if ui.add(lib_btn).clicked() {
                         app.settings.panels.show_library_drawer =
                             !app.settings.panels.show_library_drawer;
                         if app.settings.panels.show_library_drawer {
@@ -447,15 +438,16 @@ pub fn render_top_bar(ctx: &egui::Context, app: &mut NexoraApp) {
                     }
 
                     // Theme toggle (Dark / Light)
-                    let theme_label = match app.settings.theme {
-                        ThemeMode::Dark => format!("{} Light Mode", icons::SUN),
-                        ThemeMode::Light => format!("{} Dark Mode", icons::MOON),
+                    let (theme_label, theme_icon) = match app.settings.theme {
+                        ThemeMode::Dark => ("Light Mode", icons::SUN),
+                        ThemeMode::Light => ("Dark Mode", icons::MOON),
                     };
-                    if ui
-                        .button(theme_label)
-                        .on_hover_text("Switch between Dark Mode and Light Mode across all panels")
-                        .clicked()
-                    {
+                    let theme_btn = crate::ui::button_3d::Button3D::new(theme_label)
+                        .icon(theme_icon)
+                        .min_size(Vec2::new(0.0, 22.0))
+                        .tooltip("Switch between Dark Mode and Light Mode across all panels");
+
+                    if ui.add(theme_btn).clicked() {
                         app.settings.theme.toggle();
                         apply_studio_theme(ctx, app.settings.theme);
                         let _ = app.settings.save();
