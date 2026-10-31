@@ -2394,6 +2394,31 @@ fn draw_source_layer_visual(
         return;
     }
 
+    if let SourceKind::LiveSubtitle {
+        font_size,
+        text_color_rgba,
+        bg_color_rgba,
+        style,
+        current_text,
+        is_active,
+        ..
+    } = kind
+    {
+        if *is_active {
+            draw_live_subtitle_layer(
+                painter,
+                rect,
+                *font_size,
+                *text_color_rgba,
+                *bg_color_rgba,
+                *style,
+                current_text,
+                a_factor,
+            );
+        }
+        return;
+    }
+
     let (fill_color, accent_color) = match kind {
         SourceKind::DisplayCapture { .. } => (
             Color32::from_rgb(22, 34, 52),
@@ -3413,6 +3438,95 @@ fn draw_time_source_layer(
             }
 
             draw_time_text(&clipped, Pos2::new(rect.center().x, time_center_y), Align2::CENTER_CENTER, &time_display, font_id, text_col);
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_live_subtitle_layer(
+    painter: &egui::Painter,
+    rect: Rect,
+    font_size: f32,
+    text_color_rgba: [u8; 4],
+    bg_color_rgba: [u8; 4],
+    style: crate::studio::source::SubtitleStyle,
+    text: &str,
+    alpha_mul: f32,
+) {
+    if rect.width() < 10.0 || rect.height() < 10.0 || text.trim().is_empty() {
+        return;
+    }
+
+    let scale_factor = (rect.height() / 100.0).clamp(0.4, 2.5);
+    let scaled_font_size = (font_size * scale_factor).clamp(12.0, 72.0);
+    let font_id = FontId::new(scaled_font_size, crate::ui::icons::rubik_medium_family());
+
+    let text_col = Color32::from_rgba_unmultiplied(
+        text_color_rgba[0],
+        text_color_rgba[1],
+        text_color_rgba[2],
+        (text_color_rgba[3] as f32 * alpha_mul) as u8,
+    );
+
+    let max_text_w = (rect.width() - 32.0).max(60.0);
+    let galley = painter.layout(
+        text.to_string(),
+        font_id.clone(),
+        text_col,
+        max_text_w,
+    );
+
+    let text_sz = galley.size();
+    let center = rect.center();
+
+    match style {
+        crate::studio::source::SubtitleStyle::BroadcastBox => {
+            let pad_x = 16.0 * scale_factor;
+            let pad_y = 8.0 * scale_factor;
+            let box_w = (text_sz.x + pad_x * 2.0).min(rect.width());
+            let box_h = text_sz.y + pad_y * 2.0;
+            let box_rect = Rect::from_center_size(center, Vec2::new(box_w, box_h));
+
+            let bg_col = Color32::from_rgba_unmultiplied(
+                bg_color_rgba[0],
+                bg_color_rgba[1],
+                bg_color_rgba[2],
+                (bg_color_rgba[3] as f32 * alpha_mul) as u8,
+            );
+
+            painter.rect(
+                box_rect,
+                CornerRadius::same(6),
+                bg_col,
+                Stroke::new(1.0_f32, Color32::from_white_alpha(30)),
+                egui::StrokeKind::Inside,
+            );
+
+            let text_pos = Pos2::new(center.x - text_sz.x * 0.5, center.y - text_sz.y * 0.5);
+            painter.galley(text_pos, galley, text_col);
+        }
+        crate::studio::source::SubtitleStyle::TikTokOutline => {
+            let text_pos = Pos2::new(center.x - text_sz.x * 0.5, center.y - text_sz.y * 0.5);
+            let stroke_col = Color32::from_rgba_unmultiplied(0, 0, 0, (220.0 * alpha_mul) as u8);
+
+            // 8-direction shadow outline for high-contrast TikTok/Reels readability
+            let offsets = [
+                [-1.5, -1.5], [0.0, -1.8], [1.5, -1.5],
+                [-1.8, 0.0],               [1.8, 0.0],
+                [-1.5, 1.5],  [0.0, 1.8],  [1.5, 1.5],
+            ];
+            for [ox, oy] in offsets {
+                let shadow_pos = Pos2::new(text_pos.x + ox * scale_factor, text_pos.y + oy * scale_factor);
+                painter.galley(shadow_pos, galley.clone(), stroke_col);
+            }
+            painter.galley(text_pos, galley, text_col);
+        }
+        crate::studio::source::SubtitleStyle::CleanShadow => {
+            let text_pos = Pos2::new(center.x - text_sz.x * 0.5, center.y - text_sz.y * 0.5);
+            let shadow_col = Color32::from_black_alpha((180.0 * alpha_mul) as u8);
+            let shadow_pos = Pos2::new(text_pos.x + 2.0 * scale_factor, text_pos.y + 2.0 * scale_factor);
+            painter.galley(shadow_pos, galley.clone(), shadow_col);
+            painter.galley(text_pos, galley, text_col);
         }
     }
 }

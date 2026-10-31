@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
 
+pub mod writer;
+pub use writer::Mp4RecordingWriter;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EncoderBackendKind {
     WindowsMediaFoundationH264,

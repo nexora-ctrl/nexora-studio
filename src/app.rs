@@ -129,6 +129,8 @@ pub struct NexoraApp {
     pub add_source_color_rgba: [u8; 4],
     pub add_source_text_content: String,
     pub add_source_browser_url: String,
+    pub add_source_subtitle_api_key: String,
+    pub add_source_subtitle_lang: String,
     pub add_source_open_properties: bool,
     pub eyedropper_active: bool,
     pub eyedropper_armed: bool,
@@ -155,8 +157,10 @@ pub struct NexoraApp {
     pub virtual_camera_dialog_draft_type: VirtualCameraOutputType,
     pub virtual_camera_dialog_draft_scene_id: Option<uuid::Uuid>,
     pub perf_monitor: crate::platform::perf::PerformanceMonitor,
+    pub live_subtitle_service: crate::platform::subtitle::LiveSubtitleService,
     pub snap_guides_active: (bool, bool, bool, bool, bool, bool),
     pub drag_raw_pos: Option<(f32, f32)>,
+    pub active_mp4_writer: Option<crate::encoder::Mp4RecordingWriter>,
     undo_stack: Vec<UndoSnapshot>,
     redo_stack: Vec<UndoSnapshot>,
     committed_snapshot: UndoSnapshot,
@@ -166,6 +170,7 @@ pub struct NexoraApp {
     last_autosave_hash: u64,
     last_autosave_check: f64,
     last_vcam_capture_time: f64,
+    last_recording_capture_time: f64,
 }
 
 impl NexoraApp {
@@ -295,6 +300,8 @@ impl NexoraApp {
             add_source_color_rgba: [37, 99, 235, 255],
             add_source_text_content: "NEXORA Studio Live".to_string(),
             add_source_browser_url: "https://obsproject.com/browser-source".to_string(),
+            add_source_subtitle_api_key: String::new(),
+            add_source_subtitle_lang: "id".to_string(),
             add_source_open_properties: false,
             eyedropper_active: false,
             eyedropper_armed: false,
@@ -321,8 +328,10 @@ impl NexoraApp {
             virtual_camera_dialog_draft_type: VirtualCameraOutputType::Program,
             virtual_camera_dialog_draft_scene_id: None,
             perf_monitor: crate::platform::perf::PerformanceMonitor::new(),
+            live_subtitle_service: crate::platform::subtitle::LiveSubtitleService::new(),
             snap_guides_active: (false, false, false, false, false, false),
             drag_raw_pos: None,
+            active_mp4_writer: None,
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             committed_snapshot: initial_snapshot,
@@ -332,6 +341,7 @@ impl NexoraApp {
             last_autosave_hash: 0,
             last_autosave_check: 0.0,
             last_vcam_capture_time: 0.0,
+            last_recording_capture_time: 0.0,
         };
 
         if loaded_from_disk {
@@ -654,6 +664,33 @@ impl NexoraApp {
         self.capture_engine
             .set_active_requests(set.into_iter().collect());
         self.media_audio_engine.sync_active_media(&audio_specs);
+
+        // Sync Live Subtitle background service with active scene/source settings
+        let mut sub_cfg: Option<crate::platform::subtitle::SubtitleConfig> = None;
+        for scene in &self.studio.scenes {
+            for src in &scene.sources {
+                if let SourceKind::LiveSubtitle {
+                    groq_api_key,
+                    language,
+                    is_active,
+                    ..
+                } = &src.kind
+                {
+                    if *is_active && !groq_api_key.trim().is_empty() {
+                        sub_cfg = Some(crate::platform::subtitle::SubtitleConfig {
+                            api_key: groq_api_key.trim().to_string(),
+                            language: language.clone(),
+                            is_active: true,
+                        });
+                        break;
+                    }
+                }
+            }
+            if sub_cfg.is_some() {
+                break;
+            }
+        }
+        crate::platform::subtitle::update_live_subtitle_config(sub_cfg);
     }
 
     pub fn new_project(&mut self) {
@@ -1311,6 +1348,127 @@ impl NexoraApp {
         }
     }
 
+    /// Feeds the real Program canvas frame to the native MP4 encoder during active recording
+    fn forward_recording_screenshot(&mut self, ctx: &egui::Context) {
+        if self.recording.status != crate::recording::RecordingStatus::Recording {
+            return;
+        }
+        let Some(writer) = self.active_mp4_writer.as_ref() else {
+            return;
+        };
+
+        // Mirror the live Audio Mixer panel (faders, mute, Disabled device) into the encoder
+        writer.set_mixer(
+            self.audio_mixer.desktop_audio.volume,
+            self.audio_mixer.desktop_audio.muted,
+            !self.audio_mixer.desktop_audio.is_disabled(),
+            self.audio_mixer.microphone.volume,
+            self.audio_mixer.microphone.muted,
+            !self.audio_mixer.microphone.is_disabled(),
+        );
+
+        let shot = ctx.input(|i| {
+            i.raw.events.iter().rev().find_map(|e| match e {
+                egui::Event::Screenshot { image, .. } => Some(std::sync::Arc::clone(image)),
+                _ => None,
+            })
+        });
+        let Some(image) = shot else { return };
+
+        let rect = self.program_canvas_rect.or(self.preview_canvas_rect);
+        let Some(rect) = rect else { return };
+
+        let ppp = ctx.pixels_per_point();
+        let inset = 2.0 * ppp;
+        let img_w = image.width() as f32;
+        let img_h = image.height() as f32;
+        let x0 = (rect.min.x * ppp + inset).clamp(0.0, img_w);
+        let y0 = (rect.min.y * ppp + inset).clamp(0.0, img_h);
+        let x1 = (rect.max.x * ppp - inset).clamp(0.0, img_w);
+        let y1 = (rect.max.y * ppp - inset).clamp(0.0, img_h);
+        let crop_w = (x1 - x0) as usize;
+        let crop_h = (y1 - y0) as usize;
+        if crop_w < 2 || crop_h < 2 {
+            return;
+        }
+
+        let (target_w, target_h) = self.settings.video_preset.dimensions();
+        let scaled_rgba = crate::virtual_camera::crop_and_scale_color_image(
+            &image,
+            x0 as usize,
+            y0 as usize,
+            crop_w,
+            crop_h,
+            target_w as usize,
+            target_h as usize,
+        );
+
+        writer.push_frame(scaled_rgba, target_w, target_h);
+        self.recording.encoded_frames += 1;
+    }
+
+    pub fn start_recording_session(&mut self) {
+        let (w, h) = self.settings.video_preset.dimensions();
+        let fps = self.settings.video_preset.fps();
+        let bitrate_bps = self.settings.bitrate_preset.kbps() * 1000;
+
+        match self.recording.start_session(
+            &self.settings.output_directory,
+            &self.settings.container_format,
+        ) {
+            Ok(out_path) => {
+                match crate::encoder::Mp4RecordingWriter::start(
+                    out_path.clone(),
+                    w,
+                    h,
+                    fps,
+                    bitrate_bps,
+                ) {
+                    Ok(writer) => {
+                        self.active_mp4_writer = Some(writer);
+                        self.recording.last_message = format!(
+                            "Recording started -> {}",
+                            out_path.file_name().unwrap_or_default().to_string_lossy()
+                        );
+                    }
+                    Err(e) => {
+                        self.recording.status = crate::recording::RecordingStatus::Idle;
+                        self.recording.last_message = format!("Encoder failed to start: {}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                self.recording.last_message = format!("Failed to create recording session: {}", e);
+            }
+        }
+    }
+
+    pub fn toggle_recording_pause(&mut self) {
+        self.recording.toggle_pause();
+        if let Some(ref writer) = self.active_mp4_writer {
+            writer.set_paused(self.recording.status == crate::recording::RecordingStatus::Paused);
+        }
+    }
+
+    pub fn stop_recording_session(&mut self) {
+        if let Some(mut writer) = self.active_mp4_writer.take() {
+            writer.stop();
+        }
+
+        if let Some((saved_path, elapsed)) = self.recording.stop_session() {
+            let total_secs = elapsed.as_secs();
+            let mins = total_secs / 60;
+            let secs = total_secs % 60;
+            self.media_library.scan_directory(&self.settings.output_directory);
+            self.recording.last_message = format!(
+                "Saved recording ({:02}:{:02}) -> {}",
+                mins,
+                secs,
+                saved_path.file_name().unwrap_or_default().to_string_lossy()
+            );
+        }
+    }
+
     pub fn toggle_virtual_camera(&mut self) {
         self.virtual_camera_active = !self.virtual_camera_active;
         if self.virtual_camera_active {
@@ -1665,9 +1823,49 @@ impl eframe::App for NexoraApp {
         self.audio_mixer.tick_meters(time_sec);
         self.sync_active_capture_requests();
 
+        // Check for incoming transcribed text from background live subtitle worker
+        if let Some(transcribed_text) = self.live_subtitle_service.try_recv() {
+            let mut updated_any = false;
+            // 1. Update all scenes (Preview & other scenes)
+            for scene in &mut self.studio.scenes {
+                for src in &mut scene.sources {
+                    if let SourceKind::LiveSubtitle {
+                        current_text,
+                        is_active,
+                        ..
+                    } = &mut src.kind
+                    {
+                        if *is_active {
+                            *current_text = transcribed_text.clone();
+                            updated_any = true;
+                        }
+                    }
+                }
+            }
+            // 2. Update Program scene snapshot as well
+            for src in &mut self.studio.program_scene_snapshot.sources {
+                if let SourceKind::LiveSubtitle {
+                    current_text,
+                    is_active,
+                    ..
+                } = &mut src.kind
+                {
+                    if *is_active {
+                        *current_text = transcribed_text.clone();
+                        updated_any = true;
+                    }
+                }
+            }
+            if updated_any {
+                ctx.request_repaint();
+            }
+        }
+
         // Virtual Camera: forward the rendered canvas pixels (from last frame's screenshot) to the vcam thread
         self.forward_virtual_camera_screenshot(ctx);
 
+        // Native MP4 Recording: feed cropped Program canvas frame to background MF H.264 writer
+        self.forward_recording_screenshot(ctx);
         // Track window size, position, Maximized state, and keyboard shortcuts (Ctrl+S, Ctrl+Z, Ctrl+Y)
         ctx.input(|i| {
             let vp = i.viewport();
@@ -1796,8 +1994,15 @@ impl eframe::App for NexoraApp {
             }
         }
 
-        // Virtual Camera: request a viewport screenshot (~30 fps) so the real canvas output feeds the camera
-        if self.virtual_camera_active && time_sec - self.last_vcam_capture_time >= 1.0 / 30.0 {
+        // Virtual Camera & Recording: request a viewport screenshot so the real canvas output feeds the camera / encoder
+        let rec_active = self.recording.status == crate::recording::RecordingStatus::Recording;
+        let rec_fps = self.settings.video_preset.fps().max(1) as f64;
+        let rec_interval = 1.0 / rec_fps;
+
+        if rec_active && time_sec - self.last_recording_capture_time >= rec_interval {
+            self.last_recording_capture_time = time_sec;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
+        } else if self.virtual_camera_active && time_sec - self.last_vcam_capture_time >= 1.0 / 30.0 {
             self.last_vcam_capture_time = time_sec;
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
         }
@@ -1819,6 +2024,9 @@ impl eframe::App for NexoraApp {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        if let Some(mut writer) = self.active_mp4_writer.take() {
+            writer.stop();
+        }
         crate::platform::signal_app_shutting_down();
         self.media_audio_engine.shutdown_all();
         // Update the active layout preset with the final state and save all settings & project files

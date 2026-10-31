@@ -75,6 +75,48 @@ fn default_time_accent_rgba() -> [u8; 4] {
     [0, 210, 255, 255]
 }
 
+fn default_subtitle_font_size() -> f32 {
+    28.0
+}
+
+fn default_subtitle_bg_rgba() -> [u8; 4] {
+    [0, 0, 0, 180]
+}
+
+fn default_subtitle_lang() -> String {
+    "id".to_string()
+}
+
+fn default_subtitle_placeholder() -> String {
+    "Listening to microphone...".to_string()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum SubtitleStyle {
+    #[default]
+    BroadcastBox,
+    TikTokOutline,
+    CleanShadow,
+}
+
+impl SubtitleStyle {
+    pub fn all() -> &'static [SubtitleStyle] {
+        &[
+            SubtitleStyle::BroadcastBox,
+            SubtitleStyle::TikTokOutline,
+            SubtitleStyle::CleanShadow,
+        ]
+    }
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::BroadcastBox => "Broadcast Box (Netflix/YouTube)",
+            Self::TikTokOutline => "Dynamic Outline (Shorts/Reels)",
+            Self::CleanShadow => "Clean Floating Shadow",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum TimeSourceMode {
     #[default]
@@ -568,6 +610,26 @@ pub enum SourceKind {
     SceneSource {
         scene_name: String,
     },
+    LiveSubtitle {
+        #[serde(default)]
+        groq_api_key: String,
+        #[serde(default = "default_subtitle_lang")]
+        language: String,
+        #[serde(default)]
+        mic_device_name: String,
+        #[serde(default = "default_subtitle_font_size")]
+        font_size: f32,
+        #[serde(default = "default_white_rgba")]
+        text_color_rgba: [u8; 4],
+        #[serde(default = "default_subtitle_bg_rgba")]
+        bg_color_rgba: [u8; 4],
+        #[serde(default)]
+        style: SubtitleStyle,
+        #[serde(default = "default_subtitle_placeholder")]
+        current_text: String,
+        #[serde(default = "default_true")]
+        is_active: bool,
+    },
 }
 
 impl SourceKind {
@@ -612,6 +674,7 @@ impl SourceKind {
                 TimeSourceMode::CountdownTimer => crate::ui::icons::HOURGLASS,
             },
             Self::SceneSource { .. } => crate::ui::icons::LIST,
+            Self::LiveSubtitle { .. } => crate::ui::icons::MESSAGE,
         }
     }
 
@@ -634,6 +697,7 @@ impl SourceKind {
             Self::PdfSource { .. } => "PDF",
             Self::TimeSource { .. } => "TIME",
             Self::SceneSource { .. } => "SCENE",
+            Self::LiveSubtitle { .. } => "SUB",
         }
     }
 
@@ -656,6 +720,7 @@ impl SourceKind {
             Self::PdfSource { .. } => "PDF Document / Presentation",
             Self::TimeSource { .. } => "Clock & Timer",
             Self::SceneSource { .. } => "Scene",
+            Self::LiveSubtitle { .. } => "Live Subtitles (Auto Caption)",
         }
     }
 
@@ -771,6 +836,18 @@ impl SourceKind {
                 }
             },
             Self::SceneSource { scene_name } => scene_name.clone(),
+            Self::LiveSubtitle {
+                language,
+                groq_api_key,
+                ..
+            } => {
+                let status = if groq_api_key.trim().is_empty() {
+                    "Setup API Key"
+                } else {
+                    "Active"
+                };
+                format!("Live Subtitle [{}] ({})", language.to_uppercase(), status)
+            }
         }
     }
 }
@@ -790,6 +867,7 @@ pub enum AddSourceType {
     BrowserSource,
     WebcamDevice,
     ImageSlideShow,
+    LiveSubtitle,
 }
 
 impl AddSourceType {
@@ -807,6 +885,7 @@ impl AddSourceType {
             AddSourceType::BrowserSource,
             AddSourceType::WebcamDevice,
             AddSourceType::ImageSlideShow,
+            AddSourceType::LiveSubtitle,
         ]
     }
 
@@ -824,6 +903,7 @@ impl AddSourceType {
             Self::BrowserSource => "Browser Source",
             Self::WebcamDevice => "Video Capture Device",
             Self::ImageSlideShow => "Image Slide Show",
+            Self::LiveSubtitle => "Live Subtitles (Auto Caption)",
         }
     }
 
@@ -841,6 +921,7 @@ impl AddSourceType {
             Self::BrowserSource => "Display website page / browser overlay via URL.",
             Self::WebcamDevice => "Capture physical webcam camera (Integrated Camera, USB Cam).",
             Self::ImageSlideShow => "Display multi-photo slide show with smooth transitions.",
+            Self::LiveSubtitle => "Real-time speech-to-text live subtitles from microphone powered by Groq Whisper AI.",
         }
     }
 
@@ -858,6 +939,7 @@ impl AddSourceType {
             Self::BrowserSource => crate::ui::icons::WORLD,
             Self::WebcamDevice => crate::ui::icons::CAMERA,
             Self::ImageSlideShow => crate::ui::icons::PRESENTATION,
+            Self::LiveSubtitle => crate::ui::icons::MESSAGE,
         }
     }
 
@@ -875,6 +957,7 @@ impl AddSourceType {
             Self::BrowserSource => "Browser",
             Self::WebcamDevice => "Video Capture Device",
             Self::ImageSlideShow => "Image Slide Show",
+            Self::LiveSubtitle => "Live Subtitles",
         }
     }
 
@@ -889,6 +972,7 @@ impl AddSourceType {
             | Self::TimeSource
             | Self::WebcamDevice
             | Self::ImageSlideShow => ("Ready", true),
+            Self::LiveSubtitle => ("AI Ready", true),
             Self::PowerPoint => ("Window/Slide", true),
             Self::Pdf => ("PDF/Slides", true),
             Self::BrowserSource => ("Web URL", false),

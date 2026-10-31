@@ -3282,10 +3282,7 @@ fn render_recording_controls_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size:
                 .tooltip("Start local MP4 recording session");
 
             if ui.add(start_btn).clicked() {
-                let _ = app.recording.start_session(
-                    &app.settings.output_directory,
-                    &app.settings.container_format,
-                );
+                let _ = app.start_recording_session();
             }
         } else {
             let pause_label = if app.recording.status == RecordingStatus::Paused {
@@ -3302,14 +3299,14 @@ fn render_recording_controls_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size:
                     )
                     .clicked()
                 {
-                    app.recording.toggle_pause();
+                    app.toggle_recording_pause();
                 }
 
                 let stop_btn = crate::ui::button_3d::Button3D::danger("Stop")
                     .min_size(Vec2::new(half_w, 26.0));
 
                 if ui.add(stop_btn).clicked() {
-                    let _ = app.recording.stop_session();
+                    app.stop_recording_session();
                 }
             });
         }

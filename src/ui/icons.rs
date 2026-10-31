@@ -428,6 +428,8 @@ pub const ADJUSTMENTS: &str = "\u{ea03}";
 pub const WAND: &str = "\u{ebcb}";
 /// `ti-color-picker` — Screen Color Picker / Eyedropper Pipet
 pub const COLOR_PICKER: &str = "\u{ebe6}";
+/// `ti-message` — Live Subtitles / Auto Caption
+pub const MESSAGE: &str = "\u{eaef}";
 
 /// `ti-chevron-up` — Scroll Up / Menu Up Indicator
 pub const CHEVRON_UP: &str = "\u{ea62}";

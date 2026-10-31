@@ -2813,6 +2813,118 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                     });
                                     ui.end_row();
                                 }
+                                SourceKind::LiveSubtitle {
+                                    groq_api_key,
+                                    language,
+                                    mic_device_name,
+                                    font_size,
+                                    text_color_rgba,
+                                    bg_color_rgba,
+                                    style,
+                                    current_text,
+                                    is_active,
+                                } => {
+                                    ui.label("Transcription Engine:");
+                                    ui.horizontal(|ui| {
+                                        ui.label(RichText::new("Groq Whisper Cloud (Free Tier)").strong().color(p.accent_primary));
+                                    });
+                                    ui.end_row();
+
+                                    ui.label("Groq API Key:");
+                                    ui.horizontal(|ui| {
+                                        any_changed |= ui.add_sized(
+                                            Vec2::new(PROP_FIELD_W, PROP_FIELD_H),
+                                            standard_singleline_text(groq_api_key, "gsk_..."),
+                                        ).changed();
+                                    });
+                                    ui.end_row();
+
+                                    ui.label("Spoken Language:");
+                                    ui.horizontal(|ui| {
+                                        let lang_label = match language.as_str() {
+                                            "id" => "Bahasa Indonesia (id)",
+                                            "en" => "English (en)",
+                                            _ => "Auto-Detect",
+                                        };
+                                        egui::ComboBox::from_id_salt("prop_sub_lang")
+                                            .selected_text(lang_label)
+                                            .width(PROP_FIELD_W)
+                                            .show_ui(ui, |ui| {
+                                                any_changed |= ui.selectable_value(language, "id".to_string(), "Bahasa Indonesia (id)").changed();
+                                                any_changed |= ui.selectable_value(language, "en".to_string(), "English (en)").changed();
+                                                any_changed |= ui.selectable_value(language, "auto".to_string(), "Auto-Detect").changed();
+                                            });
+                                    });
+                                    ui.end_row();
+
+                                    ui.label("Audio Microphone:");
+                                    ui.horizontal(|ui| {
+                                        let cur_mic = if mic_device_name.is_empty() {
+                                            "Default System Microphone".to_string()
+                                        } else {
+                                            mic_device_name.clone()
+                                        };
+                                        egui::ComboBox::from_id_salt("prop_sub_mic")
+                                            .selected_text(truncate_str(&cur_mic, 30))
+                                            .width(PROP_FIELD_W)
+                                            .show_ui(ui, |ui| {
+                                                for dev in &app.audio_mixer.microphone.available_devices {
+                                                    any_changed |= ui.selectable_value(mic_device_name, dev.clone(), dev).changed();
+                                                }
+                                            });
+                                    });
+                                    ui.end_row();
+
+                                    ui.label("Subtitle Visual Style:");
+                                    ui.horizontal(|ui| {
+                                        egui::ComboBox::from_id_salt("prop_sub_style")
+                                            .selected_text(style.label())
+                                            .width(PROP_FIELD_W)
+                                            .show_ui(ui, |ui| {
+                                                for st in crate::studio::source::SubtitleStyle::all() {
+                                                    any_changed |= ui.selectable_value(style, *st, st.label()).changed();
+                                                }
+                                            });
+                                    });
+                                    ui.end_row();
+
+                                    ui.label("Font Size:");
+                                    ui.horizontal(|ui| {
+                                        any_changed |= ui.add(egui::Slider::new(font_size, 16.0..=64.0).suffix(" px")).changed();
+                                    });
+                                    ui.end_row();
+
+                                    ui.label("Text Color:");
+                                    ui.horizontal(|ui| {
+                                        any_changed |= ui.color_edit_button_srgba_unmultiplied(text_color_rgba).changed();
+                                        let [r, g, b, _] = *text_color_rgba;
+                                        ui.label(format!("#{:02X}{:02X}{:02X}", r, g, b));
+                                    });
+                                    ui.end_row();
+
+                                    ui.label("Background Box Color:");
+                                    ui.horizontal(|ui| {
+                                        any_changed |= ui.color_edit_button_srgba_unmultiplied(bg_color_rgba).changed();
+                                        let [r, g, b, a] = *bg_color_rgba;
+                                        ui.label(format!("#{:02X}{:02X}{:02X} (Alpha: {})", r, g, b, a));
+                                    });
+                                    ui.end_row();
+
+                                    ui.label("Live Preview Text:");
+                                    ui.horizontal(|ui| {
+                                        any_changed |= ui.add_sized(
+                                            Vec2::new(PROP_FIELD_W, PROP_FIELD_H),
+                                            standard_singleline_text(current_text, "Preview text..."),
+                                        ).changed();
+                                    });
+                                    ui.end_row();
+
+                                    ui.label("Enable Subtitles:");
+                                    ui.horizontal(|ui| {
+                                        any_changed |= ui.checkbox(is_active, "Active on Canvas").changed();
+                                    });
+                                    ui.end_row();
+                                }
                             }
                         });
 
@@ -4513,6 +4625,49 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                                 ui.label(RichText::new("Available in 4 visual styles: Digital Neon, TV Broadcast Badge, Clean Minimalist, and Glassmorphism Card.").size(11.0).color(p.text_muted));
                                 ui.label(RichText::new("Font type, size, colors, and time advance/rewind controls can be adjusted in Properties.").size(11.0).color(p.text_muted));
                             }
+                            crate::studio::source::AddSourceType::LiveSubtitle => {
+                                ui.label(RichText::new("Groq Whisper API Key (Free):").strong().color(p.text_primary));
+                                ui.add_space(3.0);
+                                ui.add_sized(
+                                    Vec2::new(add_src_field_w, add_src_field_h),
+                                    standard_singleline_text(&mut app.add_source_subtitle_api_key, "gsk_... (Paste your Groq API key)"),
+                                );
+                                ui.add_space(3.0);
+                                ui.horizontal(|ui| {
+                                    ui.label(RichText::new("Get your 100% free key at:").size(10.5).color(p.text_muted));
+                                    if ui.link(RichText::new("console.groq.com").size(10.5).color(p.accent_primary)).clicked() {
+                                        ui.ctx().open_url(egui::OpenUrl::new_tab("https://console.groq.com/keys"));
+                                    }
+                                });
+
+                                ui.add_space(8.0);
+                                ui.label(RichText::new("Spoken Language:").strong().color(p.text_primary));
+                                ui.add_space(3.0);
+                                egui::ComboBox::from_id_salt("add_sub_lang_combo")
+                                    .selected_text(match app.add_source_subtitle_lang.as_str() {
+                                        "id" => "Bahasa Indonesia (id)",
+                                        "en" => "English (en)",
+                                        _ => "Auto-Detect",
+                                    })
+                                    .width(add_src_field_w)
+                                    .show_ui(ui, |ui| {
+                                        ui.selectable_value(&mut app.add_source_subtitle_lang, "id".to_string(), "Bahasa Indonesia (id)");
+                                        ui.selectable_value(&mut app.add_source_subtitle_lang, "en".to_string(), "English (en)");
+                                        ui.selectable_value(&mut app.add_source_subtitle_lang, "auto".to_string(), "Auto-Detect");
+                                    });
+
+                                ui.add_space(8.0);
+                                ui.label(RichText::new("Microphone Audio Input:").strong().color(p.text_primary));
+                                ui.add_space(3.0);
+                                let mic_name = app.audio_mixer.microphone.selected_device.clone();
+                                let shown_mic = if mic_name.is_empty() { "Default System Microphone" } else { &mic_name };
+                                ui.add_sized(
+                                    Vec2::new(add_src_field_w, add_src_field_h),
+                                    egui::Label::new(RichText::new(format!("{} {}", icons::MICROPHONE, truncate_str(shown_mic, 36))).size(11.5).color(p.text_secondary)),
+                                );
+                                ui.add_space(4.0);
+                                ui.label(RichText::new("Font size, subtitle styling, and box colors can be customized in Properties.").size(10.5).color(p.text_muted));
+                            }
                         }
 
                         ui.add_space(10.0);
@@ -4860,6 +5015,29 @@ fn validate_and_create_source(app: &mut NexoraApp) -> Option<crate::studio::sour
             item.transform.pos_y = 0.04;
             item.transform.scale_x = 0.30;
             item.transform.scale_y = 0.15;
+            Some(item)
+        }
+        crate::studio::source::AddSourceType::LiveSubtitle => {
+            let mic_dev = app.audio_mixer.microphone.selected_device.clone();
+            let mut item = SourceItem::new(
+                name,
+                SourceKind::LiveSubtitle {
+                    groq_api_key: app.add_source_subtitle_api_key.trim().to_string(),
+                    language: app.add_source_subtitle_lang.clone(),
+                    mic_device_name: mic_dev,
+                    font_size: 28.0,
+                    text_color_rgba: [255, 255, 255, 255],
+                    bg_color_rgba: [0, 0, 0, 180],
+                    style: crate::studio::source::SubtitleStyle::BroadcastBox,
+                    current_text: "Listening to microphone...".to_string(),
+                    is_active: true,
+                },
+            );
+            // Default position: Bottom-center 16:9 third
+            item.transform.pos_x = 0.10;
+            item.transform.pos_y = 0.82;
+            item.transform.scale_x = 0.80;
+            item.transform.scale_y = 0.12;
             Some(item)
         }
     }

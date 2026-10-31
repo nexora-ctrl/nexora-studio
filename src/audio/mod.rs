@@ -418,10 +418,10 @@ mod wasapi_audio {
                     0.0
                 };
 
-                // Convert linear amplitude to studio dB-like perceptual curve (-60dB..0dB mapped to 0.0..1.0)
-                let to_meter = |amp: f32, boost: f32| -> f32 {
-                    let boosted = (amp * boost).clamp(0.0, 1.0);
-                    if boosted <= 0.0008 {
+                // Desktop Audio: clean standard studio dB curve (-55dB..0dB)
+                let to_desk_meter = |amp: f32| -> f32 {
+                    let boosted = (amp * 1.1).clamp(0.0, 1.0);
+                    if boosted <= 0.001 {
                         0.0
                     } else {
                         let db = (20.0 * boosted.log10()).clamp(-55.0, 0.0);
@@ -429,7 +429,19 @@ mod wasapi_audio {
                     }
                 };
 
-                (to_meter(desk, 1.1), to_meter(mic, 2.2))
+                // Microphone Audio: built-in studio noise floor suppression (~-32dB gate)
+                // Prevents ambient background noise, laptop fans, or room hiss from moving the meter when quiet.
+                let to_mic_meter = |amp: f32| -> f32 {
+                    let noise_floor = 0.025_f32; // Cut background mic hiss below ~ -32 dBFS
+                    if amp <= noise_floor {
+                        0.0
+                    } else {
+                        let normalized = (amp - noise_floor) / (1.0 - noise_floor);
+                        normalized.powf(0.55).clamp(0.0, 1.0)
+                    }
+                };
+
+                (to_desk_meter(desk), to_mic_meter(mic))
             }
         }
     }

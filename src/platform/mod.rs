@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 pub mod perf;
+pub mod subtitle;
 pub mod updater;
 
 pub fn open_folder_in_explorer(path: &Path) -> anyhow::Result<()> {
