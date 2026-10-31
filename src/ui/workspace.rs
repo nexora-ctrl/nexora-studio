@@ -159,7 +159,7 @@ pub fn render_preview_workspace(ui: &mut egui::Ui, app: &mut NexoraApp, time_sec
 
     if app.settings.panels.studio_mode {
         // Studio Mode: Dual Monitors (Preview | Transition Bridge | Program)
-        let center_bridge_w = 88.0;
+        let center_bridge_w = 96.0;
         let side_w = ((avail.x - center_bridge_w - 14.0) * 0.5).max(180.0);
         let panel_h = avail.y.max(160.0);
 
@@ -249,11 +249,11 @@ fn render_transition_bridge(ui: &mut egui::Ui, app: &mut NexoraApp, height: f32)
 
                 let trans_btn = if pending {
                     crate::ui::button_3d::Button3D::primary(action_label)
-                        .min_size(Vec2::new(74.0, 30.0))
+                        .min_size(Vec2::new(82.0, 30.0))
                         .tooltip("Send current Preview scene & layout to Program Output using the selected transition effect")
                 } else {
                     crate::ui::button_3d::Button3D::new(action_label)
-                        .min_size(Vec2::new(74.0, 30.0))
+                        .min_size(Vec2::new(82.0, 30.0))
                         .tooltip("Send current Preview scene & layout to Program Output using the selected transition effect")
                 };
 
@@ -264,7 +264,7 @@ fn render_transition_bridge(ui: &mut egui::Ui, app: &mut NexoraApp, height: f32)
                 ui.add_space(6.0);
                 ui.label(
                     RichText::new("Effect:")
-                        .size(10.0)
+                        .size(10.5)
                         .color(p.text_secondary),
                 );
                 ui.horizontal(|ui| {
@@ -272,7 +272,7 @@ fn render_transition_bridge(ui: &mut egui::Ui, app: &mut NexoraApp, height: f32)
                     let is_cut = app.studio.transition_effect == TransitionEffect::Cut;
                     let cut_btn = crate::ui::button_3d::Button3D::new("Cut")
                         .selected(is_cut)
-                        .min_size(Vec2::new(34.0, 20.0))
+                        .min_size(Vec2::new(39.0, 24.0))
                         .tooltip("Instant Cut transition (0 ms)");
                     if ui.add(cut_btn).clicked() {
                         app.studio.transition_effect = TransitionEffect::Cut;
@@ -280,7 +280,7 @@ fn render_transition_bridge(ui: &mut egui::Ui, app: &mut NexoraApp, height: f32)
                     let is_fade = app.studio.transition_effect == TransitionEffect::Fade;
                     let fade_btn = crate::ui::button_3d::Button3D::new("Fade")
                         .selected(is_fade)
-                        .min_size(Vec2::new(34.0, 20.0))
+                        .min_size(Vec2::new(39.0, 24.0))
                         .tooltip("Smooth Crossfade transition");
                     if ui.add(fade_btn).clicked() {
                         app.studio.transition_effect = TransitionEffect::Fade;

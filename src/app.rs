@@ -1516,7 +1516,7 @@ impl NexoraApp {
                     let norm_w = nw as f32 / canvas_w.max(1) as f32;
                     let norm_h = nh as f32 / canvas_h.max(1) as f32;
                     src.transform.reset_to_native_size(norm_w, norm_h);
-                    self.recording.last_message = format!("Reset '{}' ke ukuran asli ({}x{})", src.name, nw, nh);
+                    self.recording.last_message = format!("Reset '{}' to original size ({}x{})", src.name, nw, nh);
                 } else {
                     src.transform.reset_transform();
                     self.recording.last_message = format!("Reset transform '{}'", src.name);

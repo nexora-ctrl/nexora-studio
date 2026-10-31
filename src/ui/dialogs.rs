@@ -7,7 +7,7 @@ use crate::studio::source::{
 };
 use crate::ui::icons;
 use crate::ui::theme::{apply_studio_theme, ThemePalette};
-use egui::{Pos2, RichText, Stroke, Vec2};
+use egui::{CornerRadius, CursorIcon, Pos2, Rect, RichText, Stroke, Vec2};
 use std::path::PathBuf;
 
 /// Standardized singleline TextEdit with vertical centering and balanced margins
@@ -31,6 +31,35 @@ pub(crate) fn standard_singleline_text_width<'a>(text: &'a mut String, hint: &'a
         edit = edit.hint_text(hint);
     }
     edit
+}
+
+/// Truncates `text` with an ellipsis so that it fits within `max_w` pixels using `font`.
+pub(crate) fn truncate_pixels(ui: &egui::Ui, text: &str, max_w: f32, font: egui::FontId) -> String {
+    let full = ui
+        .painter()
+        .layout_no_wrap(text.to_string(), font.clone(), egui::Color32::WHITE);
+    if full.size().x <= max_w {
+        return text.to_string();
+    }
+    let mut out = String::new();
+    for ch in text.chars() {
+        let mut candidate = out.clone();
+        candidate.push(ch);
+        let g = ui.painter().layout_no_wrap(
+            format!("{}…", candidate),
+            font.clone(),
+            egui::Color32::WHITE,
+        );
+        if g.size().x > max_w {
+            break;
+        }
+        out.push(ch);
+    }
+    if out.is_empty() {
+        "…".to_string()
+    } else {
+        format!("{}…", out)
+    }
 }
 
 pub(crate) fn truncate_str(text: &str, max_chars: usize) -> String {
@@ -427,7 +456,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
 
                                     match app.settings_category {
                                         SettingsCategory::General => {
-                                            ui.label(RichText::new("TAMPILAN ANTARMUKA (THEME)").small().strong().color(p.text_muted));
+                                            ui.label(RichText::new("USER INTERFACE & THEME").size(11.5).strong().color(p.text_muted));
                                             ui.add_space(4.0);
 
                                             egui::Grid::new("settings_general_grid")
@@ -482,7 +511,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                         }
 
                                         SettingsCategory::VideoOutput => {
-                                            ui.label(RichText::new("RECORDING RESOLUTION & ENCODING").small().strong().color(p.text_muted));
+                                            ui.label(RichText::new("RECORDING RESOLUTION & ENCODING").size(11.5).strong().color(p.text_muted));
                                             ui.add_space(4.0);
 
                                             egui::Grid::new("settings_video_grid")
@@ -539,7 +568,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                         }
 
                                         SettingsCategory::HardwarePerformance => {
-                                            ui.label(RichText::new("HARDWARE & GRAPHICS ACCELERATION").small().strong().color(p.text_muted));
+                                            ui.label(RichText::new("HARDWARE & GRAPHICS ACCELERATION").size(11.5).strong().color(p.text_muted));
                                             ui.add_space(4.0);
 
                                             egui::Grid::new("settings_hw_grid")
@@ -600,7 +629,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                         }
 
                                         SettingsCategory::AudioMixer => {
-                                            ui.label(RichText::new("AUDIO SYSTEM & DEVICES").small().strong().color(p.text_muted));
+                                            ui.label(RichText::new("AUDIO SYSTEM & DEVICES").size(11.5).strong().color(p.text_muted));
                                             ui.add_space(4.0);
 
                                             egui::Grid::new("settings_audio_grid")
@@ -646,7 +675,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
 
 
                                         SettingsCategory::Update => {
-                                            ui.label(RichText::new("APPLICATION UPDATE").small().strong().color(p.text_muted));
+                                            ui.label(RichText::new("APPLICATION UPDATE").size(11.5).strong().color(p.text_muted));
                                             ui.add_space(8.0);
 
                                             let updater_arc = app.updater.clone();
@@ -662,11 +691,11 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                 ui.label(RichText::new(icons::WORLD).size(38.0).color(p.accent_primary));
                                                 ui.add_space(6.0);
 
-                                                ui.label(RichText::new("NEXORA Studio Auto-Updater").heading().strong());
+                                                ui.label(RichText::new("NEXORA Studio Auto-Updater").size(14.5).strong().color(p.text_primary));
                                                 ui.add_space(2.0);
                                                 ui.label(
                                                     RichText::new(format!("Installed Version: v{} (Native 64-bit)", crate::platform::updater::CURRENT_VERSION))
-                                                        .small()
+                                                        .size(11.5)
                                                         .color(p.text_secondary),
                                                 );
 
@@ -721,9 +750,11 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                                             ui.label(RichText::new(icons::CIRCLE_CHECK).size(28.0).color(p.meter_ok));
                                                                             ui.add_space(8.0);
                                                                             ui.vertical(|ui| {
-                                                                                ui.label(RichText::new("Application is Up to Date").strong().color(p.meter_ok));
-                                                                                ui.label(RichText::new(format!("NEXORA Studio v{} is the latest version.", version)).small());
-                                                                                ui.label(RichText::new(format!("Last checked at {}", check_time)).small().color(p.text_muted));
+                                                                                ui.label(RichText::new("Application is Up to Date").size(13.0).strong().color(p.meter_ok));
+                                                                                ui.add_space(1.5);
+                                                                                ui.label(RichText::new(format!("NEXORA Studio v{} is the latest version.", version)).size(11.8).color(p.text_primary));
+                                                                                ui.add_space(1.0);
+                                                                                ui.label(RichText::new(format!("Last checked at {}", check_time)).size(11.0).color(p.text_muted));
                                                                             });
                                                                         });
                                                                     });
@@ -739,7 +770,8 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                             egui::Layout::left_to_right(egui::Align::Center),
                                                             |ui| {
                                                                 let refresh_btn = egui::Button::new(
-                                                                    RichText::new(format!("{}  Check Again", icons::REFRESH)),
+                                                                    RichText::new(format!("{}  Check Again", icons::REFRESH))
+                                                                        .size(12.5),
                                                                 )
                                                                 .min_size(Vec2::new(135.0, 30.0));
 
@@ -753,7 +785,8 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                                 ui.add_space(10.0);
 
                                                                 let github_btn = egui::Button::new(
-                                                                    RichText::new(format!("{}  Open GitHub", icons::BRAND_GITHUB)),
+                                                                    RichText::new(format!("{}  Open GitHub", icons::BRAND_GITHUB))
+                                                                        .size(12.5),
                                                                 )
                                                                 .min_size(Vec2::new(135.0, 30.0));
 
@@ -965,15 +998,15 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                         }
 
                                         SettingsCategory::About => {
-                                            ui.label(RichText::new("ABOUT APPLICATION").small().strong().color(p.text_muted));
+                                            ui.label(RichText::new("ABOUT APPLICATION").size(11.5).strong().color(p.text_muted));
                                             ui.add_space(4.0);
 
                                             ui.horizontal(|ui| {
                                                 ui.label(RichText::new(icons::DEVICE_DESKTOP).size(26.0).color(p.accent_primary));
                                                 ui.add_space(6.0);
                                                 ui.vertical(|ui| {
-                                                    ui.label(RichText::new("NEXORA Studio - Your Easy Studio").heading().strong());
-                                                    ui.label(RichText::new("Version v0.6.0 (Native Windows 64-bit)").small().color(p.text_secondary));
+                                                    ui.label(RichText::new("NEXORA Studio - Your Easy Studio").size(14.5).strong());
+                                                    ui.label(RichText::new("Version v0.6.0 (Native Windows 64-bit)").size(11.5).color(p.text_secondary));
                                                 });
                                             });
 
@@ -991,25 +1024,25 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                     ui.horizontal(|ui| {
                                                         ui.label(RichText::new(icons::SPARKLES).size(20.0).color(p.accent_primary));
                                                         ui.add_space(4.0);
-                                                        ui.label(RichText::new("Our Vision").strong().size(13.5).color(p.accent_primary));
+                                                        ui.label(RichText::new("Our Vision").strong().size(13.0).color(p.accent_primary));
                                                     });
                                                     ui.add_space(8.0);
                                                     ui.label(
                                                         RichText::new("We believe technology should make creativity easier, not more complicated.")
-                                                            .size(13.0)
+                                                            .size(12.5)
                                                             .strong()
                                                             .color(p.text_primary),
                                                     );
                                                     ui.add_space(8.0);
                                                     ui.label(
                                                         RichText::new("NEXORA Studio was created with one simple vision: to bring recording, visual production, and creative tools together in one intuitive workspace.")
-                                                            .size(12.5)
+                                                            .size(12.0)
                                                             .color(p.text_secondary),
                                                     );
                                                     ui.add_space(10.0);
                                                     ui.label(
                                                         RichText::new("Built with passion, driven by innovation, and designed to make every creation easier.")
-                                                            .size(12.0)
+                                                            .size(11.5)
                                                             .italics()
                                                             .color(p.text_muted),
                                                     );
@@ -1020,7 +1053,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                             ui.add_space(6.0);
 
                                             // Saweria Developer Support Card
-                                            ui.label(RichText::new("DEVELOPER SUPPORT & DONATIONS").small().strong().color(p.text_muted));
+                                            ui.label(RichText::new("DEVELOPER SUPPORT & DONATIONS").size(11.5).strong().color(p.text_muted));
                                             ui.add_space(4.0);
 
                                             egui::Frame::new()
@@ -1364,7 +1397,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                             any_changed |= ui
                                 .add_sized(
                                     Vec2::new(PROP_FIELD_W, PROP_FIELD_H),
-                                    standard_singleline_text(&mut src.name, "Nama source..."),
+                                    standard_singleline_text(&mut src.name, "Source name..."),
                                 )
                                 .changed();
                             ui.end_row();
@@ -2209,7 +2242,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                     .fixed_decimals(0),
                                             )
                                             .on_hover_text(
-                                                "Jarak spasi antar pengulangan teks berjalan (loop)",
+                                                "Gap spacing between each running-text loop",
                                             )
                                             .changed();
                                         ui.end_row();
@@ -2362,14 +2395,14 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                         }
                                     }
 
-                                    ui.label("Presentasi:");
+                                    ui.label("Presentation:");
                                     ui.horizontal(|ui| {
                                         let btn_w = 84.0;
                                         let input_w = (PROP_FIELD_W - btn_w - ui.spacing().item_spacing.x).max(120.0);
                                         any_changed |= ui
                                             .add_sized(
                                                 Vec2::new(input_w, PROP_FIELD_H),
-                                                standard_singleline_text_width(presentation_name, "Nama presentasi PPT...", input_w),
+                                                standard_singleline_text_width(presentation_name, "PPT presentation name...", input_w),
                                             )
                                             .changed();
                                         let browse_btn = crate::ui::button_3d::Button3D::new("Browse")
@@ -2460,14 +2493,14 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                         }
                                     }
 
-                                    ui.label("Dokumen PDF:");
+                                    ui.label("PDF Document:");
                                     ui.horizontal(|ui| {
                                         let btn_w = 84.0;
                                         let input_w = (PROP_FIELD_W - btn_w - ui.spacing().item_spacing.x).max(120.0);
                                         any_changed |= ui
                                             .add_sized(
                                                 Vec2::new(input_w, PROP_FIELD_H),
-                                                standard_singleline_text_width(document_name, "Nama dokumen PDF...", input_w),
+                                                standard_singleline_text_width(document_name, "PDF document name...", input_w),
                                             )
                                             .changed();
                                         let browse_btn = crate::ui::button_3d::Button3D::new("Browse")
@@ -3524,7 +3557,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                     filters_changed |= ui.add(egui::Slider::new(&mut src.filter.similarity, 1..=1000)).changed();
                                     ui.end_row();
 
-                                    ui.label("Smoothness:").on_hover_text("Kehalusan tepian objek agar tidak bergerigi atau terpotong kasar.");
+                                    ui.label("Smoothness:").on_hover_text("Edge smoothness so object edges are not jagged or roughly clipped.");
                                     filters_changed |= ui.add(egui::Slider::new(&mut src.filter.smoothness, 1..=1000)).changed();
                                     ui.end_row();
 
@@ -3946,6 +3979,38 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
     let mut open = app.show_add_source_dialog;
     let p = ThemePalette::for_mode(app.settings.theme);
 
+    // ---- Screen-aware default sizing -------------------------------------------------
+    // The modal must always open fully inside the app viewport (never touching the top
+    // bar / status bar) on any monitor resolution and DPI scale, while keeping a
+    // comfortable breathing margin from every edge.
+    let screen = ctx.screen_rect();
+    let scr_w = screen.width().max(480.0);
+    let scr_h = screen.height().max(360.0);
+
+    // Breathing margin: ~6% of the axis, clamped to a sensible pixel range, so the modal
+    // never sits flush against the application / screen edge.
+    let margin_x: f32 = (scr_w * 0.06).clamp(24.0, 72.0);
+    let margin_y: f32 = (scr_h * 0.07).clamp(28.0, 72.0);
+
+    // Everything inside this rect is always visible on screen.
+    let safe = screen.shrink2(egui::vec2(margin_x, margin_y));
+
+    // Window chrome that is NOT the scrollable body:
+    //   title bar (~46) + window margins (28) + subtitle row + footer row + paddings (~84).
+    let title_h: f32 = 46.0;
+    let content_chrome_h: f32 = 84.0;
+
+    // `add_src_w` / `add_src_max_h` are the *content* box sizes (inside the window frame).
+    let frame_x: f32 = 28.0;
+    let frame_y: f32 = 28.0;
+    let add_src_w: f32 = (safe.width() - frame_x).clamp(520.0, 880.0);
+    let add_src_max_h: f32 = (safe.height() - title_h - frame_y).clamp(200.0, 720.0);
+    let add_src_list_h: f32 = (add_src_max_h - content_chrome_h).max(150.0);
+    let add_src_left_w: f32 = (add_src_w * 0.40).round();
+    let add_src_right_w: f32 = add_src_w - add_src_left_w - 24.0;
+    let add_src_field_w: f32 = add_src_right_w - 16.0;
+    let add_src_field_h: f32 = 24.0;
+
     let win_resp = egui::Window::new(format!("{} Add Source", icons::PLUS))
         .id(egui::Id::new("nexora_add_source_modal_win"))
         .order(egui::Order::Foreground)
@@ -3953,59 +4018,65 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
         .collapsible(false)
         .resizable(false)
         .auto_sized()
-        .default_width(650.0)
-        .max_width(650.0)
+        .default_width(add_src_w)
+        .max_width(add_src_w)
+        .max_height(add_src_max_h)
         .pivot(egui::Align2::CENTER_CENTER)
-        .default_pos(ctx.screen_rect().center())
+        .default_pos(safe.center())
         .constrain(true)
+        .constrain_to(safe)
         .show(ctx, |ui| {
             block_window_body_drag(ui);
             ui.add_space(4.0);
-            ui.set_width(630.0);
-            ui.set_max_width(630.0);
+            ui.set_width(add_src_w - 24.0);
+            ui.set_max_width(add_src_w - 24.0);
 
-            ui.horizontal(|ui| {
-                ui.label(
-                    RichText::new("Select source type and configure the layer to add to scene:")
-                        .small()
-                        .color(p.text_secondary),
-                );
-            });
-            ui.add_space(6.0);
+            ui.label(
+                RichText::new("Choose a source type, then configure it before adding it to the scene.")
+                    .size(13.0)
+                    .color(p.text_primary),
+            );
+            ui.add_space(10.0);
 
             let cur_selected = app.add_source_selected_type;
             let mut newly_selected = None;
 
-            ui.horizontal(|ui| {
+            ui.horizontal_top(|ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(12.0, 6.0);
+
                 // Left Column: Source Selection List
                 ui.allocate_ui_with_layout(
-                    Vec2::new(260.0, 370.0),
+                    Vec2::new(add_src_left_w, add_src_list_h),
                     egui::Layout::top_down(egui::Align::Min),
                     |ui| {
-                        ui.set_width(260.0);
+                        ui.set_width(add_src_left_w);
+                        ui.set_min_width(add_src_left_w);
                         ui.label(
                             RichText::new("SOURCE TYPES (LAYER TYPE)")
-                                .small()
+                                .size(12.5)
                                 .strong()
-                                .color(p.text_muted),
+                                .color(p.accent_primary),
                         );
-                        ui.add_space(4.0);
+                        ui.add_space(6.0);
 
                         egui::ScrollArea::vertical()
                             .id_salt("add_source_types_scroll")
-                            .max_height(340.0)
+                            .max_height(add_src_list_h - 20.0)
+                            .auto_shrink([false, false])
                             .show(ui, |ui| {
+                                ui.spacing_mut().item_spacing.y = 5.0;
+                                ui.set_width(add_src_left_w - 8.0);
                                 for st in crate::studio::source::AddSourceType::all() {
                                     let is_active = cur_selected == *st;
                                     let (badge, is_ready) = st.status_tag();
 
                                     let (rect, resp) = ui.allocate_exact_size(
-                                        Vec2::new(ui.available_width() - 4.0, 44.0),
+                                        Vec2::new(ui.available_width(), 50.0),
                                         egui::Sense::click(),
                                     );
 
                                     let bg = if is_active {
-                                        p.accent_primary.gamma_multiply(0.20)
+                                        p.accent_primary.gamma_multiply(0.16)
                                     } else if resp.hovered() {
                                         p.bg_elevated
                                     } else {
@@ -4017,46 +4088,111 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                                         Stroke::new(1.0_f32, p.border_subtle)
                                     };
 
-                                    ui.painter().rect(rect, 4.0, bg, stroke, egui::StrokeKind::Inside);
-
-                                    // Icon in left column
-                                    ui.painter().text(
-                                        Pos2::new(rect.min.x + 10.0, rect.min.y + 22.0),
-                                        egui::Align2::LEFT_CENTER,
-                                        st.icon(),
-                                        egui::FontId::proportional(16.0),
-                                        if is_active { p.accent_primary } else { p.text_primary },
+                                    ui.painter().rect(
+                                        rect,
+                                        CornerRadius::same(5),
+                                        bg,
+                                        stroke,
+                                        egui::StrokeKind::Inside,
                                     );
 
-                                    // Title
+                                    // Accent rail on the active row
+                                    if is_active {
+                                        ui.painter().rect_filled(
+                                            Rect::from_min_size(
+                                                rect.min,
+                                                Vec2::new(3.0, rect.height()),
+                                            ),
+                                            CornerRadius {
+                                                nw: 5,
+                                                sw: 5,
+                                                ne: 0,
+                                                se: 0,
+                                            },
+                                            p.accent_primary,
+                                        );
+                                    }
+
+                                    // Icon
                                     ui.painter().text(
-                                        Pos2::new(rect.min.x + 36.0, rect.min.y + 14.0),
+                                        Pos2::new(rect.min.x + 16.0, rect.min.y + 17.0),
                                         egui::Align2::LEFT_CENTER,
+                                        st.icon(),
+                                        egui::FontId::proportional(18.0),
+                                        if is_active {
+                                            p.accent_primary
+                                        } else {
+                                            p.text_primary
+                                        },
+                                    );
+
+                                    // Title (pixel-truncated so it never runs into the badge)
+                                    let title_max_w = (rect.width() - 150.0).max(90.0);
+                                    let title = truncate_pixels(
+                                        ui,
                                         st.title(),
-                                        egui::FontId::proportional(12.0),
+                                        title_max_w,
+                                        egui::FontId::proportional(12.5),
+                                    );
+                                    ui.painter().text(
+                                        Pos2::new(rect.min.x + 44.0, rect.min.y + 17.0),
+                                        egui::Align2::LEFT_CENTER,
+                                        title,
+                                        egui::FontId::proportional(12.5),
                                         p.text_primary,
                                     );
 
-                                    // Status Badge on the right
-                                    let badge_color = if is_ready { p.meter_ok } else { p.pause_amber };
-                                    ui.painter().text(
-                                        Pos2::new(rect.max.x - 8.0, rect.min.y + 14.0),
-                                        egui::Align2::RIGHT_CENTER,
-                                        badge,
+                                    // Status badge (right aligned, pill style)
+                                    let badge_color =
+                                        if is_ready { p.meter_ok } else { p.pause_amber };
+                                    let badge_galley = ui.painter().layout_no_wrap(
+                                        badge.to_string(),
                                         egui::FontId::proportional(9.5),
                                         badge_color,
                                     );
+                                    let pill_w = badge_galley.size().x + 12.0;
+                                    let pill_rect = Rect::from_min_size(
+                                        Pos2::new(
+                                            rect.max.x - pill_w - 9.0,
+                                            rect.min.y + 9.0,
+                                        ),
+                                        Vec2::new(pill_w, 15.0),
+                                    );
+                                    ui.painter().rect(
+                                        pill_rect,
+                                        CornerRadius::same(7),
+                                        badge_color.gamma_multiply(0.14),
+                                        Stroke::new(1.0_f32, badge_color.gamma_multiply(0.45)),
+                                        egui::StrokeKind::Inside,
+                                    );
+                                    ui.painter().galley(
+                                        Pos2::new(
+                                            pill_rect.center().x - badge_galley.size().x * 0.5,
+                                            pill_rect.center().y - badge_galley.size().y * 0.5,
+                                        ),
+                                        badge_galley,
+                                        badge_color,
+                                    );
 
-                                    // Brief single-line summary
-                                    let desc_short: String = st.description().chars().take(34).collect();
+                                    // Description (single line, ellipsis when too long)
+                                    let desc_max_w = (rect.width() - 54.0).max(80.0);
+                                    let desc = truncate_pixels(
+                                        ui,
+                                        st.description(),
+                                        desc_max_w,
+                                        egui::FontId::proportional(10.5),
+                                    );
                                     ui.painter().text(
-                                        Pos2::new(rect.min.x + 36.0, rect.min.y + 29.0),
+                                        Pos2::new(rect.min.x + 44.0, rect.min.y + 33.0),
                                         egui::Align2::LEFT_CENTER,
-                                        format!("{}...", desc_short),
-                                        egui::FontId::proportional(10.0),
+                                        desc,
+                                        egui::FontId::proportional(10.5),
                                         p.text_muted,
                                     );
 
+                                    if resp.hovered() {
+                                        ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+                                    }
                                     if resp.clicked() {
                                         newly_selected = Some(*st);
                                     }
@@ -4069,43 +4205,91 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
 
                 // Right Column: Configuration & Properties for Selected Type
                 ui.allocate_ui_with_layout(
-                    Vec2::new(350.0, 370.0),
+                    Vec2::new(add_src_right_w, add_src_list_h),
                     egui::Layout::top_down(egui::Align::Min),
                     |ui| {
-                        ui.set_width(350.0);
+                        ui.set_width(add_src_right_w);
+                        ui.set_min_width(add_src_right_w);
                         ui.label(
                             RichText::new("SOURCE SETTINGS")
-                                .small()
+                                .size(12.5)
                                 .strong()
-                                .color(p.text_muted),
+                                .color(p.accent_primary),
                         );
-                        ui.add_space(4.0);
-
-                        ui.horizontal(|ui| {
-                            ui.label(RichText::new(cur_selected.icon()).size(20.0).color(p.accent_primary));
-                            ui.heading(cur_selected.title());
-                        });
-
-                        ui.label(RichText::new(cur_selected.description()).small().color(p.text_secondary));
                         ui.add_space(6.0);
-                        ui.separator();
-                        ui.add_space(6.0);
+
+                        // Header card: icon + title + description of the selected type
+                        let hdesc_max_w = (ui.available_width() - 58.0).max(120.0);
+                        let hdesc = ui.painter().layout(
+                            cur_selected.description().to_string(),
+                            egui::FontId::proportional(11.0),
+                            p.text_secondary,
+                            hdesc_max_w,
+                        );
+                        let header_h = (36.0 + hdesc.size().y + 10.0).max(64.0);
+                        let (hrect, _) = ui.allocate_exact_size(
+                            Vec2::new(ui.available_width(), header_h),
+                            egui::Sense::hover(),
+                        );
+                        ui.painter().rect(
+                            hrect,
+                            CornerRadius::same(6),
+                            p.bg_elevated,
+                            Stroke::new(1.0_f32, p.border_subtle),
+                            egui::StrokeKind::Inside,
+                        );
+                        ui.painter().text(
+                            Pos2::new(hrect.min.x + 14.0, hrect.min.y + 18.0),
+                            egui::Align2::LEFT_CENTER,
+                            cur_selected.icon(),
+                            egui::FontId::proportional(18.0),
+                            p.accent_primary,
+                        );
+                        ui.painter().text(
+                            Pos2::new(hrect.min.x + 42.0, hrect.min.y + 18.0),
+                            egui::Align2::LEFT_CENTER,
+                            cur_selected.title(),
+                            egui::FontId::proportional(13.5),
+                            p.text_primary,
+                        );
+                        ui.painter().galley(
+                            Pos2::new(hrect.min.x + 42.0, hrect.min.y + 30.0),
+                            hdesc,
+                            p.text_secondary,
+                        );
+
+                        ui.add_space(8.0);
+
+                        let settings_scroll_h = (add_src_list_h - header_h - 32.0).max(120.0);
+                        egui::ScrollArea::vertical()
+                            .id_salt("add_source_settings_scroll")
+                            .max_height(settings_scroll_h)
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                ui.set_width(add_src_right_w - 10.0);
+                                ui.spacing_mut().item_spacing.y = 4.0;
 
                         // Source Name Input
-                        ui.label(RichText::new("Source Name:").strong().size(12.0));
+                        ui.label(
+                            RichText::new("Source Name:")
+                                .strong()
+                                .color(p.text_primary),
+                        );
+                        ui.add_space(3.0);
                         ui.add_sized(
-                            Vec2::new(340.0, 24.0),
+                            Vec2::new(add_src_field_w, add_src_field_h),
                             standard_singleline_text(&mut app.add_source_name_buffer, "Source name..."),
                         );
-                        ui.add_space(6.0);
+                        ui.add_space(10.0);
 
                         // Contextual settings per source type
                         match cur_selected {
                             crate::studio::source::AddSourceType::DisplayCapture => {
-                                ui.label("Select Display Monitor:");
+                                ui.label(RichText::new("Display Monitor:").strong().color(p.text_primary));
+                                ui.add_space(3.0);
                                 let displays = app.capture_catalog.displays.clone();
                                 if displays.is_empty() {
-                                    ui.label(RichText::new("No monitor detected. Using Primary Display.").small().color(p.text_muted));
+                                    ui.label(RichText::new("No monitor detected. Using Primary Display.").size(11.0).color(p.text_muted));
                                 } else {
                                     let selected_id = if app.add_source_file_path.is_empty() {
                                         displays.first().map(|d| d.id.clone()).unwrap_or_default()
@@ -4115,7 +4299,7 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                                     let current_name = displays.iter().find(|d| d.id == selected_id).map(|d| d.name.as_str()).unwrap_or("Select Monitor");
                                     egui::ComboBox::from_id_salt("add_disp_combo")
                                         .selected_text(current_name)
-                                        .width(330.0)
+                                        .width(add_src_field_w)
                                         .show_ui(ui, |ui| {
                                             for d in &displays {
                                                 if ui.selectable_value(&mut app.add_source_file_path, d.id.clone(), format!("{} ({}x{})", d.name, d.width, d.height)).clicked() {
@@ -4123,21 +4307,25 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                                                 }
                                             }
                                         });
+                                    ui.add_space(4.0);
+                                    ui.label(RichText::new("The entire monitor screen is captured in real-time.").size(11.0).color(p.text_muted));
                                 }
                             }
                             crate::studio::source::AddSourceType::WindowCapture => {
-                                ui.label("Select Application Window:");
+                                ui.label(RichText::new("Application Window:").strong().color(p.text_primary));
+                                ui.add_space(3.0);
                                 let windows = app.capture_catalog.windows.clone();
                                 if windows.is_empty() {
-                                    ui.label(RichText::new("No open application windows detected.").small().color(p.text_muted));
+                                    ui.label(RichText::new("No open application windows detected.").size(11.0).color(p.text_muted));
                                 } else {
                                     let selected_hwnd: u64 = app.add_source_file_path.parse().unwrap_or(0);
                                     let current_title = windows.iter().find(|w| w.hwnd == selected_hwnd).map(|w| w.title.as_str()).unwrap_or_else(|| {
                                         windows.first().map(|w| w.title.as_str()).unwrap_or("Select Window")
                                     });
+                                    let shown = truncate_str(current_title, 52);
                                     egui::ComboBox::from_id_salt("add_win_combo")
-                                        .selected_text(current_title.chars().take(40).collect::<String>())
-                                        .width(330.0)
+                                        .selected_text(shown)
+                                        .width(add_src_field_w)
                                         .show_ui(ui, |ui| {
                                             for w in &windows {
                                                 let mut cur_val = selected_hwnd;
@@ -4146,15 +4334,20 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                                                 }
                                             }
                                         });
+                                    ui.add_space(4.0);
+                                    ui.label(RichText::new("Only the selected window is captured to the canvas.").size(11.0).color(p.text_muted));
                                 }
                             }
                             crate::studio::source::AddSourceType::Image => {
-                                ui.label("Select Image File:");
+                                ui.label(RichText::new("Image File:").strong().color(p.text_primary));
+                                ui.add_space(3.0);
                                 ui.horizontal(|ui| {
-                                    ui.add_sized(Vec2::new(225.0, 24.0), standard_singleline_text(&mut app.add_source_file_path, "Image file path..."));
+                                    let browse_w = 108.0;
+                                    let input_w = (add_src_field_w - browse_w - ui.spacing().item_spacing.x).max(140.0);
+                                    ui.add_sized(Vec2::new(input_w, add_src_field_h), standard_singleline_text(&mut app.add_source_file_path, "Image file path..."));
                                     let browse_btn = crate::ui::button_3d::Button3D::new("Browse...")
                                         .icon(icons::FOLDER_OPEN)
-                                        .min_size(Vec2::new(95.0, 24.0));
+                                        .min_size(Vec2::new(browse_w, add_src_field_h));
                                     if ui.add(browse_btn).clicked() {
                                         if let Some(path) = crate::platform::pick_image_file_dialog() {
                                             app.add_source_file_path = path.to_string_lossy().to_string();
@@ -4165,15 +4358,19 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                                         }
                                     }
                                 });
-                                ui.label(RichText::new("Supported formats: .png, .jpg, .jpeg, .bmp, .webp, .gif").small().color(p.text_muted));
+                                ui.add_space(4.0);
+                                ui.label(RichText::new("Supported formats: .png, .jpg, .jpeg, .bmp, .webp, .gif").size(11.0).color(p.text_muted));
                             }
                             crate::studio::source::AddSourceType::MediaSource => {
-                                ui.label("Select Video or Audio File:");
+                                ui.label(RichText::new("Video / Audio File:").strong().color(p.text_primary));
+                                ui.add_space(3.0);
                                 ui.horizontal(|ui| {
-                                    ui.add_sized(Vec2::new(225.0, 24.0), standard_singleline_text(&mut app.add_source_file_path, "Video/audio file path..."));
+                                    let browse_w = 108.0;
+                                    let input_w = (add_src_field_w - browse_w - ui.spacing().item_spacing.x).max(140.0);
+                                    ui.add_sized(Vec2::new(input_w, add_src_field_h), standard_singleline_text(&mut app.add_source_file_path, "Media file path..."));
                                     let browse_btn = crate::ui::button_3d::Button3D::new("Browse...")
                                         .icon(icons::FOLDER_OPEN)
-                                        .min_size(Vec2::new(95.0, 24.0));
+                                        .min_size(Vec2::new(browse_w, add_src_field_h));
                                     if ui.add(browse_btn).clicked() {
                                         if let Some(path) = crate::platform::pick_media_file_dialog() {
                                             app.add_source_file_path = path.to_string_lossy().to_string();
@@ -4184,47 +4381,54 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                                         }
                                     }
                                 });
-                                ui.label(RichText::new("Supported formats: .mp4, .mkv, .mov, .avi, .webm, .mp3, .wav").small().color(p.text_muted));
+                                ui.add_space(4.0);
+                                ui.label(RichText::new("Supported formats: .mp4, .mkv, .mov, .avi, .webm, .mp3, .wav").size(11.0).color(p.text_muted));
+                                ui.label(RichText::new("Audio plays only while the source is live on Program.").size(11.0).color(p.text_muted));
                             }
                             crate::studio::source::AddSourceType::TextGdiPlus => {
-                                ui.label("Text Content:");
-                                ui.add_sized(Vec2::new(340.0, 24.0), standard_singleline_text(&mut app.add_source_text_content, "Enter text to display..."));
+                                ui.label(RichText::new("Text Content:").strong().color(p.text_primary));
+                                ui.add_space(3.0);
+                                ui.add_sized(Vec2::new(add_src_field_w, add_src_field_h), standard_singleline_text(&mut app.add_source_text_content, "Enter the text to display..."));
                                 ui.add_space(4.0);
-                                ui.label(RichText::new("Scrolling marquee and TV show templates can be customized in Properties.").small().color(p.text_muted));
+                                ui.label(RichText::new("Scrolling marquee and TV banner templates can be customized further in Properties.").size(11.0).color(p.text_muted));
                             }
                             crate::studio::source::AddSourceType::ColorSource => {
-                                ui.label("Solid Background Color:");
+                                ui.label(RichText::new("Solid Background Color:").strong().color(p.text_primary));
+                                ui.add_space(3.0);
                                 ui.horizontal(|ui| {
                                     ui.color_edit_button_srgba_unmultiplied(&mut app.add_source_color_rgba);
                                     let [r, g, b, _] = app.add_source_color_rgba;
-                                    ui.label(RichText::new(format!("#{:02X}{:02X}{:02X}", r, g, b)).strong());
+                                    ui.label(RichText::new(format!("#{:02X}{:02X}{:02X}", r, g, b)).strong().size(12.0));
                                 });
                                 ui.add_space(4.0);
-                                ui.label(RichText::new("Default canvas dimension 1920×1080 (16:9 fullscreen).").small().color(p.text_muted));
+                                ui.label(RichText::new("Default canvas size 1920x1080 (16:9 fullscreen).").size(11.0).color(p.text_muted));
                             }
                             crate::studio::source::AddSourceType::PowerPoint => {
-                                ui.label(RichText::new("Option 1: Capture PowerPoint Slide Show Window").strong().small());
+                                ui.label(RichText::new("Option 1: Capture PowerPoint Slide Show Window").strong().color(p.text_primary));
                                 let windows = app.capture_catalog.windows.clone();
                                 let ppt_window = windows.iter().find(|w| w.title.to_lowercase().contains("powerpoint") || w.executable.to_lowercase().contains("powerpnt"));
                                 if let Some(w) = ppt_window {
-                                    ui.label(RichText::new(format!("{} Terdeteksi: [{}] {}", icons::CHECK, w.executable, w.title)).small().color(p.meter_ok));
+                                    ui.label(RichText::new(format!("{} Detected: [{}] {}", icons::CHECK, w.executable, truncate_str(&w.title, 34))).size(10.5).color(p.meter_ok));
                                     if app.add_source_file_path.is_empty() {
                                         app.add_source_file_path = w.hwnd.to_string();
                                     }
                                 } else {
-                                    ui.label(RichText::new("Start PowerPoint in Slide Show mode for interactive capture.").small().color(p.text_muted));
+                                    ui.label(RichText::new("Start PowerPoint in Slide Show mode for interactive capture.").size(11.0).color(p.text_muted));
                                 }
 
-                                ui.add_space(4.0);
-                                ui.label(RichText::new("Option 2: Or Select Presentation File (.pptx / .ppt):").strong().small());
+                                ui.add_space(8.0);
+                                ui.label(RichText::new("Option 2: Select a Presentation File (.pptx / .ppt)").strong().color(p.text_primary));
+                                ui.add_space(3.0);
                                 ui.horizontal(|ui| {
+                                    let browse_w = 108.0;
+                                    let input_w = (add_src_field_w - browse_w - ui.spacing().item_spacing.x).max(140.0);
                                     let mut display_p = if app.add_source_file_path.parse::<u64>().is_ok() { String::new() } else { app.add_source_file_path.clone() };
-                                    if ui.add_sized(Vec2::new(225.0, 24.0), egui::TextEdit::singleline(&mut display_p)).changed() {
+                                    if ui.add_sized(Vec2::new(input_w, add_src_field_h), standard_singleline_text(&mut display_p, "Presentation file path...")).changed() {
                                         app.add_source_file_path = display_p;
                                     }
                                     let browse_btn = crate::ui::button_3d::Button3D::new("Browse...")
                                         .icon(icons::FOLDER_OPEN)
-                                        .min_size(Vec2::new(95.0, 24.0));
+                                        .min_size(Vec2::new(browse_w, add_src_field_h));
                                     if ui.add(browse_btn).clicked() {
                                         if let Some(path) = crate::platform::pick_powerpoint_file_dialog() {
                                             app.add_source_file_path = path.to_string_lossy().to_string();
@@ -4236,17 +4440,18 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                                 });
                             }
                             crate::studio::source::AddSourceType::Pdf => {
-                                ui.label(RichText::new("PDF Document / Presentation File (.pdf):").strong().size(12.0));
+                                ui.label(RichText::new("PDF Document File (.pdf):").strong().color(p.text_primary));
+                                ui.add_space(3.0);
                                 ui.horizontal(|ui| {
-                                    let btn_w = 84.0;
-                                    let input_w = (340.0 - btn_w - ui.spacing().item_spacing.x).max(120.0);
+                                    let browse_w = 108.0;
+                                    let input_w = (add_src_field_w - browse_w - ui.spacing().item_spacing.x).max(140.0);
                                     let mut display_p = app.add_source_file_path.clone();
-                                    if ui.add_sized(Vec2::new(input_w, 24.0), standard_singleline_text(&mut display_p, "Select PDF file...")).changed() {
+                                    if ui.add_sized(Vec2::new(input_w, add_src_field_h), standard_singleline_text(&mut display_p, "Select a PDF file...")).changed() {
                                         app.add_source_file_path = display_p;
                                     }
-                                    let browse_btn = crate::ui::button_3d::Button3D::new("Browse")
+                                    let browse_btn = crate::ui::button_3d::Button3D::new("Browse...")
                                         .icon(icons::FOLDER_OPEN)
-                                        .min_size(Vec2::new(btn_w, 24.0));
+                                        .min_size(Vec2::new(browse_w, add_src_field_h));
                                     if ui.add(browse_btn).clicked() {
                                         if let Some(path) = crate::platform::pick_pdf_file_dialog() {
                                             app.add_source_file_path = path.to_string_lossy().to_string();
@@ -4257,19 +4462,21 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                                     }
                                 });
                                 ui.add_space(4.0);
-                                ui.label(RichText::new("PDF is opened in 16:9 Fullscreen presentation mode with page navigation.").small().color(p.text_muted));
+                                ui.label(RichText::new("PDF opens in 16:9 fullscreen presentation mode with page navigation.").size(11.0).color(p.text_muted));
                             }
                             crate::studio::source::AddSourceType::BrowserSource => {
-                                ui.label("Web URL:");
-                                ui.add_sized(Vec2::new(340.0, 24.0), egui::TextEdit::singleline(&mut app.add_source_browser_url));
+                                ui.label(RichText::new("Web URL:").strong().color(p.text_primary));
+                                ui.add_space(3.0);
+                                ui.add_sized(Vec2::new(add_src_field_w, add_src_field_h), standard_singleline_text(&mut app.add_source_browser_url, "https://example.com/overlay"));
                                 ui.add_space(4.0);
-                                ui.label(RichText::new("Provides web URL and rendering dimensions for broadcast overlays.").small().color(p.text_muted));
+                                ui.label(RichText::new("Provides a web URL and render dimensions for broadcast overlays.").size(11.0).color(p.text_muted));
                             }
                             crate::studio::source::AddSourceType::WebcamDevice => {
-                                ui.label("Select Camera Device:");
+                                ui.label(RichText::new("Camera Device:").strong().color(p.text_primary));
+                                ui.add_space(3.0);
                                 let cameras = app.capture_catalog.cameras.clone();
                                 if cameras.is_empty() {
-                                    ui.label(RichText::new("No online webcams detected.").small().color(p.text_muted));
+                                    ui.label(RichText::new("No webcam detected.").size(11.0).color(p.text_muted));
                                 } else {
                                     let selected_id = if app.add_source_file_path.is_empty() {
                                         cameras.first().map(|c| c.id.clone()).unwrap_or_default()
@@ -4279,7 +4486,7 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                                     let current_name = cameras.iter().find(|c| c.id == selected_id).map(|c| c.name.as_str()).unwrap_or("Select Camera");
                                     egui::ComboBox::from_id_salt("add_cam_combo")
                                         .selected_text(current_name)
-                                        .width(330.0)
+                                        .width(add_src_field_w)
                                         .show_ui(ui, |ui| {
                                             for c in &cameras {
                                                 if ui.selectable_value(&mut app.add_source_file_path, c.id.clone(), c.name.clone()).clicked() {
@@ -4287,67 +4494,77 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                                                 }
                                             }
                                         });
+                                    ui.add_space(4.0);
+                                    ui.label(RichText::new("Rounded corners, border thickness, and outline color can be adjusted in Properties.").size(11.0).color(p.text_muted));
                                 }
                             }
                             crate::studio::source::AddSourceType::ImageSlideShow => {
-                                ui.label("Image Slide Show");
-                                ui.label(RichText::new("Image slide show created with fade transitions. Photos can be added and reordered via 'Manage Slide Show Images' in Properties.").small().color(p.text_muted));
+                                ui.label(RichText::new("Image Slide Show").strong().color(p.text_primary));
+                                ui.add_space(3.0);
+                                ui.label(RichText::new("A slide show with fade transitions. Photos can be added and reordered via 'Manage Slide Show Images' in Properties.").size(11.0).color(p.text_muted));
                             }
                             crate::studio::source::AddSourceType::TimeSource => {
-                                ui.label(RichText::new("Time Mode & Style Options:").strong().small());
-                                ui.label(RichText::new("• Real-Time Clock (Synchronized with Windows system time)").small());
-                                ui.label(RichText::new("• Stopwatch / Count-Up (Hours, minutes, seconds)").small());
-                                ui.label(RichText::new("• Countdown Timer (Presentations, events, exams)").small());
+                                ui.label(RichText::new("Time Mode & Style:").strong().color(p.text_primary));
+                                ui.add_space(3.0);
+                                ui.label(RichText::new("• Real-Time Clock (synchronized with Windows system time)").size(11.0).color(p.text_secondary));
+                                ui.label(RichText::new("• Stopwatch / Count-Up (hours, minutes, seconds)").size(11.0).color(p.text_secondary));
+                                ui.label(RichText::new("• Countdown Timer (presentations, events, exams)").size(11.0).color(p.text_secondary));
                                 ui.add_space(4.0);
-                                ui.label(RichText::new("Available in 4 visual styles: Digital Neon, TV Broadcast Badge, Clean Minimalist, and Glassmorphism Card.").small().color(p.text_muted));
-                                ui.label(RichText::new("Font family, scalable font size, colors, and advance/rewind controls can be adjusted in Properties.").small().color(p.text_muted));
+                                ui.label(RichText::new("Available in 4 visual styles: Digital Neon, TV Broadcast Badge, Clean Minimalist, and Glassmorphism Card.").size(11.0).color(p.text_muted));
+                                ui.label(RichText::new("Font type, size, colors, and time advance/rewind controls can be adjusted in Properties.").size(11.0).color(p.text_muted));
                             }
-                        }
-
-                        ui.add_space(8.0);
-                        ui.checkbox(&mut app.add_source_open_properties, "Open advanced settings (Properties) after adding");
-
-                        // Error message
-                        if let Some(err) = &app.add_source_error_message {
-                            ui.add_space(4.0);
-                            ui.colored_label(p.rec_red, format!("⚠ {}", err));
                         }
 
                         ui.add_space(10.0);
-                        ui.separator();
-                        ui.add_space(6.0);
-
-                        // Action buttons (aligned right with precision)
-                        ui.allocate_ui_with_layout(
-                            Vec2::new(ui.available_width(), 28.0),
-                            egui::Layout::right_to_left(egui::Align::Center),
-                            |ui| {
-                                let add_btn = crate::ui::button_3d::Button3D::primary("Add Source")
-                                    .icon(icons::PLUS)
-                                    .min_size(Vec2::new(125.0, 28.0));
-
-                                if ui.add(add_btn).clicked() {
-                                    if let Some(item) = validate_and_create_source(app) {
-                                        app.studio.preview_scene_mut().add_source(item);
-                                        app.studio.sync_if_linked();
-                                        if app.add_source_open_properties {
-                                            app.show_source_properties_dialog = true;
-                                        }
-                                        app.show_add_source_dialog = false;
-                                    }
-                                }
-
-                                let cancel_btn = crate::ui::button_3d::Button3D::new("Cancel")
-                                    .min_size(Vec2::new(80.0, 28.0));
-
-                                if ui.add(cancel_btn).clicked() {
-                                    app.show_add_source_dialog = false;
-                                }
-                            },
+                        ui.checkbox(
+                            &mut app.add_source_open_properties,
+                            RichText::new("Open advanced settings (Properties) after adding"),
                         );
+
+                        // Error message
+                        if let Some(err) = &app.add_source_error_message {
+                            ui.add_space(6.0);
+                            ui.label(
+                                RichText::new(format!("{} {}", icons::ALERT_CIRCLE, err))
+                                    .size(11.0)
+                                    .color(p.rec_red),
+                            );
+                        }
+                            });
                     },
                 );
             });
+
+            // ---- Bottom action row (flush to the bottom-right corner) ----
+            ui.add_space(8.0);
+            ui.separator();
+            ui.add_space(10.0);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let add_btn = crate::ui::button_3d::Button3D::primary("Add Source")
+                    .icon(icons::PLUS)
+                    .min_size(Vec2::new(150.0, 26.0));
+
+                if ui.add(add_btn).clicked() {
+                    if let Some(item) = validate_and_create_source(app) {
+                        app.studio.preview_scene_mut().add_source(item);
+                        app.studio.sync_if_linked();
+                        if app.add_source_open_properties {
+                            app.show_source_properties_dialog = true;
+                        }
+                        app.show_add_source_dialog = false;
+                    }
+                }
+
+                ui.add_space(8.0);
+
+                let cancel_btn =
+                    crate::ui::button_3d::Button3D::new("Cancel").min_size(Vec2::new(96.0, 26.0));
+
+                if ui.add(cancel_btn).clicked() {
+                    app.show_add_source_dialog = false;
+                }
+            });
+            ui.add_space(4.0);
 
             if let Some(new_st) = newly_selected {
                 app.add_source_selected_type = new_st;
@@ -4673,7 +4890,7 @@ pub fn render_eyedropper_overlay(ctx: &egui::Context, app: &mut NexoraApp) {
         return;
     }
 
-    // Arm eyedropper only after mouse button has been released from clicking the "Pipet Layar" button
+    // Arm eyedropper only after mouse button has been released from clicking the "Screen Eyedropper" button
     if !app.eyedropper_armed {
         if !ctx.input(|i| i.pointer.primary_down()) {
             app.eyedropper_armed = true;
@@ -4929,7 +5146,7 @@ pub fn render_virtual_camera_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Driver:").size(11.0).color(p.text_muted));
                 ui.label(
-                    RichText::new("NEXORA Virtual Camera (Terdaftar)")
+                    RichText::new("NEXORA Virtual Camera (Registered)")
                         .size(11.0)
                         .strong()
                         .color(p.meter_ok),

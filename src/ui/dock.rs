@@ -1643,7 +1643,7 @@ fn populate_source_context_menu(
 
     if ui
         .button(format!("{}  Filters...", icons::FILTER))
-        .on_hover_text("Atur Chroma Key, Color Key, atau Luma Key")
+        .on_hover_text("Configure Chroma Key, Color Key, or Luma Key")
         .clicked()
     {
         *action_out = Some(SourceContextAction::OpenFilters(src_id));

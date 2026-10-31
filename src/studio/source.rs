@@ -114,7 +114,7 @@ impl TimeVisualEffect {
     pub fn label(&self) -> &'static str {
         match self {
             Self::DigitalNeon => "Digital LED / Neon Glow",
-            Self::TvCornerBadge => "TV Broadcast Badge (Kapsul Siaran)",
+            Self::TvCornerBadge => "TV Broadcast Badge (Broadcast Capsule)",
             Self::MinimalistClean => "Clean Minimalist (Transparent)",
             Self::DarkGlassCard => "Dark Glassmorphism Card",
         }
@@ -258,11 +258,11 @@ impl TvBannerStyle {
     pub fn label(&self) -> &'static str {
         match self {
             Self::PlainText => "Plain Text (No Background Box)",
-            Self::SolidBanner => "Banner Latar Solid (Ticker Strip)",
+            Self::SolidBanner => "Solid Background Banner (Ticker Strip)",
             Self::BreakingNewsTv => "TV Breaking News (Badge + Running Bar)",
-            Self::LowerThirdCard => "TV Lower-Third (Kartu Nama / Acara)",
+            Self::LowerThirdCard => "TV Lower-Third (Name Card / Event)",
             Self::HeadlineStrap => "TV Headline Strap (Accent Line Top/Bottom)",
-            Self::CornerBugLive => "TV Corner Bug (Kapsul Pojok LIVE)",
+            Self::CornerBugLive => "TV Corner Bug (LIVE Corner Capsule)",
         }
     }
 
@@ -308,7 +308,7 @@ impl TvTextTemplate {
             Self::BreakingNewsTicker => "TV Breaking News Ticker (Bottom)",
             Self::InfoRunningMarquee => "TV Running Text Info (Marquee)",
             Self::TalkshowLowerThird => "TV Talkshow Lower-Third (Bottom-Left)",
-            Self::HeadlineBroadcastBanner => "TV Headline Strap (Judul Utama)",
+            Self::HeadlineBroadcastBanner => "TV Headline Strap (Main Headline)",
             Self::LiveCornerBug => "TV LIVE Corner Bug (Top Corner)",
             Self::EndingCreditsRoll => "TV Ending Credits (Roll Up)",
         }
@@ -831,9 +831,9 @@ impl AddSourceType {
         match self {
             Self::DisplayCapture => "Capture entire monitor screen display in real-time.",
             Self::WindowCapture => "Capture specific application window (Word, Chrome, Game, etc.).",
-            Self::Image => "Menambahkan gambar statis lokal (.png, .jpg, .jpeg, .webp, .bmp).",
+            Self::Image => "Add a local static image (.png, .jpg, .jpeg, .webp, .bmp).",
             Self::MediaSource => "Add local video or music audio file (.mp4, .mkv, .mov, .mp3).",
-            Self::TextGdiPlus => "Menambahkan teks kustom, animasi berjalan (running text), atau template TV Show.",
+            Self::TextGdiPlus => "Add custom text, running text animation, or a TV show template.",
             Self::ColorSource => "Adds a solid color layer as a canvas background.",
             Self::PowerPoint => "Display PowerPoint presentation (slide show window or presentation file).",
             Self::Pdf => "Open PDF document or presentation in fullscreen with page navigation (Next/Prev, remote clicker, arrow keys).",
@@ -1437,7 +1437,7 @@ impl SourceItem {
                 self.transform.scale_y = 0.28;
                 self.transform.lock_aspect = false;
                 self.kind = SourceKind::TextGdiPlus {
-                    text: "Bpk. Ahmad Pratama — Pembicara Utama".to_string(),
+                    text: "Mr. Ahmad Pratama — Keynote Speaker".to_string(),
                     font_size: 24.0,
                     color_rgba: [255, 255, 255, 255],
                     effect: TextAnimationEffect::Static,
@@ -1460,7 +1460,7 @@ impl SourceItem {
                 self.transform.scale_y = 0.14;
                 self.transform.lock_aspect = false;
                 self.kind = SourceKind::TextGdiPlus {
-                    text: "LAPORAN UTAMA: TRANSFORMASI DIGITAL & TEKNOLOGI MASA DEPAN".to_string(),
+                    text: "TOP STORY: DIGITAL TRANSFORMATION & THE FUTURE OF TECHNOLOGY".to_string(),
                     font_size: 24.0,
                     color_rgba: [255, 255, 255, 255],
                     effect: TextAnimationEffect::Typewriter,
