@@ -203,6 +203,15 @@ struct SharedCaptureData {
     active_requests: Vec<CaptureRequestTarget>,
     latest_frames: HashMap<String, CapturedFrame>,
     running: bool,
+    /// Output resolution of the active video preset.
+    ///
+    /// Screen and window capture used to be hardcoded to a 960x540 bitmap no matter which preset
+    /// was selected, so a "1080p" recording was really an upscale of a half-resolution image.
+    /// Capture now keeps the source's native size but never exceeds the output resolution, which
+    /// is the largest image the encoder can actually store.
+    output_size: (u32, u32),
+    /// Target capture frame rate, taken from the active video preset.
+    target_fps: u32,
 }
 
 pub struct LiveCaptureEngine {
@@ -222,6 +231,8 @@ impl LiveCaptureEngine {
             active_requests: Vec::new(),
             latest_frames: HashMap::new(),
             running: true,
+            output_size: (1920, 1080),
+            target_fps: 60,
         }));
 
         let worker_shared = Arc::clone(&shared);
@@ -252,6 +263,18 @@ impl LiveCaptureEngine {
             if guard.active_requests != requests {
                 guard.active_requests = requests;
             }
+        }
+    }
+
+    /// Updates the output resolution and frame rate that screen/window capture is limited to.
+    ///
+    /// Both values come from the active video preset, so the capture pipeline always produces
+    /// frames the encoder can consume without resampling, and the capture rate matches the rate
+    /// the recording is written at.
+    pub fn set_capture_limits(&self, output_size: (u32, u32), target_fps: u32) {
+        if let Ok(mut guard) = self.shared.lock() {
+            guard.output_size = (output_size.0.max(64), output_size.1.max(64));
+            guard.target_fps = target_fps.clamp(1, 240);
         }
     }
 
@@ -603,13 +626,62 @@ impl Drop for LiveCaptureEngine {
     }
 }
 
+/// Resolves the bitmap size a screen or window capture should be stored at.
+///
+/// The capture keeps the source's native pixel size — upscaling inside the worker would only add
+/// CPU cost, since the GPU scales the texture when the layer is drawn — but it is clamped to the
+/// output resolution of the active video preset. Capturing a 4K monitor at native resolution only
+/// for the encoder to downscale it again is pure waste.
+#[cfg(target_os = "windows")]
+fn resolve_capture_size(src_w: u32, src_h: u32, out_w: u32, out_h: u32) -> (usize, usize) {
+    let src_w = src_w.max(64) as f32;
+    let src_h = src_h.max(64) as f32;
+    let out_w = out_w.max(64) as f32;
+    let out_h = out_h.max(64) as f32;
+
+    if src_w <= out_w && src_h <= out_h {
+        return (src_w as usize, src_h as usize);
+    }
+
+    // Preserve the source aspect ratio and fit it inside the output box.
+    let scale = (out_w / src_w).min(out_h / src_h);
+    (
+        ((src_w * scale).round() as usize).max(2),
+        ((src_h * scale).round() as usize).max(2),
+    )
+}
+
+/// Copies a GDI DIB buffer (BGRA, 32bpp) into an RGBA buffer.
+///
+/// GDI always produces BGRA while egui expects RGBA. The swap is done per 4-byte pixel through
+/// `u32` lane shifts instead of byte-by-byte, which matters now that captures run at 1080p
+/// instead of 960x540. The alpha lane is forced opaque because GDI leaves it undefined in a
+/// `BI_RGB` 32bpp DIB, and egui would otherwise render the capture fully transparent.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn copy_bgra_to_rgba(dst: &mut [u8], src: &[u8]) {
+    debug_assert_eq!(dst.len(), src.len());
+    for (d, s) in dst.chunks_exact_mut(4).zip(src.chunks_exact(4)) {
+        let v = u32::from_le_bytes([s[0], s[1], s[2], s[3]]);
+        let out = (v & 0x0000_FF00)          // green lane
+            | ((v >> 16) & 0x0000_00FF)      // red  -> lowest lane
+            | ((v & 0x0000_00FF) << 16)      // blue -> third lane
+            | 0xFF00_0000; // alpha forced opaque
+        d.copy_from_slice(&out.to_le_bytes());
+    }
+}
+
 fn capture_worker_loop(shared: Arc<Mutex<SharedCaptureData>>) {
     let mut seq_counter: u64 = 1;
     loop {
         let start = Instant::now();
-        let (running, requests) = {
+        let (running, requests, output_size, target_fps) = {
             match shared.lock() {
-                Ok(guard) => (guard.running, guard.active_requests.clone()),
+                Ok(guard) => (
+                    guard.running,
+                    guard.active_requests.clone(),
+                    guard.output_size,
+                    guard.target_fps,
+                ),
                 Err(_) => break,
             }
         };
@@ -643,19 +715,33 @@ fn capture_worker_loop(shared: Arc<Mutex<SharedCaptureData>>) {
                     height,
                     capture_cursor,
                     ..
-                } => win32_capture::capture_display_rect(
-                    left,
-                    top,
-                    width.max(64),
-                    height.max(64),
-                    960,
-                    540,
-                    capture_cursor,
-                ),
+                } => {
+                    // Capture at the monitor's native pixel size (clamped to the output preset)
+                    // instead of the old fixed 960x540 bitmap.
+                    let (dst_w, dst_h) =
+                        resolve_capture_size(width, height, output_size.0, output_size.1);
+                    win32_capture::capture_display_rect(
+                        left,
+                        top,
+                        width.max(64),
+                        height.max(64),
+                        dst_w,
+                        dst_h,
+                        capture_cursor,
+                    )
+                }
                 CaptureRequestTarget::Window {
                     hwnd,
                     capture_cursor,
-                } => win32_capture::capture_window_hwnd(hwnd, 960, 540, capture_cursor),
+                } => {
+                    // Query the window's live size so the capture follows the window as it is
+                    // resized, rather than always producing a 960x540 image.
+                    let (win_w, win_h) =
+                        win32_capture::get_window_size(hwnd).unwrap_or((960, 540));
+                    let (dst_w, dst_h) =
+                        resolve_capture_size(win_w, win_h, output_size.0, output_size.1);
+                    win32_capture::capture_window_hwnd(hwnd, dst_w, dst_h, capture_cursor)
+                }
                 CaptureRequestTarget::Camera {
                     device_id,
                     resolution,
@@ -680,11 +766,15 @@ fn capture_worker_loop(shared: Arc<Mutex<SharedCaptureData>>) {
         }
 
         let elapsed = start.elapsed();
-        let frame_budget = Duration::from_millis(33); // ~30 FPS live preview capture
+        // The frame budget follows the active video preset instead of a fixed 30 FPS cap, so a
+        // 60 FPS preset actually captures at 60 FPS. When the capture itself overran the budget
+        // the loop only yields briefly instead of adding another full interval — otherwise a
+        // slow capture would halve its own achievable frame rate.
+        let frame_budget = Duration::from_secs_f64(1.0 / target_fps as f64);
         if elapsed < frame_budget {
             thread::sleep(frame_budget - elapsed);
         } else {
-            thread::sleep(Duration::from_millis(4));
+            thread::sleep(Duration::from_millis(1));
         }
     }
 }
@@ -769,7 +859,7 @@ fn media_worker_loop(shared: Arc<Mutex<SharedCaptureData>>) {
 
 #[cfg(target_os = "windows")]
 mod win32_capture {
-    use super::{DisplayInfo, WindowTargetInfo};
+    use super::{copy_bgra_to_rgba, DisplayInfo, WindowTargetInfo};
     use std::ffi::c_void;
     use std::mem::{size_of, zeroed};
     use std::ptr::{null, null_mut};
@@ -1113,14 +1203,7 @@ mod win32_capture {
             if ok != 0 {
                 let src_slice = std::slice::from_raw_parts(bits_ptr, byte_len);
                 // Convert BGRA -> RGBA
-                for (dst_px, src_px) in
-                    rgba.chunks_exact_mut(4).zip(src_slice.chunks_exact(4))
-                {
-                    dst_px[0] = src_px[2];
-                    dst_px[1] = src_px[1];
-                    dst_px[2] = src_px[0];
-                    dst_px[3] = 255;
-                }
+                copy_bgra_to_rgba(&mut rgba, src_slice);
             }
 
             SelectObject(mem_dc, old_obj);
@@ -1271,14 +1354,7 @@ mod win32_capture {
             let mut rgba = vec![0u8; byte_len];
             if ok != 0 {
                 let src_slice = std::slice::from_raw_parts(dst_bits, byte_len);
-                for (dst_px, src_px) in
-                    rgba.chunks_exact_mut(4).zip(src_slice.chunks_exact(4))
-                {
-                    dst_px[0] = src_px[2];
-                    dst_px[1] = src_px[1];
-                    dst_px[2] = src_px[0];
-                    dst_px[3] = 255;
-                }
+                copy_bgra_to_rgba(&mut rgba, src_slice);
             }
 
             SelectObject(win_dc, old_win);
@@ -2444,5 +2520,51 @@ pub fn get_window_size(hwnd_u64: u64) -> Option<(u32, u32)> {
 #[cfg(not(target_os = "windows"))]
 pub fn get_window_size(_hwnd_u64: u64) -> Option<(u32, u32)> {
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::copy_bgra_to_rgba;
+
+    /// The GDI capture path yields BGRA; egui needs RGBA with an opaque alpha lane. GDI leaves the
+    /// alpha byte of a 32bpp `BI_RGB` DIB undefined, so it must be forced rather than copied.
+    #[test]
+    fn bgra_to_rgba_swaps_channels_and_forces_opaque_alpha() {
+        let src = [0u8, 0, 255, 0, 0, 255, 0, 0];
+        let mut dst = [0u8; 8];
+        copy_bgra_to_rgba(&mut dst, &src);
+        assert_eq!(dst, [255, 0, 0, 255, 0, 255, 0, 255]);
+    }
+
+    /// A capture keeps the source's native size when it already fits the output preset, so the
+    /// worker never upscales and the GPU scales the texture instead.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn capture_size_keeps_native_resolution_when_it_fits() {
+        use super::resolve_capture_size;
+        assert_eq!(resolve_capture_size(1920, 1080, 1920, 1080), (1920, 1080));
+        assert_eq!(resolve_capture_size(1280, 720, 1920, 1080), (1280, 720));
+    }
+
+    /// A source larger than the output preset is scaled down, because capturing at native size
+    /// only to have the encoder downscale it again is wasted work.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn capture_size_scales_down_to_the_output_preset() {
+        use super::resolve_capture_size;
+        assert_eq!(resolve_capture_size(3840, 2160, 1920, 1080), (1920, 1080));
+        assert_eq!(resolve_capture_size(2560, 1440, 1280, 720), (1280, 720));
+    }
+
+    /// Scaling keeps the source aspect ratio and stays inside the output box.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn capture_size_preserves_aspect_ratio() {
+        use super::resolve_capture_size;
+        let (w, h) = resolve_capture_size(3440, 1440, 1920, 1080);
+        assert_eq!(w, 1920);
+        assert_eq!(h, 804);
+        assert!(w <= 1920 && h <= 1080);
+    }
 }
 

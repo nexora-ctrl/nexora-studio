@@ -338,5 +338,318 @@ mod tests {
         assert!((fit_px_h - 1080.0).abs() < 0.1);
         assert!((fit_px_w - 1080.0).abs() < 0.1);
     }
-}
 
+    #[test]
+    fn source_bus_device_name_matching_is_tolerant() {
+        use crate::audio::endpoints::{is_default_device_entry, normalize_device_name, score_device_name};
+
+        // Exact and case-insensitive matches win
+        assert_eq!(score_device_name("Speakers", "Speakers"), 1_000);
+        assert_eq!(score_device_name("Speakers", "speakers"), 1_000);
+
+        // Punctuation / spacing differences are folded away (the real UI truncates with "…")
+        let winmm = "Speakers (Realtek(R) Audio)";
+        let mmdevice = "Speakers (Realtek(R) Audio)";
+        assert!(score_device_name(winmm, mmdevice) >= 900);
+
+        let truncated = "Microphone Array (2- Intel® Smart Sound Technology for Di…";
+        let full = "Microphone Array (Intel® Smart Sound Technology for Digital Microphones)";
+        assert!(
+            score_device_name(truncated, full) > 0,
+            "a UI-truncated endpoint name must still resolve to its device"
+        );
+
+        // Unrelated devices must not match at all
+        assert_eq!(score_device_name("Speakers", "Headphones"), 0);
+
+        // Empty input never matches, so the caller falls back to the default endpoint
+        assert_eq!(score_device_name("", "Speakers"), 0);
+        assert_eq!(score_device_name("Speakers", "   "), 0);
+
+        // Normalization strips vendor punctuation and lowercases
+        assert_eq!(normalize_device_name("Speakers (2- Realtek®)"), "speakers2realtek");
+
+        // Synthetic "use the Windows default" entries
+        assert!(is_default_device_entry("Default System Output (WASAPI)"));
+        assert!(is_default_device_entry("Default Microphone (WASAPI)"));
+        assert!(is_default_device_entry(""));
+        assert!(!is_default_device_entry("Speakers (Realtek(R) Audio)"));
+    }
+
+    #[test]
+    fn source_bus_gain_is_isolated_from_the_global_mixer() {
+        use crate::audio::bus::{buses_signature, SourceBusKind, SourceBusSpec};
+
+        let bus = |bus_id: &str, volume: f32, muted: bool, enabled: bool| SourceBusSpec {
+            bus_id: bus_id.to_string(),
+            label: bus_id.to_string(),
+            kind: SourceBusKind::CaptureInput,
+            device_name: "Microphone Array".to_string(),
+            volume,
+            muted,
+            enabled,
+            filters: Vec::new(),
+        };
+
+        // A live, unmuted source bus keeps its gain — it does not read any global mixer state,
+        // which is the whole point of Option A (muting `Mic / Aux` cannot silence it).
+        let live = bus("nx_src_a", 1.0, false, true);
+        assert!((live.effective_gain() - 1.0).abs() < f32::EPSILON);
+
+        // Muting the *source* bus zeroes only that bus
+        assert_eq!(bus("nx_src_a", 1.0, true, true).effective_gain(), 0.0);
+
+        // A source that is not live on Program (Preview standby / hidden) is silenced
+        assert_eq!(bus("nx_src_a", 1.0, false, false).effective_gain(), 0.0);
+
+        // Gain is clamped so a fader can never amplify past +3.5 dB
+        assert!((bus("nx_src_a", 9.0, false, true).effective_gain() - 1.5).abs() < f32::EPSILON);
+
+        // Routing signatures ignore fader / mute changes, so no device is needlessly re-opened
+        let a = bus("nx_src_a", 1.0, false, true);
+        let b = bus("nx_src_a", 0.2, true, false);
+        assert_eq!(a.routing_signature(), b.routing_signature());
+
+        // ...but the full signature does change, so the encoder still receives the new gain
+        assert_ne!(a.spec_signature(), b.spec_signature());
+
+        // A list-level signature changes when a source is added or removed
+        let one = buses_signature(&[a.clone()]);
+        let two = buses_signature(&[a.clone(), bus("nx_src_b", 1.0, false, true)]);
+        assert_ne!(one, two);
+        assert_eq!(one, buses_signature(&[a]));
+    }
+
+    #[test]
+    fn audio_mixer_serde_keeps_undo_hash_stable() {
+        use crate::audio::AudioMixerState;
+
+        // The per-source meter registry is runtime-only; it must not leak into the serialized
+        // form, otherwise every frame would look like an undoable change.
+        let mut mixer = AudioMixerState::default();
+        let before = serde_json::to_string(&mixer).expect("mixer must serialize");
+
+        mixer.source_levels.insert(
+            "nx_src_test".to_string(),
+            crate::audio::SourceLevel {
+                current_peak: 0.8,
+                peak_hold: 0.9,
+                peak_hold_timer: 1.0,
+            },
+        );
+        let after = serde_json::to_string(&mixer).expect("mixer must still serialize");
+
+        assert_eq!(
+            before, after,
+            "live meter values must be #[serde(skip)] so the undo hash stays stable"
+        );
+    }
+
+    #[test]
+    fn source_meter_ballistics_decay_to_silence() {
+        use crate::audio::SourceLevel;
+
+        let mut level = SourceLevel::default();
+        // Loud input drives the meter and the peak-hold pill up
+        for _ in 0..40 {
+            level.update(1.0, 1.0, 0.016);
+        }
+        assert!(level.current_peak > 0.5, "meter must respond to signal");
+        assert!(level.peak_hold > 0.5, "peak hold must capture the peak");
+
+        // Silence then releases the meter smoothly towards zero
+        for _ in 0..200 {
+            level.update(0.0, 1.0, 0.016);
+        }
+        assert!(level.current_peak < 0.01, "meter must fall back to silence");
+        assert!(level.peak_hold < 0.01, "peak hold must glide back down");
+
+        // An explicit silence() zeroes everything immediately (mute / disabled bus)
+        level.silence();
+        assert_eq!(level.current_peak, 0.0);
+        assert_eq!(level.peak_hold, 0.0);
+        assert_eq!(level.peak_hold_timer, 0.0);
+    }
+
+    /// 100 Hz sine at 48 kHz — a stand-in for speech that survives the 12 kHz hiss rolloff.
+    fn audio_test_tone(n: usize, amp: f32) -> f32 {
+        amp * (2.0 * std::f32::consts::PI * 100.0 * n as f32 / 48_000.0).sin()
+    }
+
+    #[test]
+    fn audio_gain_filter_scales_the_signal() {
+        use crate::audio::filters::{AudioFilter, AudioFilterChainRuntime, AudioFilterKind};
+
+        let mut f = AudioFilter::new(AudioFilterKind::Gain);
+        f.gain_db = 6.0;
+        let mut chain = AudioFilterChainRuntime::from_chain(&[f]);
+
+        // +6 dB is a linear factor of ~1.995, applied from the very first sample
+        let (l, r) = chain.process(0.1, -0.1);
+        assert!(
+            (l - 0.1995).abs() < 0.002,
+            "+6 dB must roughly double the level, got {l}"
+        );
+        assert!((r + 0.1995).abs() < 0.002, "gain must apply to both channels");
+
+        // A bypassed filter is never instantiated, so it costs nothing on the audio thread
+        let mut off = AudioFilter::new(AudioFilterKind::Gain);
+        off.gain_db = 30.0;
+        off.enabled = false;
+        assert!(
+            AudioFilterChainRuntime::from_chain(&[off]).is_transparent(),
+            "a bypassed filter must not run"
+        );
+    }
+
+    #[test]
+    fn audio_noise_gate_closes_on_silence_after_opening() {
+        use crate::audio::filters::{AudioFilter, AudioFilterChainRuntime, AudioFilterKind};
+
+        let mut f = AudioFilter::new(AudioFilterKind::NoiseGate);
+        f.gate_threshold_db = -45.0;
+        let mut chain = AudioFilterChainRuntime::from_chain(&[f]);
+
+        // Speech-level input must open the gate and pass almost intact
+        let mut out = (0.0, 0.0);
+        for n in 0..9_600 {
+            let s = if n % 2 == 0 { 0.5 } else { -0.5 };
+            out = chain.process(s, s);
+        }
+        assert!(
+            out.0.abs() > 0.45,
+            "speech-level input must pass the gate, got {}",
+            out.0
+        );
+
+        // Sub-threshold room tone must then be driven fully to silence
+        for n in 0..48_000 {
+            let s = if n % 2 == 0 { 0.0002 } else { -0.0002 };
+            out = chain.process(s, s);
+        }
+        assert!(
+            out.0.abs() < 1.0e-3,
+            "sub-threshold noise must be gated away, got {}",
+            out.0
+        );
+    }
+
+    #[test]
+    fn audio_noise_suppression_lowers_hiss_but_keeps_speech() {
+        use crate::audio::filters::{AudioFilter, AudioFilterChainRuntime, AudioFilterKind};
+
+        let mut f = AudioFilter::new(AudioFilterKind::NoiseSuppression);
+        f.ns_reduction_db = 12.0;
+        f.ns_sensitivity = 0.5;
+
+        // Steady hiss below the detection threshold is pushed down, not chopped off
+        let mut hiss_chain = AudioFilterChainRuntime::from_chain(&[f.clone()]);
+        let mut hiss_peak = 0.0_f32;
+        for n in 0..48_000 {
+            let s = audio_test_tone(n, 0.001);
+            let (l, _) = hiss_chain.process(s, s);
+            if n >= 47_520 {
+                hiss_peak = hiss_peak.max(l.abs());
+            }
+        }
+        assert!(
+            hiss_peak < 0.0006,
+            "hiss must be attenuated, got {hiss_peak}"
+        );
+
+        // Speech sits above the threshold and comes through essentially untouched
+        let mut speech_chain = AudioFilterChainRuntime::from_chain(&[f]);
+        let mut speech_peak = 0.0_f32;
+        for n in 0..48_000 {
+            let s = audio_test_tone(n, 0.5);
+            let (l, _) = speech_chain.process(s, s);
+            if n >= 47_520 {
+                speech_peak = speech_peak.max(l.abs());
+            }
+        }
+        assert!(
+            speech_peak > 0.4,
+            "speech must survive noise suppression, got {speech_peak}"
+        );
+    }
+
+    #[test]
+    fn audio_filter_chain_supports_cleaning_mic_and_controls_params() {
+        use crate::audio::filters::{AudioFilter, AudioFilterChainRuntime, AudioFilterKind};
+
+        // `Clean Mic` installs the documented two-stage chain for a microphone and is a
+        // usable starting point on its own: it must remove hiss yet let speech through.
+        let mut chain = AudioFilterChainRuntime::from_chain(&crate::audio::filters::clean_mic_preset());
+        assert!(!chain.is_transparent(), "Clean Mic preset must do something");
+
+        // Speech must survive the whole chain
+        let mut peak = 0.0_f32;
+        for n in 0..24_000 {
+            let s = audio_test_tone(n, 0.5);
+            let (l, _) = chain.process(s, s);
+            if n >= 23_520 {
+                peak = peak.max(l.abs());
+            }
+        }
+        assert!(peak > 0.4, "Clean Mic must keep speech intact, got {peak}");
+
+        // Filters must be individually bypassable without disturbing the rest
+        let mut bypassed = AudioFilter::new(AudioFilterKind::NoiseGate);
+        bypassed.enabled = false;
+        let mut chain = AudioFilterChainRuntime::from_chain(&[bypassed]);
+        assert!(chain.is_transparent(), "a disabled chain must be transparent");
+        assert_eq!(chain.process(0.25, -0.25), (0.25, -0.25));
+    }
+
+    #[test]
+    fn audio_filter_signature_tracks_order_and_parameters() {
+        use crate::audio::filters::{filters_signature, AudioFilter, AudioFilterKind};
+
+        assert_eq!(filters_signature(&[]), "none", "an empty chain is a no-op");
+
+        let gain = AudioFilter::new(AudioFilterKind::Gain);
+        let gate = AudioFilter::new(AudioFilterKind::NoiseGate);
+        let ns = AudioFilter::new(AudioFilterKind::NoiseSuppression);
+
+        // Order is significant: a gate before a gain is not the same as a gain before a gate
+        assert_ne!(
+            filters_signature(&[gain.clone(), gate.clone()]),
+            filters_signature(&[gate.clone(), gain.clone()]),
+            "chain order must be part of the signature"
+        );
+
+        // Parameter edits are visible to the encoder, so the new value is actually delivered
+        let mut louder = gain.clone();
+        louder.gain_db = 12.0;
+        assert_ne!(filters_signature(&[gain.clone()]), filters_signature(&[louder]));
+
+        // A bypass toggle changes the rendered audio, so it must change the signature too
+        let mut off = ns.clone();
+        off.enabled = false;
+        assert_ne!(filters_signature(&[ns.clone()]), filters_signature(&[off]));
+
+        // The identity is deliberately excluded: it is a UI handle, not an audio parameter
+        let mut renamed = ns.clone();
+        renamed.id = uuid::Uuid::new_v4();
+        assert_eq!(filters_signature(&[ns]), filters_signature(&[renamed]));
+    }
+
+    #[test]
+    fn test_slider_standardization_constants() {
+        use crate::ui::dialogs::{
+            AUDIO_FILTER_CARD_CONTENT_WIDTH, AUDIO_FILTER_CARD_WIDTH, SLIDER_PARAM_BOX_HEIGHT,
+            SLIDER_PARAM_BOX_WIDTH, SLIDER_PARAM_FONT_SIZE, SLIDER_PARAM_LABEL_WIDTH,
+            SLIDER_PARAM_RAIL_WIDTH, SLIDER_PARAM_RESET_WIDTH,
+        };
+
+        // Guaranteed dimensions for consistent 4-column studio slider parameter forms
+        assert_eq!(AUDIO_FILTER_CARD_WIDTH, 496.0);
+        assert_eq!(AUDIO_FILTER_CARD_CONTENT_WIDTH, 472.0);
+        assert_eq!(SLIDER_PARAM_LABEL_WIDTH, 130.0);
+        assert_eq!(SLIDER_PARAM_RAIL_WIDTH, 185.0);
+        assert_eq!(SLIDER_PARAM_BOX_WIDTH, 64.0);
+        assert_eq!(SLIDER_PARAM_BOX_HEIGHT, 22.0);
+        assert_eq!(SLIDER_PARAM_RESET_WIDTH, 64.0);
+        assert_eq!(SLIDER_PARAM_FONT_SIZE, 11.5);
+    }
+}

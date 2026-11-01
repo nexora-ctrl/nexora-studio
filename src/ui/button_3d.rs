@@ -1,31 +1,29 @@
 use egui::{
-    Color32, CornerRadius, CursorIcon, FontId, Pos2, Rect, Response, Sense, Stroke, Ui, Vec2,
-    Widget, WidgetText,
+    Color32, CursorIcon, Response, Sense, Stroke, Ui, Vec2, Widget, WidgetText,
 };
 
 use crate::settings::ThemeMode;
 use crate::ui::theme::ThemePalette;
 
-/// Visual variants for 3D tactile buttons
+/// Visual variants for action buttons.
+///
+/// The name is kept for source compatibility across the codebase; there is no longer any 3D
+/// geometry behind it. Each variant only selects a fill / border / text colour triple.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Button3DVariant {
     #[default]
-    Neutral, // Sleek studio dark keycap (Cancel, Close, Browse, Reset, Tools)
-    Primary, // Neon Cyan/Blue Accent (Add Source, Apply, OK, Save, Transition)
-    Danger,  // Broadcast Red (Start Recording, Stop Recording, Delete)
-    Warning, // Amber/Gold (Pause, Resume, Alert)
-    Success, // Studio Green (Live, Connect, Update Available)
+    Neutral, // Standard studio keycap (Cancel, Close, Browse, Reset, Tools)
+    Primary, // Accent blue (Add Source, Apply, OK, Save, Transition)
+    Danger,  // Broadcast red (Start Recording, Stop Recording, Delete)
+    Warning, // Amber (Pause, Resume, Alert)
+    Success, // Studio green (Live, Connect, Update Available)
 }
 
-/// Universal 3D Tactile Button Widget for NEXORA Studio.
+/// Standard flat button widget for NEXORA Studio.
 ///
-/// Features:
-/// - Physical top-edge specular highlight simulating overhead studio lighting.
-/// - Realistic bottom drop shadow / base rim giving tangible elevation.
-/// - 1.2px tactile press-down displacement when clicked (sunken active state).
-/// - 100% Pure White text on colored action buttons (Danger, Primary, Warning, Success).
-/// - Automatic width clamping so buttons never overflow their parent container.
-/// - Full disabled state support.
+/// Renders using the exact same widget states as every other egui control in the app
+/// (`visuals.widgets.inactive / hovered / active`), so buttons line up with ComboBoxes,
+/// text fields and DragValues without any bespoke bevel, drop shadow or press displacement.
 pub struct Button3D {
     text: WidgetText,
     icon: Option<String>,
@@ -38,36 +36,36 @@ pub struct Button3D {
 }
 
 impl Button3D {
-    /// Creates a new 3D button with neutral studio styling.
+    /// Creates a new button with neutral studio styling.
     pub fn new(text: impl Into<WidgetText>) -> Self {
         Self {
             text: text.into(),
             icon: None,
             variant: Button3DVariant::Neutral,
             min_size: Vec2::new(0.0, 24.0),
-            corner_radius: 4.5,
+            corner_radius: 5.0,
             selected: false,
             enabled: true,
             tooltip: None,
         }
     }
 
-    /// Creates a primary accent (blue) 3D button.
+    /// Creates a primary accent (blue) button.
     pub fn primary(text: impl Into<WidgetText>) -> Self {
         Self::new(text).variant(Button3DVariant::Primary)
     }
 
-    /// Creates a danger (red broadcast) 3D button.
+    /// Creates a danger (red broadcast) button.
     pub fn danger(text: impl Into<WidgetText>) -> Self {
         Self::new(text).variant(Button3DVariant::Danger)
     }
 
-    /// Creates a warning (amber) 3D button.
+    /// Creates a warning (amber) button.
     pub fn warning(text: impl Into<WidgetText>) -> Self {
         Self::new(text).variant(Button3DVariant::Warning)
     }
 
-    /// Creates a success (green) 3D button.
+    /// Creates a success (green) button.
     pub fn success(text: impl Into<WidgetText>) -> Self {
         Self::new(text).variant(Button3DVariant::Success)
     }
@@ -90,7 +88,7 @@ impl Button3D {
         self
     }
 
-    /// Sets custom corner radius (default: 4.5).
+    /// Sets custom corner radius (default: 5.0).
     pub fn corner_radius(mut self, radius: f32) -> Self {
         self.corner_radius = radius;
         self
@@ -126,72 +124,44 @@ impl Widget for Button3D {
         let p = ThemePalette::for_mode(mode);
 
         let enabled = self.enabled && ui.is_enabled();
+        let radius = egui::CornerRadius::same(self.corner_radius.round() as u8);
 
-        let style = ui.style();
-        let font_id = egui::TextStyle::Button.resolve(style);
-
-        // ALWAYS Pure Crisp White (#FFFFFF) text for colored buttons (Red Danger, Blue Primary, Amber Warning, Green Success)
-        let text_color = if !enabled {
-            p.text_muted
-        } else {
-            match self.variant {
-                Button3DVariant::Neutral => {
-                    if self.selected {
-                        p.accent_primary
-                    } else {
-                        p.text_primary
-                    }
-                }
-                Button3DVariant::Primary
-                | Button3DVariant::Danger
-                | Button3DVariant::Warning
-                | Button3DVariant::Success => Color32::WHITE,
-            }
-        };
-
-        // Layout text directly with explicit text_color so Light Mode text_color is never accidentally dark
+        // Compose the display string once; the icon is a glyph from the Tabler font so it
+        // belongs on the same baseline as the label.
         let text_str = self.text.text().to_string();
-        let label_galley = if text_str.is_empty() {
-            ui.painter().layout_no_wrap(String::new(), font_id.clone(), text_color)
-        } else {
-            ui.painter().layout_no_wrap(text_str, font_id.clone(), text_color)
+        let display = match (&self.icon, text_str.is_empty()) {
+            (Some(ic), false) => format!("{}  {}", ic, text_str),
+            (Some(ic), true) => ic.clone(),
+            (None, _) => text_str,
         };
 
-        let icon_galley = self.icon.as_ref().map(|ic| {
-            let icon_font = FontId::proportional(font_id.size * 1.15);
-            ui.painter().layout_no_wrap(ic.clone(), icon_font, text_color)
-        });
+        let font_id = egui::TextStyle::Button.resolve(ui.style());
 
-        // Compute size with precise padding
-        let has_text = !self.text.text().is_empty();
+        // Colored variants carry a solid accent face, so they need white text to stay legible.
+        let is_colored = !matches!(self.variant, Button3DVariant::Neutral);
 
-        let mut content_width = label_galley.size().x;
-        let mut content_height = label_galley.size().y;
+        // Measure from the laid-out text first, so the button can be sized before it is
+        // allocated. The colour used here is irrelevant — only `galley.size()` is read — so a
+        // throwaway transparent galley avoids baking a colour into the measurement pass.
+        let galley = ui
+            .painter()
+            .layout_no_wrap(display.clone(), font_id.clone(), Color32::TRANSPARENT);
 
-        if let Some(ref ig) = icon_galley {
-            if has_text {
-                content_width += ig.size().x + 5.0;
-            } else {
-                content_width = ig.size().x;
-            }
-            content_height = content_height.max(ig.size().y);
-        }
+        let padding = ui.spacing().button_padding;
+        let content_size = Vec2::new(
+            galley.size().x + padding.x * 2.0,
+            galley.size().y + padding.y * 2.0,
+        );
 
-        let padding_x = if has_text { 9.0_f32 } else { 4.0_f32 };
-        let padding_y = 4.0_f32;
-
+        // Clamp to the available width so a long label can never overflow its parent container.
         let avail_w = ui.available_width();
-        let natural_w = content_width + padding_x * 2.0;
-        let mut target_w = natural_w.max(self.min_size.x);
-
-        // Strictly clamp button width to available container width so it never overflows!
+        let mut target_w = content_size.x.max(self.min_size.x);
         if target_w > avail_w && avail_w > 10.0 {
             target_w = avail_w;
         }
-
         let desired_size = Vec2::new(
             target_w,
-            (content_height + padding_y * 2.0).max(self.min_size.y),
+            content_size.y.max(self.min_size.y),
         );
 
         let sense = if enabled {
@@ -210,262 +180,153 @@ impl Widget for Button3D {
             return response;
         }
 
-        let hovered = enabled && response.hovered();
-        let pressed = enabled && (response.is_pointer_button_down_on() || self.selected);
+        // Re-resolve interaction using the real response now that it exists.
+        let visuals = ui.style().interact_selectable(&response, self.selected);
 
+        let hovered = enabled && response.hovered();
         if hovered {
             ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
         }
 
-        let cr = self.corner_radius;
-
-        // Resolve 3D Palette Colors
-        let (base_fill, top_highlight, bottom_rim, border_stroke_col) = match self.variant {
-            Button3DVariant::Neutral => {
-                if !enabled {
-                    let fill = if is_dark { Color32::from_rgb(22, 25, 32) } else { Color32::from_rgb(238, 240, 244) };
-                    (fill, Color32::TRANSPARENT, Color32::TRANSPARENT, p.border_subtle)
-                } else if is_dark {
-                    let fill = if pressed {
-                        Color32::from_rgb(24, 28, 36)
-                    } else if hovered {
-                        Color32::from_rgb(38, 44, 56)
-                    } else {
-                        Color32::from_rgb(30, 34, 44)
-                    };
-                    let top_hi = if pressed {
-                        Color32::from_black_alpha(75)
-                    } else if hovered {
-                        Color32::from_white_alpha(55)
-                    } else {
-                        Color32::from_white_alpha(32)
-                    };
-                    let bot_rim = if pressed {
-                        Color32::from_white_alpha(20)
-                    } else {
-                        Color32::from_black_alpha(110)
-                    };
-                    let border = if hovered {
-                        p.accent_primary.gamma_multiply(0.75)
-                    } else {
-                        p.border_subtle
-                    };
-                    (fill, top_hi, bot_rim, border)
-                } else {
-                    let fill = if pressed {
-                        Color32::from_rgb(218, 224, 234)
-                    } else if hovered {
-                        Color32::from_rgb(244, 248, 254)
-                    } else {
-                        Color32::from_rgb(232, 237, 246)
-                    };
-                    let top_hi = if pressed {
-                        Color32::from_black_alpha(45)
-                    } else {
-                        Color32::from_white_alpha(220)
-                    };
-                    let bot_rim = Color32::from_black_alpha(65);
-                    let border = if hovered {
-                        p.accent_primary
-                    } else {
-                        p.border_strong
-                    };
-                    (fill, top_hi, bot_rim, border)
-                }
+        // --- Colour resolution: standard widget palette, with accent overrides per variant. ---
+        //
+        // Hover feedback must move *away* from the surrounding surface in both themes: in light
+        // mode that means darkening, in dark mode lightening. Reusing a single `lighten()` for
+        // both (as before) washed coloured buttons out on hover in light mode.
+        let (fill, stroke_col, text_col) = if !enabled {
+            if is_colored {
+                // Keep the variant hue recognisable while clearly reading as inert.
+                let face = variant_face(self.variant, &p, is_dark, true, false);
+                (face, variant_border(self.variant, &p, is_dark, false), p.text_muted)
+            } else {
+                (
+                    visuals.weak_bg_fill,
+                    visuals.bg_stroke.color,
+                    p.text_muted,
+                )
             }
-            Button3DVariant::Primary => {
-                let fill = if !enabled {
-                    p.accent_primary.gamma_multiply(0.35)
-                } else if pressed {
-                    Color32::from_rgb(20, 85, 185)
-                } else if hovered {
-                    Color32::from_rgb(45, 130, 245)
-                } else {
-                    p.accent_primary
-                };
-                let top_hi = if pressed {
-                    Color32::from_black_alpha(70)
-                } else {
-                    Color32::from_white_alpha(90)
-                };
-                let bot_rim = Color32::from_rgb(15, 60, 140);
-                let border = if hovered {
-                    Color32::from_rgb(120, 185, 255)
-                } else {
-                    Color32::from_rgb(25, 95, 205)
-                };
-                (fill, top_hi, bot_rim, border)
+        } else if self.selected {
+            if is_colored {
+                let face = variant_face(self.variant, &p, is_dark, false, hovered);
+                (face, variant_border(self.variant, &p, is_dark, hovered), Color32::WHITE)
+            } else {
+                (
+                    p.accent_primary,
+                    shade(p.accent_primary, 22.0),
+                    Color32::WHITE,
+                )
             }
-            Button3DVariant::Danger => {
-                let fill = if !enabled {
-                    p.rec_red.gamma_multiply(0.35)
-                } else if pressed {
-                    Color32::from_rgb(180, 25, 25)
-                } else if hovered {
-                    Color32::from_rgb(245, 65, 65)
-                } else {
-                    p.rec_red
-                };
-                let top_hi = if pressed {
-                    Color32::from_black_alpha(70)
-                } else {
-                    Color32::from_white_alpha(85)
-                };
-                let bot_rim = Color32::from_rgb(125, 15, 15);
-                let border = if hovered {
-                    Color32::from_rgb(255, 115, 115)
-                } else {
-                    Color32::from_rgb(175, 30, 30)
-                };
-                (fill, top_hi, bot_rim, border)
-            }
-            Button3DVariant::Warning => {
-                let fill = if !enabled {
-                    p.pause_amber.gamma_multiply(0.35)
-                } else if pressed {
-                    Color32::from_rgb(190, 115, 5)
-                } else if hovered {
-                    Color32::from_rgb(250, 175, 25)
-                } else {
-                    p.pause_amber
-                };
-                let top_hi = if pressed {
-                    Color32::from_black_alpha(70)
-                } else {
-                    Color32::from_white_alpha(90)
-                };
-                let bot_rim = Color32::from_rgb(135, 75, 5);
-                let border = if hovered {
-                    Color32::from_rgb(255, 200, 75)
-                } else {
-                    Color32::from_rgb(185, 110, 8)
-                };
-                (fill, top_hi, bot_rim, border)
-            }
-            Button3DVariant::Success => {
-                let fill = if !enabled {
-                    p.meter_ok.gamma_multiply(0.35)
-                } else if pressed {
-                    Color32::from_rgb(18, 130, 60)
-                } else if hovered {
-                    Color32::from_rgb(42, 210, 105)
-                } else {
-                    p.meter_ok
-                };
-                let top_hi = if pressed {
-                    Color32::from_black_alpha(70)
-                } else {
-                    Color32::from_white_alpha(85)
-                };
-                let bot_rim = Color32::from_rgb(12, 95, 42);
-                let border = if hovered {
-                    Color32::from_rgb(90, 235, 145)
-                } else {
-                    Color32::from_rgb(20, 145, 68)
-                };
-                (fill, top_hi, bot_rim, border)
-            }
+        } else if is_colored {
+            let face = variant_face(self.variant, &p, is_dark, false, hovered);
+            (face, variant_border(self.variant, &p, is_dark, hovered), Color32::WHITE)
+        } else {
+            // Neutral buttons follow the standard widget palette. Light mode previously reused
+            // `visuals.fg_stroke.color` here, which routes through `override_text_color` and made
+            // the label wash out against the near-white panel, so every value is now resolved
+            // from the palette directly.
+            let fill = if !is_dark && !hovered {
+                visuals.weak_bg_fill
+            } else {
+                visuals.bg_fill
+            };
+            (fill, visuals.bg_stroke.color, p.text_primary)
         };
 
         let painter = ui.painter();
-
-        // 1. Bottom 3D Drop Shadow / Extrusion (only when unpressed and enabled)
-        if enabled && !pressed {
-            let shadow_h = 1.6_f32;
-            let shadow_rect = Rect::from_min_max(
-                Pos2::new(rect.min.x + 0.5, rect.max.y - shadow_h),
-                Pos2::new(rect.max.x - 0.5, rect.max.y + shadow_h),
-            );
-            let shadow_color = if is_dark {
-                Color32::from_black_alpha(110)
-            } else {
-                Color32::from_black_alpha(50)
-            };
-            painter.rect_filled(shadow_rect, CornerRadius::same(cr as u8), shadow_color);
-        }
-
-        // 2. Button Face Displacement (press down 1.2px when clicked)
-        let face_rect = if pressed {
-            rect.translate(Vec2::new(0.0, 1.2))
-        } else {
-            rect
-        };
-
-        // 3. Fill & Stroke
         painter.rect(
-            face_rect,
-            CornerRadius::same(cr as u8),
-            base_fill,
-            Stroke::new(1.0_f32, border_stroke_col),
+            rect,
+            radius,
+            fill,
+            Stroke::new(1.0_f32, stroke_col),
             egui::StrokeKind::Inside,
         );
 
-        // 4. Top Specular Bevel Line (Simulating overhead 3D studio light)
-        if enabled {
-            let bevel_inset_x = (cr * 0.8).clamp(2.0, 6.0);
-            let top_y = face_rect.min.y + 1.2;
-            painter.line_segment(
-                [
-                    Pos2::new(face_rect.min.x + bevel_inset_x, top_y),
-                    Pos2::new(face_rect.max.x - bevel_inset_x, top_y),
-                ],
-                Stroke::new(1.0_f32, top_highlight),
-            );
-
-            // 5. Bottom Bevel Rim
-            if !pressed {
-                let bot_y = face_rect.max.y - 1.2;
-                painter.line_segment(
-                    [
-                        Pos2::new(face_rect.min.x + bevel_inset_x, bot_y),
-                        Pos2::new(face_rect.max.x - bevel_inset_x, bot_y),
-                    ],
-                    Stroke::new(1.0_f32, bottom_rim),
-                );
-            }
-        }
-
-        // 6. Draw Content (Icon + Label centered with tactile offset)
-        let content_center = face_rect.center();
-        let total_w = if let Some(ref ig) = icon_galley {
-            if has_text {
-                ig.size().x + 5.0 + label_galley.size().x
-            } else {
-                ig.size().x
-            }
-        } else {
-            label_galley.size().x
-        };
-
-        let start_x = content_center.x - total_w * 0.5;
-
-        if let Some(ref ig) = icon_galley {
-            let icon_pos = Pos2::new(
-                start_x,
-                content_center.y - ig.size().y * 0.5,
-            );
-            painter.galley(icon_pos, ig.clone(), text_color);
-
-            if has_text {
-                let label_pos = Pos2::new(
-                    start_x + ig.size().x + 5.0,
-                    content_center.y - label_galley.size().y * 0.5,
-                );
-                painter.galley(label_pos, label_galley, text_color);
-            }
-        } else if has_text {
-            let label_pos = Pos2::new(
-                content_center.x - label_galley.size().x * 0.5,
-                content_center.y - label_galley.size().y * 0.5,
-            );
-            painter.galley(label_pos, label_galley, text_color);
-        }
+        // Centered icon + label. Re-layout with the resolved `text_col`: `painter.galley`'s
+        // colour argument is only a fallback, so a galley that already carries a baked-in colour
+        // would silently ignore it and render white text on a light-mode button face.
+        let galley = ui
+            .painter()
+            .layout_no_wrap(display, font_id, text_col);
+        let text_pos = rect.center() - galley.size() * 0.5;
+        painter.galley(text_pos, galley, text_col);
 
         response
     }
 }
 
-/// Extension trait for `egui::Ui` providing ergonomic shorthand methods for 3D buttons.
+/// Base accent colour for a coloured variant.
+fn variant_base(variant: Button3DVariant, p: &ThemePalette) -> Color32 {
+    match variant {
+        Button3DVariant::Primary => p.accent_primary,
+        Button3DVariant::Danger => p.rec_red,
+        Button3DVariant::Warning => p.pause_amber,
+        Button3DVariant::Success => p.meter_ok,
+        Button3DVariant::Neutral => p.accent_primary,
+    }
+}
+
+/// Moves a colour toward black by `amount` percent (0..=100).
+fn shade(c: Color32, amount: f32) -> Color32 {
+    let k = (1.0 - amount / 100.0).clamp(0.0, 1.0);
+    Color32::from_rgb(
+        (c.r() as f32 * k).round() as u8,
+        (c.g() as f32 * k).round() as u8,
+        (c.b() as f32 * k).round() as u8,
+    )
+}
+
+/// Moves a colour toward white by `amount` percent (0..=100).
+fn tint(c: Color32, amount: f32) -> Color32 {
+    let k = amount / 100.0;
+    let mix = |v: u8| (v as f32 + (255.0 - v as f32) * k).round().clamp(0.0, 255.0) as u8;
+    Color32::from_rgb(mix(c.r()), mix(c.g()), mix(c.b()))
+}
+
+/// Resolved face colour for a coloured variant.
+///
+/// In light mode the raw palette hues sit on a near-white panel, so a straight solid fill reads
+/// as a flat pastel block. Hover therefore darkens the face (increasing contrast against the
+/// panel) instead of lightening it, and the disabled face is desaturated well below the enabled
+/// one so an inert button can never be mistaken for a live one.
+fn variant_face(
+    variant: Button3DVariant,
+    p: &ThemePalette,
+    is_dark: bool,
+    disabled: bool,
+    hovered: bool,
+) -> Color32 {
+    let base = variant_base(variant, p);
+    if disabled {
+        return base.gamma_multiply(if is_dark { 0.28 } else { 0.42 });
+    }
+    match (is_dark, hovered) {
+        (false, true) => shade(base, 18.0),
+        (false, false) => base,
+        (true, true) => tint(base, 18.0),
+        (true, false) => base,
+    }
+}
+
+/// Border colour for a coloured variant.
+///
+/// Always distinct from the face so the button keeps a crisp edge against the panel background;
+/// previously the border was set to the face colour itself, which erased the outline entirely.
+fn variant_border(
+    variant: Button3DVariant,
+    p: &ThemePalette,
+    is_dark: bool,
+    hovered: bool,
+) -> Color32 {
+    let base = variant_base(variant, p);
+    match (is_dark, hovered) {
+        (false, true) => shade(base, 34.0),
+        (false, false) => shade(base, 22.0),
+        (true, true) => tint(base, 42.0),
+        (true, false) => tint(base, 20.0),
+    }
+}
+
+/// Extension trait for `egui::Ui` providing ergonomic shorthand methods for action buttons.
 pub trait Ui3DExt {
     fn btn_3d(&mut self, text: impl Into<WidgetText>) -> Response;
     fn btn_3d_primary(&mut self, text: impl Into<WidgetText>) -> Response;

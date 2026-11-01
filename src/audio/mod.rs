@@ -1,5 +1,14 @@
 use serde::{Deserialize, Serialize};
 
+pub mod bus;
+
+pub mod filters;
+
+#[cfg(target_os = "windows")]
+pub mod endpoints;
+
+pub use bus::{SourceBusKind, SourceBusSpec};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AudioBusKind {
     DesktopSystem,
@@ -103,6 +112,71 @@ pub struct AudioMixerState {
     pub sample_rate_hz: u32,
     #[serde(skip)]
     last_meter_tick: f64,
+    /// Live meters for the OBS-style per-source audio buses, keyed by the source bus id.
+    /// Runtime-only: `serde(skip)` keeps the project undo hash stable.
+    #[serde(skip)]
+    pub source_levels: std::collections::HashMap<String, SourceLevel>,
+}
+
+/// Live meter ballistics for one per-source audio bus (mirrors [`AudioChannel`]'s behaviour).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SourceLevel {
+    pub current_peak: f32,
+    pub peak_hold: f32,
+    pub peak_hold_timer: f32,
+}
+
+impl SourceLevel {
+    /// Same attack / release / peak-hold ballistics as the global mixer channels so the
+    /// per-source meters feel identical to `Desktop Audio` and `Mic / Aux`.
+    pub fn update(&mut self, hw_peak: f32, gain: f32, dt: f32) {
+        let target = (hw_peak * gain.clamp(0.0, 1.5)).clamp(0.0, 1.0);
+
+        if target > self.current_peak {
+            let attack_coeff = 1.0 - (-dt * 45.0).exp();
+            self.current_peak += (target - self.current_peak) * attack_coeff;
+        } else {
+            let decay_coeff = (-dt * 5.0).exp();
+            self.current_peak *= decay_coeff;
+            if self.current_peak < 0.001 {
+                self.current_peak = 0.0;
+            }
+        }
+
+        if self.current_peak >= self.peak_hold {
+            self.peak_hold = self.current_peak;
+            self.peak_hold_timer = 1.2;
+        } else if self.peak_hold_timer > 0.0 {
+            self.peak_hold_timer = (self.peak_hold_timer - dt).max(0.0);
+        } else {
+            let hold_decay = (-dt * 3.5).exp();
+            self.peak_hold = (self.peak_hold * hold_decay).max(self.current_peak);
+            if self.peak_hold < 0.001 {
+                self.peak_hold = 0.0;
+            }
+        }
+    }
+
+    /// Forces the meter to zero (muted / disabled / silent bus).
+    pub fn silence(&mut self) {
+        self.current_peak = 0.0;
+        self.peak_hold = 0.0;
+        self.peak_hold_timer = 0.0;
+    }
+}
+
+/// A request for one per-source bus meter, describing which endpoint to sample.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SourceMeterRequest {
+    pub bus_id: String,
+    /// `true` when the bus taps a render endpoint via loopback (Desktop / Application audio).
+    pub is_loopback: bool,
+    /// Device friendly name; empty means "Windows default".
+    pub device_name: String,
+    /// Microphone-style sources get the noise-floor-gated meter curve.
+    pub is_input: bool,
+    /// Effective linear gain (0.0 when muted/disabled), applied to the meter target only.
+    pub gain: f32,
 }
 
 impl Default for AudioMixerState {
@@ -138,6 +212,7 @@ impl Default for AudioMixerState {
             },
             sample_rate_hz: 48_000,
             last_meter_tick: 0.0,
+            source_levels: std::collections::HashMap::new(),
         };
         state.refresh_devices_from_system();
         state
@@ -204,6 +279,14 @@ impl AudioMixerState {
 
     /// Updates live meter levels from Windows WASAPI streams with frame-rate independent ballistics
     pub fn tick_meters(&mut self, time_sec: f64) {
+        self.tick_meters_with_sources(time_sec, &[]);
+    }
+
+    /// Updates the two global buses **and** every per-source bus meter in one pass.
+    ///
+    /// `requests` describes the currently active per-source buses; meters for buses that are no
+    /// longer present are dropped so the map cannot grow without bound.
+    pub fn tick_meters_with_sources(&mut self, time_sec: f64, requests: &[SourceMeterRequest]) {
         let dt = if self.last_meter_tick <= 0.0 {
             0.016_f32
         } else {
@@ -222,6 +305,38 @@ impl AudioMixerState {
 
         self.desktop_audio.update_level(hw_desk, dt);
         self.microphone.update_level(hw_mic, dt);
+
+        if requests.is_empty() {
+            self.source_levels.clear();
+            return;
+        }
+
+        #[cfg(target_os = "windows")]
+        let hw_source_peaks = wasapi_audio::read_source_peaks(requests);
+
+        #[cfg(not(target_os = "windows"))]
+        let hw_source_peaks: Vec<f32> = vec![0.0; requests.len()];
+
+        let mut live_ids: std::collections::HashSet<&str> =
+            std::collections::HashSet::with_capacity(requests.len());
+        for (req, hw_peak) in requests.iter().zip(hw_source_peaks.iter()) {
+            live_ids.insert(req.bus_id.as_str());
+            let level = self
+                .source_levels
+                .entry(req.bus_id.clone())
+                .or_insert_with(SourceLevel::default);
+            if req.gain <= 0.0 {
+                level.silence();
+            } else {
+                level.update(*hw_peak, req.gain, dt);
+            }
+        }
+        self.source_levels.retain(|id, _| live_ids.contains(id.as_str()));
+    }
+
+    /// Live meter level for a source bus (`0.0 ..= 1.0`), or `0.0` when unknown.
+    pub fn source_level(&self, bus_id: &str) -> SourceLevel {
+        self.source_levels.get(bus_id).copied().unwrap_or_default()
     }
 }
 
@@ -233,6 +348,8 @@ mod wasapi_audio {
     use windows::Win32::Media::MediaFoundation::*;
     use windows::Win32::System::Com::*;
     use windows::core::PWSTR;
+
+    use super::SourceMeterRequest;
 
     struct ActiveEndpointStream {
         meter: Option<IAudioMeterInformation>,
@@ -365,6 +482,10 @@ mod wasapi_audio {
     struct WasapiMeterSession {
         render_stream: Option<ActiveEndpointStream>,
         capture_stream: Option<ActiveEndpointStream>,
+        /// Extra per-source bus streams, keyed by bus id, in request order.
+        extra_streams: Vec<(String, ActiveEndpointStream, bool)>,
+        /// Signature of the device routing the extra streams were opened for.
+        extra_signature: String,
     }
 
     impl WasapiMeterSession {
@@ -394,8 +515,61 @@ mod wasapi_audio {
                 Self {
                     render_stream,
                     capture_stream,
+                    extra_streams: Vec::new(),
+                    extra_signature: String::new(),
                 }
             }
+        }
+
+        /// Opens / closes the per-source meter streams so they match `requests`.
+        ///
+        /// Only the *routing* (bus id + device + direction) is compared, so moving a fader or
+        /// toggling mute never tears the stream down and restarts the meter.
+        fn sync_extra_streams(&mut self, requests: &[SourceMeterRequest]) {
+            let signature = requests
+                .iter()
+                .map(|r| format!("{}|{}|{}", r.bus_id, r.device_name, r.is_loopback))
+                .collect::<Vec<_>>()
+                .join(";");
+            if signature == self.extra_signature {
+                return;
+            }
+            self.extra_signature = signature;
+            self.extra_streams.clear();
+
+            unsafe {
+                let Ok(enumerator) =
+                    CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL)
+                else {
+                    return;
+                };
+                for req in requests {
+                    let flow = if req.is_loopback { eRender } else { eCapture };
+                    let Some(dev) =
+                        crate::audio::endpoints::resolve_endpoint(&enumerator, flow, &req.device_name)
+                    else {
+                        continue;
+                    };
+                    let stream = ActiveEndpointStream::open(&dev, req.is_loopback);
+                    self.extra_streams
+                        .push((req.bus_id.clone(), stream, req.is_input));
+                }
+            }
+        }
+
+        fn read_source_peaks(&mut self, requests: &[SourceMeterRequest]) -> Vec<f32> {
+            self.sync_extra_streams(requests);
+
+            let mut out = vec![0.0f32; requests.len()];
+            unsafe {
+                for (bus_id, stream, is_input) in &self.extra_streams {
+                    let Some(slot) = requests.iter().position(|r| &r.bus_id == bus_id) else {
+                        continue;
+                    };
+                    out[slot] = to_bus_meter(stream.poll_peak(), *is_input);
+                }
+            }
+            out
         }
 
         fn read_peaks(&self, read_desk: bool, read_mic: bool) -> (f32, f32) {
@@ -418,33 +592,43 @@ mod wasapi_audio {
                     0.0
                 };
 
-                // Desktop Audio: clean standard studio dB curve (-55dB..0dB)
-                let to_desk_meter = |amp: f32| -> f32 {
-                    let boosted = (amp * 1.1).clamp(0.0, 1.0);
-                    if boosted <= 0.001 {
-                        0.0
-                    } else {
-                        let db = (20.0 * boosted.log10()).clamp(-55.0, 0.0);
-                        ((db + 55.0) / 55.0).clamp(0.0, 1.0)
-                    }
-                };
-
-                // Microphone Audio: built-in studio noise floor suppression (~-32dB gate)
-                // Prevents ambient background noise, laptop fans, or room hiss from moving the meter when quiet.
-                let to_mic_meter = |amp: f32| -> f32 {
-                    let noise_floor = 0.025_f32; // Cut background mic hiss below ~ -32 dBFS
-                    if amp <= noise_floor {
-                        0.0
-                    } else {
-                        let normalized = (amp - noise_floor) / (1.0 - noise_floor);
-                        normalized.powf(0.55).clamp(0.0, 1.0)
-                    }
-                };
-
                 (to_desk_meter(desk), to_mic_meter(mic))
             }
         }
     }
+
+    /// Desktop Audio / loopback curve: clean standard studio dB curve (-55 dB .. 0 dB).
+    fn to_desk_meter(amp: f32) -> f32 {
+        let boosted = (amp * 1.1).clamp(0.0, 1.0);
+        if boosted <= 0.001 {
+            0.0
+        } else {
+            let db = (20.0 * boosted.log10()).clamp(-55.0, 0.0);
+            ((db + 55.0) / 55.0).clamp(0.0, 1.0)
+        }
+    }
+
+    /// Microphone curve: built-in studio noise floor suppression (~-32 dBFS gate).
+    /// Prevents ambient background noise, laptop fans, or room hiss from moving the meter when quiet.
+    fn to_mic_meter(amp: f32) -> f32 {
+        let noise_floor = 0.025_f32; // Cut background mic hiss below ~ -32 dBFS
+        if amp <= noise_floor {
+            0.0
+        } else {
+            let normalized = (amp - noise_floor) / (1.0 - noise_floor);
+            normalized.powf(0.55).clamp(0.0, 1.0)
+        }
+    }
+
+    /// Picks the curve matching a per-source bus so its meter reads like the equivalent global bus.
+    fn to_bus_meter(amp: f32, is_input: bool) -> f32 {
+        if is_input {
+            to_mic_meter(amp)
+        } else {
+            to_desk_meter(amp)
+        }
+    }
+
 
     thread_local! {
         static METER_SESSION: RefCell<Option<WasapiMeterSession>> = const { RefCell::new(None) };
@@ -466,6 +650,24 @@ mod wasapi_audio {
                 session.read_peaks(read_desk, read_mic)
             } else {
                 (0.0, 0.0)
+            }
+        })
+    }
+
+    /// Reads one peak value per requested source bus, in the same order as `requests`.
+    ///
+    /// Streams are opened and kept keyed by bus id, so adding or removing a source bus only
+    /// touches that bus's stream. Values are already mapped through the matching meter curve
+    /// (microphone for inputs, studio dB for loopback).
+    pub fn read_source_peaks(requests: &[SourceMeterRequest]) -> Vec<f32> {
+        METER_SESSION.with(|cell| {
+            let mut borrow = cell.borrow_mut();
+            if borrow.is_none() {
+                *borrow = Some(WasapiMeterSession::new());
+            }
+            match borrow.as_mut() {
+                Some(session) => session.read_source_peaks(requests),
+                None => vec![0.0; requests.len()],
             }
         })
     }

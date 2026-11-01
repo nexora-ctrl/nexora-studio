@@ -25,6 +25,12 @@ pub struct SubtitleConfig {
 pub struct LiveSubtitleService {
     stop_signal: Arc<AtomicBool>,
     rx: Receiver<String>,
+    /// Why the worker is not running, if it could not be started.
+    ///
+    /// Spawning a thread can fail for reasons outside the app's control (thread/handle exhaustion,
+    /// security policy). Panicking there took down the whole studio — mid-recording — over a
+    /// feature the user can simply do without, so the failure is surfaced as a status instead.
+    startup_error: Option<String>,
 }
 
 impl LiveSubtitleService {
@@ -33,14 +39,26 @@ impl LiveSubtitleService {
         let (tx, rx) = channel();
 
         let stop_clone = stop_signal.clone();
-        thread::Builder::new()
+        let startup_error = thread::Builder::new()
             .name("LiveSubtitleWorker".to_string())
             .spawn(move || {
                 run_subtitle_capture_loop(stop_clone, tx);
             })
-            .expect("Failed to spawn LiveSubtitle worker thread");
+            .err()
+            .map(|e| format!("Live subtitle worker unavailable: {}", e));
 
-        Self { stop_signal, rx }
+        Self {
+            stop_signal,
+            rx,
+            startup_error,
+        }
+    }
+
+    /// Returns why the live subtitle worker is not running, if it failed to start.
+    ///
+    /// `None` means the worker started (or already finished) normally.
+    pub fn startup_error(&self) -> Option<&str> {
+        self.startup_error.as_deref()
     }
 
     /// Checks if any newly transcribed subtitle text has arrived from Groq

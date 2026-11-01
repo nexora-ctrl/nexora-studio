@@ -39,9 +39,12 @@ pub fn render_top_bar(ctx: &egui::Context, app: &mut NexoraApp) {
                     });
                 }
 
+                // Rubik SemiBold (600) instead of Exo Medium (500): only one Exo weight is bundled
+                // offline, so the brand could not be made any heavier within that family. Rubik
+                // SemiBold is already embedded and gives the wordmark noticeably more presence.
                 ui.label(
                     RichText::new("NEXORA Studio")
-                        .font(egui::FontId::new(15.5, icons::brand_font_family()))
+                        .font(egui::FontId::new(15.5, icons::rubik_semibold_family()))
                         .color(p.text_primary),
                 );
                 ui.label(
@@ -391,7 +394,12 @@ pub fn render_top_bar(ctx: &egui::Context, app: &mut NexoraApp) {
 
                 // Smooth green badge right beside Studio Mode: ON when update is available
                 let update_available = {
-                    let st = app.updater.lock().unwrap();
+                    // `unwrap_or_else(into_inner)` rather than `unwrap()`: a poisoned updater mutex
+                    // (background thread panicked while holding it) must not crash the UI render.
+                    let st = app
+                        .updater
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
                     matches!(st.status, crate::platform::updater::UpdateStatus::UpdateAvailable { .. })
                 };
 

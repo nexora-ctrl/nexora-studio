@@ -98,6 +98,7 @@ pub fn apply_studio_theme(ctx: &egui::Context, mode: ThemeMode) {
     style.spacing.button_padding = egui::vec2(7.0, 3.5);
     style.spacing.menu_margin = Margin::symmetric(6, 5);
     style.spacing.combo_width = 130.0;
+    style.spacing.slider_rail_height = 6.0;
     style.spacing.window_margin = Margin {
         left: 14,
         right: 14,
@@ -124,9 +125,10 @@ pub fn apply_studio_theme(ctx: &egui::Context, mode: ThemeMode) {
     visuals.override_text_color = Some(p.text_primary);
 
     visuals.window_stroke = Stroke::new(1.0_f32, p.border_strong);
+    visuals.slider_trailing_fill = true;
     visuals.selection.bg_fill = match mode {
-        ThemeMode::Dark => Color32::from_rgb(38, 56, 88),
-        ThemeMode::Light => Color32::from_rgb(212, 228, 252),
+        ThemeMode::Dark => Color32::from_rgb(38, 70, 118),
+        ThemeMode::Light => Color32::from_rgb(180, 212, 252),
     };
     visuals.selection.stroke = Stroke::new(1.0_f32, p.accent_primary);
 
@@ -163,8 +165,8 @@ pub fn apply_studio_theme(ctx: &egui::Context, mode: ThemeMode) {
     // 3D Tactile Styling for all standard egui buttons and ComboBox dropdowns:
     // Solid background fills (no transparent washouts), defined border bevels, and sunken feedback
     visuals.widgets.inactive.bg_fill = match mode {
-        ThemeMode::Dark => Color32::from_rgb(28, 32, 42),
-        ThemeMode::Light => Color32::from_rgb(234, 239, 248),
+        ThemeMode::Dark => Color32::from_rgb(18, 22, 30),
+        ThemeMode::Light => Color32::from_rgb(212, 220, 234),
     };
     visuals.widgets.inactive.weak_bg_fill = match mode {
         ThemeMode::Dark => Color32::from_rgb(26, 30, 40),
@@ -181,29 +183,35 @@ pub fn apply_studio_theme(ctx: &egui::Context, mode: ThemeMode) {
     visuals.widgets.inactive.corner_radius = radius;
     visuals.widgets.inactive.expansion = 0.0;
 
+    // Hover is a *tinted accent wash* rather than a near-neutral shade. The previous values
+    // (`244, 248, 254` in light mode) sat within a few points of `panel_fill` (`250, 251, 254`),
+    // so the pointer position was invisible inside menus and popups. Pulling the fill toward
+    // `accent_primary` keeps it clearly readable on both a panel and a popup surface, and reads
+    // as "this row is armed" rather than merely "this row is lighter".
     visuals.widgets.hovered.bg_fill = match mode {
-        ThemeMode::Dark => Color32::from_rgb(38, 44, 58),
-        ThemeMode::Light => Color32::from_rgb(244, 248, 254),
+        ThemeMode::Dark => Color32::from_rgb(45, 62, 92),
+        ThemeMode::Light => Color32::from_rgb(214, 230, 250),
     };
     visuals.widgets.hovered.weak_bg_fill = match mode {
-        ThemeMode::Dark => Color32::from_rgb(36, 42, 54),
-        ThemeMode::Light => Color32::from_rgb(244, 248, 254),
+        ThemeMode::Dark => Color32::from_rgb(42, 58, 86),
+        ThemeMode::Light => Color32::from_rgb(208, 226, 248),
     };
-    visuals.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, p.accent_primary);
+    visuals.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, p.accent_primary.gamma_multiply(0.75));
     visuals.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, p.text_primary);
     visuals.widgets.hovered.corner_radius = radius;
     visuals.widgets.hovered.expansion = 0.0;
 
+    // Pressed/active: a deeper accent so the click is unmistakable and stays distinct from hover.
     visuals.widgets.active.bg_fill = match mode {
-        ThemeMode::Dark => Color32::from_rgb(22, 26, 34),
-        ThemeMode::Light => Color32::from_rgb(214, 220, 232),
+        ThemeMode::Dark => Color32::from_rgb(30, 48, 78),
+        ThemeMode::Light => Color32::from_rgb(186, 210, 244),
     };
     visuals.widgets.active.weak_bg_fill = match mode {
-        ThemeMode::Dark => Color32::from_rgb(20, 24, 32),
-        ThemeMode::Light => Color32::from_rgb(212, 218, 230),
+        ThemeMode::Dark => Color32::from_rgb(28, 44, 72),
+        ThemeMode::Light => Color32::from_rgb(180, 206, 242),
     };
     visuals.widgets.active.bg_stroke = Stroke::new(1.0_f32, p.accent_primary);
-    visuals.widgets.active.fg_stroke = Stroke::new(1.0_f32, p.accent_primary);
+    visuals.widgets.active.fg_stroke = Stroke::new(1.0_f32, p.text_primary);
     visuals.widgets.active.corner_radius = radius;
     visuals.widgets.active.expansion = 0.0;
 

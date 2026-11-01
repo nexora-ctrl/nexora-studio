@@ -82,17 +82,27 @@ pub fn parse_version(s: &str) -> (u32, u32, u32) {
     (major, minor, patch)
 }
 
+/// Locks the shared updater state without risking a whole-app crash.
+///
+/// `Mutex::lock()` returns `Err` if the previous holder panicked while holding it, which poisons
+/// the mutex forever after. Calling `.unwrap()` there would turn a contained background failure
+/// into a panic in the UI thread — and the updater holds no invariants that a partial state could
+/// corrupt, so recovering the inner value is strictly better than taking down the studio.
+fn lock_state(state: &Mutex<UpdaterState>) -> std::sync::MutexGuard<'_, UpdaterState> {
+    state.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// Checks for updates asynchronously without blocking the UI thread.
 pub fn check_for_updates_async(state: Arc<Mutex<UpdaterState>>, ctx: egui::Context) {
     {
-        let mut st = state.lock().unwrap();
+        let mut st = lock_state(&state);
         st.status = UpdateStatus::Checking;
     }
     ctx.request_repaint();
 
     thread::spawn(move || {
         let current_ver = {
-            let st = state.lock().unwrap();
+            let st = lock_state(&state);
             st.current_version.clone()
         };
 
@@ -155,7 +165,7 @@ pub fn check_for_updates_async(state: Arc<Mutex<UpdaterState>>, ctx: egui::Conte
 
         let now_str = chrono::Local::now().format("%H:%M:%S").to_string();
 
-        let mut st = state.lock().unwrap();
+        let mut st = lock_state(&state);
         match found_release {
             Some(rel) => {
                 let latest_ver = rel.tag_name.trim().to_string();
@@ -205,7 +215,7 @@ pub fn start_download_async(
     ctx: egui::Context,
 ) {
     {
-        let mut st = state.lock().unwrap();
+        let mut st = lock_state(&state);
         st.status = UpdateStatus::Downloading {
             latest_version: latest_version.clone(),
             progress: 0.05,
@@ -228,7 +238,7 @@ pub fn start_download_async(
             ])
             .output();
 
-        let mut st = state.lock().unwrap();
+        let mut st = lock_state(&state);
         match res {
             Ok(out) if out.status.success() && target_path.exists() => {
                 if let Ok(meta) = std::fs::metadata(&target_path) {

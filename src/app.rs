@@ -1,4 +1,5 @@
-use crate::audio::AudioMixerState;
+use crate::audio::bus::{SourceBusKind, SourceBusSpec};
+use crate::audio::{AudioMixerState, SourceMeterRequest};
 use crate::capture::{CaptureCatalog, CaptureRequestTarget, LiveCaptureEngine};
 use crate::encoder::EncoderConfig;
 use crate::media_library::MediaLibrary;
@@ -116,6 +117,10 @@ pub struct NexoraApp {
     pub rename_scene_buffer: String,
     pub show_source_properties_dialog: bool,
     pub show_source_filters_dialog: bool,
+    /// OBS-style per-source **audio** filter chain modal (Gain / Noise Gate / Noise Suppression).
+    pub show_audio_filters_dialog: bool,
+    /// Filter kind queued by the context menu for the "add" dropdown of the audio filter modal.
+    pub pending_audio_filter_kind: Option<crate::audio::filters::AudioFilterKind>,
     pub show_slideshow_manager_dialog: bool,
     pub show_rename_source_dialog: bool,
     pub rename_source_buffer: String,
@@ -171,6 +176,9 @@ pub struct NexoraApp {
     last_autosave_check: f64,
     last_vcam_capture_time: f64,
     last_recording_capture_time: f64,
+    /// Signature of the per-source audio bus list last handed to the encoder, so fader / device
+    /// changes are forwarded exactly once and identical frames are skipped.
+    last_source_bus_signature: String,
 }
 
 impl NexoraApp {
@@ -287,6 +295,8 @@ impl NexoraApp {
             rename_scene_buffer: String::new(),
             show_source_properties_dialog: false,
             show_source_filters_dialog: false,
+            show_audio_filters_dialog: false,
+            pending_audio_filter_kind: None,
             show_slideshow_manager_dialog: false,
             show_rename_source_dialog: false,
             rename_source_buffer: String::new(),
@@ -342,6 +352,7 @@ impl NexoraApp {
             last_autosave_check: 0.0,
             last_vcam_capture_time: 0.0,
             last_recording_capture_time: 0.0,
+            last_source_bus_signature: String::new(),
         };
 
         if loaded_from_disk {
@@ -661,6 +672,12 @@ impl NexoraApp {
                 }
             }
         }
+        // Screen & window capture are bounded by the active video preset: they must never
+        // produce more pixels than the encoder stores, and they run at the preset's frame rate.
+        // Pushing the limits before the request list keeps both in sync within the same frame.
+        let (out_w, out_h) = self.settings.video_preset.dimensions();
+        self.capture_engine
+            .set_capture_limits((out_w, out_h), self.settings.video_preset.fps());
         self.capture_engine
             .set_active_requests(set.into_iter().collect());
         self.media_audio_engine.sync_active_media(&audio_specs);
@@ -691,6 +708,131 @@ impl NexoraApp {
             }
         }
         crate::platform::subtitle::update_live_subtitle_config(sub_cfg);
+    }
+
+    /// Collects every audio-capable source that should reach the recording mixer as its own
+    /// independent bus (OBS-style per-source audio).
+    ///
+    /// Rules mirrored from the rest of the studio:
+    /// * Only sources present in **Preview** or **Program** are considered.
+    /// * A source counts as *live* only when it is in the Program scene and `visible`; audio from
+    ///   a Preview-only source stays silent until the user transitions it (same rule MediaSource
+    ///   playback already follows).
+    /// * Hidden sources produce a silenced bus rather than no bus, so flipping `visible` back on
+    ///   does not restart the device.
+    /// * Duplicates (the same source id reachable from both scenes) are emitted once.
+    pub fn collect_source_audio_buses(&self) -> Vec<SourceBusSpec> {
+        use std::collections::HashSet;
+
+        let program_id = self.studio.program_scene_id;
+        let preview_id = self.studio.preview_scene_id;
+
+        let mut specs: Vec<SourceBusSpec> = Vec::new();
+        let mut seen: HashSet<uuid::Uuid> = HashSet::new();
+
+        for scene in &self.studio.scenes {
+            let is_program = scene.id == program_id;
+            if !is_program && scene.id != preview_id {
+                continue;
+            }
+
+            for src in &scene.sources {
+                if !seen.insert(src.id) {
+                    continue;
+                }
+
+                let (kind, device_name, volume, muted) = match &src.kind {
+                    SourceKind::AudioInputCapture {
+                        device_name,
+                        volume,
+                        muted,
+                    } => (
+                        SourceBusKind::CaptureInput,
+                        device_name.clone(),
+                        *volume,
+                        *muted,
+                    ),
+                    SourceKind::AudioOutputCapture {
+                        device_name,
+                        volume,
+                        muted,
+                    } => (
+                        SourceBusKind::RenderLoopback,
+                        device_name.clone(),
+                        *volume,
+                        *muted,
+                    ),
+                    SourceKind::ApplicationAudioCapture {
+                        executable_name,
+                        volume,
+                        muted,
+                        ..
+                    } => {
+                        let pid = crate::audio::endpoints::find_pid_for_executable(executable_name)
+                            .unwrap_or(0);
+                        (
+                            SourceBusKind::ProcessLoopback { pid },
+                            executable_name.clone(),
+                            *volume,
+                            *muted,
+                        )
+                    }
+                    _ => continue,
+                };
+
+                // Audio only leaves a source once it is live on Program (Preview is standby).
+                let live = is_program && src.visible;
+                let has_device = !device_name.trim().is_empty();
+
+                specs.push(SourceBusSpec {
+                    bus_id: Self::source_bus_id(src.id),
+                    label: src.name.clone(),
+                    kind,
+                    device_name,
+                    volume,
+                    muted,
+                    enabled: live && has_device,
+                    // Filters are resolved once here so the encoder never has to walk the chain
+                    // again: bypassed entries are dropped and the rest keep their configured order.
+                    filters: src
+                        .audio_filters
+                        .iter()
+                        .filter(|f| f.enabled)
+                        .cloned()
+                        .collect(),
+                });
+            }
+        }
+
+        specs
+    }
+
+    /// Stable per-source bus id used to correlate a mixer row with the encoder bus.
+    pub fn source_bus_id(source_id: uuid::Uuid) -> String {
+        format!("nx_src_{}", source_id.simple())
+    }
+
+    /// Describes every per-source bus that needs a live meter this frame.
+    ///
+    /// The meter intentionally reads the **input** level rather than the recorded level, so a
+    /// source sitting in Preview still shows a live signal and the user can verify the device
+    /// before transitioning it. Whether the audio actually reaches the recording is communicated
+    /// separately by the `PGM` / `PRV` badge and the MUTE state.
+    pub fn build_source_meter_requests(&self) -> Vec<crate::audio::SourceMeterRequest> {
+        self.collect_source_audio_buses()
+            .into_iter()
+            .map(|s| crate::audio::SourceMeterRequest {
+                gain: if s.muted {
+                    0.0
+                } else {
+                    s.volume.clamp(0.0, 1.5)
+                },
+                bus_id: s.bus_id,
+                is_loopback: !s.kind.is_input(),
+                device_name: s.device_name,
+                is_input: s.kind.is_input(),
+            })
+            .collect()
     }
 
     pub fn new_project(&mut self) {
@@ -1273,6 +1415,7 @@ impl NexoraApp {
             || self.show_source_properties_dialog
             || self.show_slideshow_manager_dialog
             || self.show_source_filters_dialog
+            || self.show_audio_filters_dialog
             || self.show_save_layout_dialog
             || self.show_add_source_dialog
             || self.show_virtual_camera_dialog
@@ -1362,10 +1505,23 @@ impl NexoraApp {
             self.audio_mixer.desktop_audio.volume,
             self.audio_mixer.desktop_audio.muted,
             !self.audio_mixer.desktop_audio.is_disabled(),
+            &self.audio_mixer.desktop_audio.selected_device,
             self.audio_mixer.microphone.volume,
             self.audio_mixer.microphone.muted,
             !self.audio_mixer.microphone.is_disabled(),
+            &self.audio_mixer.microphone.selected_device,
         );
+
+        // Mirror the live per-source audio buses (OBS-style) into the encoder. Sent only when a
+        // meaningful value changed; the encoder independently compares the *routing* signature
+        // and re-opens WASAPI streams only when a device / application actually changed —
+        // faders and mutes are applied in place.
+        let bus_specs = self.collect_source_audio_buses();
+        let bus_signature = crate::audio::bus::buses_signature(&bus_specs);
+        if bus_signature != self.last_source_bus_signature {
+            self.last_source_bus_signature = bus_signature;
+            writer.set_source_buses(bus_specs);
+        }
 
         let shot = ctx.input(|i| {
             i.raw.events.iter().rev().find_map(|e| match e {
@@ -1405,6 +1561,9 @@ impl NexoraApp {
 
         writer.push_frame(scaled_rgba, target_w, target_h);
         self.recording.encoded_frames += 1;
+        // `push_frame` silently discards the frame when the encoder queue is full, so the real drop
+        // count lives in the writer. Mirroring it here keeps the status bar honest.
+        self.recording.dropped_frames = writer.dropped_frames();
     }
 
     pub fn start_recording_session(&mut self) {
@@ -1426,6 +1585,8 @@ impl NexoraApp {
                 ) {
                     Ok(writer) => {
                         self.active_mp4_writer = Some(writer);
+                        // Force the first frame of the new session to deliver the bus list.
+                        self.last_source_bus_signature.clear();
                         self.recording.last_message = format!(
                             "Recording started -> {}",
                             out_path.file_name().unwrap_or_default().to_string_lossy()
@@ -1820,8 +1981,20 @@ impl eframe::App for NexoraApp {
 
         self.perf_monitor.on_frame();
         let time_sec = ctx.input(|i| i.time);
-        self.audio_mixer.tick_meters(time_sec);
+        // Build the per-source meter requests first so the mixer panel can render live levels
+        // for the OBS-style source buses in the same frame they are sampled.
+        let meter_requests: Vec<SourceMeterRequest> = self.build_source_meter_requests();
+        self.audio_mixer.tick_meters_with_sources(time_sec, &meter_requests);
         self.sync_active_capture_requests();
+
+        // Surface a failed live-subtitle worker once. The worker is best-effort, so a spawn failure
+        // must not take down the studio — but staying silent would leave the user wondering why
+        // subtitles never appear.
+        if let Some(err) = self.live_subtitle_service.startup_error() {
+            if self.recording.last_message != err {
+                self.recording.last_message = err.to_string();
+            }
+        }
 
         // Check for incoming transcribed text from background live subtitle worker
         if let Some(transcribed_text) = self.live_subtitle_service.try_recv() {

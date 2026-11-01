@@ -232,48 +232,13 @@ fn paint_icon_action_btn(
     let btn_size = Vec2::new(24.0, 22.0);
     let (rect, resp) = ui.allocate_exact_size(btn_size, Sense::click());
     let hovered = resp.hovered();
-    let active = resp.is_pointer_button_down_on();
 
     if hovered {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
 
-    let is_dark = ui.visuals().dark_mode;
-
-    // 1. Bottom 3D shadow ledge when unpressed
-    if !active {
-        let shadow_rect = Rect::from_min_max(
-            Pos2::new(rect.min.x + 1.0, rect.max.y - 1.0),
-            Pos2::new(rect.max.x - 1.0, rect.max.y + 1.2),
-        );
-        let shadow_col = if is_dark {
-            Color32::from_black_alpha(100)
-        } else {
-            Color32::from_black_alpha(45)
-        };
-        ui.painter().rect_filled(shadow_rect, CornerRadius::same(5), shadow_col);
-    }
-
-    // 2. Physical 1.0px press-down displacement
-    let face_rect = if active {
-        rect.translate(Vec2::new(0.0, 1.0))
-    } else {
-        rect
-    };
-
-    let bg_fill = if active {
-        if is_dark { Color32::from_rgb(22, 26, 34) } else { Color32::from_rgb(215, 220, 230) }
-    } else if hovered {
-        if is_dark { Color32::from_rgb(38, 44, 56) } else { Color32::from_rgb(244, 247, 252) }
-    } else {
-        if is_dark { Color32::from_rgb(30, 34, 44) } else { Color32::from_rgb(232, 237, 246) }
-    };
-
-    let border_col = if hovered {
-        p.accent_primary.gamma_multiply(0.8)
-    } else {
-        p.border_subtle
-    };
+    // Standard widget states — no drop shadow, no press displacement, no specular bevel.
+    let visuals = ui.style().interact(&resp);
 
     let icon_col = accent_color.unwrap_or(if hovered {
         p.text_primary
@@ -281,40 +246,30 @@ fn paint_icon_action_btn(
         p.text_secondary
     });
 
-    ui.painter()
-        .rect_filled(face_rect, CornerRadius::same(5), bg_fill);
-    ui.painter().rect_stroke(
-        face_rect,
+    // Light mode needs the stronger `weak_bg_fill` for the resting face; `bg_fill` there is
+    // nearly identical to the panel behind it, which made the icon buttons look disabled.
+    let is_dark = ui.visuals().dark_mode;
+    let fill = if !is_dark && !hovered {
+        ui.visuals().widgets.inactive.weak_bg_fill
+    } else {
+        visuals.bg_fill
+    };
+
+    ui.painter().rect(
+        rect,
         CornerRadius::same(5),
-        Stroke::new(1.0_f32, border_col),
+        fill,
+        Stroke::new(1.0_f32, visuals.bg_stroke.color),
         egui::StrokeKind::Inside,
     );
 
-    // 3. Top Specular Bevel Line (simulating 3D overhead light)
-    let top_y = face_rect.min.y + 1.0;
-    let top_highlight = if active {
-        Color32::from_black_alpha(60)
-    } else if is_dark {
-        Color32::from_white_alpha(32)
-    } else {
-        Color32::from_white_alpha(180)
-    };
-    ui.painter().line_segment(
-        [
-            Pos2::new(face_rect.min.x + 3.0, top_y),
-            Pos2::new(face_rect.max.x - 3.0, top_y),
-        ],
-        Stroke::new(1.0_f32, top_highlight),
-    );
-
-    // 4. Center icon content with tactile offset
     let font_id = egui::FontId::proportional(11.5);
     let galley = ui
         .painter()
         .layout_no_wrap(icon.to_string(), font_id, icon_col);
     let pos = Pos2::new(
-        face_rect.center().x - galley.size().x * 0.5,
-        face_rect.center().y - galley.size().y * 0.5,
+        rect.center().x - galley.size().x * 0.5,
+        rect.center().y - galley.size().y * 0.5,
     );
     ui.painter().galley(pos, galley, icon_col);
 
@@ -1232,6 +1187,12 @@ enum SourceContextAction {
     SetColor(Uuid, SourceColorTag),
     SetFilterKind(Uuid, crate::studio::source::KeyFilterKind),
     OpenFilters(Uuid),
+    /// Adds an audio filter of the given kind to the source's chain.
+    AddAudioFilter(Uuid, crate::audio::filters::AudioFilterKind),
+    /// Applies the built-in Clean Mic chain (noise suppression + noise gate).
+    ApplyCleanMicPreset(Uuid),
+    /// Opens the per-source audio filter chain modal.
+    OpenAudioFilters(Uuid),
     Copy(Uuid),
     Paste,
     Duplicate(Uuid),
@@ -1445,6 +1406,10 @@ fn populate_source_context_menu(
     is_locked: bool,
     current_color: SourceColorTag,
     current_filter_kind: crate::studio::source::KeyFilterKind,
+    // True for Audio Input / Output / Application Capture, which can host an audio chain.
+    is_audio_source: bool,
+    // Number of filters already configured on the source, shown as a hint in the menu.
+    audio_filter_count: usize,
     copied_source_name: Option<&str>,
     action_out: &mut Option<SourceContextAction>,
 ) {
@@ -1477,6 +1442,85 @@ fn populate_source_context_menu(
         }
     });
 
+    // Audio filter chain: only the three audio capture kinds can host one, matching the
+
+    // rule that the global mixer buses stay raw device buses.
+
+    if is_audio_source {
+
+        ui.menu_button(
+
+            format!("{}  Audio Filters ({})", icons::ADJUSTMENTS, audio_filter_count),
+
+            |ui| {
+
+                ui.set_min_width(240.0);
+
+                for fk in crate::audio::filters::AudioFilterKind::all() {
+
+                    if ui
+
+                        .button(format!("{}  Add {}", icons::PLUS, fk.short_name()))
+
+                        .on_hover_text(fk.hover_explanation())
+
+                        .clicked()
+
+                    {
+
+                        *action_out = Some(SourceContextAction::AddAudioFilter(src_id, *fk));
+
+                        ui.close_menu();
+
+                    }
+
+                }
+
+                ui.separator();
+
+                if ui
+
+                    .button(format!("{}  Clean Mic Preset", icons::SPARKLES))
+
+                    .on_hover_text(
+
+                        "Replace this source's chain with Noise Suppression + Noise Gate — the standard broadcast starting point for a microphone",
+
+                    )
+
+                    .clicked()
+
+                {
+
+                    *action_out = Some(SourceContextAction::ApplyCleanMicPreset(src_id));
+
+                    ui.close_menu();
+
+                }
+
+                ui.separator();
+
+                if ui
+
+                    .button(format!("{}  Configure Audio Filters...", icons::ADJUSTMENTS))
+
+                    .on_hover_text("Open the audio filter chain editor for this source")
+
+                    .clicked()
+
+                {
+
+                    *action_out = Some(SourceContextAction::OpenAudioFilters(src_id));
+
+                    ui.close_menu();
+
+                }
+
+            },
+
+        );
+
+    }
     ui.menu_button(format!("{}  Set Color", icons::PALETTE), |ui| {
         ui.set_min_width(145.0);
         for tag in SourceColorTag::all() {
@@ -1593,8 +1637,12 @@ fn populate_source_context_menu(
 
     ui.separator();
 
+    // Shortcut hints go through `shortcut_text()` so egui lays out a real right-aligned column.
+    // Padding the label with literal spaces (what this block used to do) can never align: the
+    // required run length differs per string, and a dynamic name such as `Paste 'Clip 2'` pushes
+    // the hint out of the column entirely.
     if ui
-        .button(format!("{}  Copy                        Ctrl+C", icons::COPY))
+        .add(egui::Button::new(format!("{}  Copy", icons::COPY)).shortcut_text("Ctrl+C"))
         .clicked()
     {
         *action_out = Some(SourceContextAction::Copy(src_id));
@@ -1602,12 +1650,15 @@ fn populate_source_context_menu(
     }
 
     let paste_label = if let Some(name) = copied_source_name {
-        format!("{}  Paste '{}'           Ctrl+V", icons::CLIPBOARD, name)
+        format!("{}  Paste '{}'", icons::CLIPBOARD, name)
     } else {
-        format!("{}  Paste                       Ctrl+V", icons::CLIPBOARD)
+        format!("{}  Paste", icons::CLIPBOARD)
     };
     if ui
-        .add_enabled(copied_source_name.is_some(), egui::Button::new(paste_label))
+        .add_enabled(
+            copied_source_name.is_some(),
+            egui::Button::new(paste_label).shortcut_text("Ctrl+V"),
+        )
         .clicked()
     {
         *action_out = Some(SourceContextAction::Paste);
@@ -1615,7 +1666,7 @@ fn populate_source_context_menu(
     }
 
     if ui
-        .button(format!("{}  Duplicate", icons::COPY))
+        .add(egui::Button::new(format!("{}  Duplicate", icons::COPY)).shortcut_text("Ctrl+D"))
         .on_hover_text("Duplicate this layer in active scene")
         .clicked()
     {
@@ -1624,7 +1675,7 @@ fn populate_source_context_menu(
     }
 
     if ui
-        .button(format!("{}  Remove                      Del", icons::TRASH))
+        .add(egui::Button::new(format!("{}  Remove", icons::TRASH)).shortcut_text("Del"))
         .clicked()
     {
         *action_out = Some(SourceContextAction::Remove(src_id));
@@ -1632,7 +1683,7 @@ fn populate_source_context_menu(
     }
 
     if ui
-        .button(format!("{}  Rename...                   F2", icons::EDIT))
+        .add(egui::Button::new(format!("{}  Rename...", icons::EDIT)).shortcut_text("F2"))
         .clicked()
     {
         *action_out = Some(SourceContextAction::Rename(src_id));
@@ -1737,7 +1788,13 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                     );
                     empty_resp.context_menu(|ui| {
                         if let Some(src) = &app.copied_source {
-                            if ui.button(format!("{}  Paste '{}'  Ctrl+V", icons::CLIPBOARD, src.name)).clicked() {
+                            if ui
+                                .add(
+                                    egui::Button::new(format!("{}  Paste '{}'", icons::CLIPBOARD, src.name))
+                                        .shortcut_text("Ctrl+V"),
+                                )
+                                .clicked()
+                            {
                                 pending_action = Some(SourceContextAction::Paste);
                                 ui.close_menu();
                             }
@@ -1756,6 +1813,8 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                     let is_locked = src.locked;
                     let current_color = src.color_tag;
                     let current_filter_kind = src.filter.kind;
+                    let is_audio_source = src.supports_audio_filters();
+                    let audio_filter_count = src.audio_filters.len();
                     let is_media = matches!(src.kind, SourceKind::MediaSource { .. });
                     let is_ppt = matches!(src.kind, SourceKind::PowerPointSource { .. });
                     let is_pdf = matches!(src.kind, SourceKind::PdfSource { .. });
@@ -1897,6 +1956,8 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                             is_locked,
                             current_color,
                             current_filter_kind,
+                            is_audio_source,
+                            audio_filter_count,
                             app.copied_source.as_ref().map(|s| s.name.as_str()),
                             &mut pending_action,
                         );
@@ -2104,12 +2165,13 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                         }
                     }
                 }
-                let sel_filter_k = scene
+                let sel_src = scene
                     .sources
                     .iter()
-                    .find(|s| s.id == new_selected.unwrap_or(uuid::Uuid::nil()))
-                    .map(|s| s.filter.kind)
-                    .unwrap_or_default();
+                    .find(|s| s.id == new_selected.unwrap_or(uuid::Uuid::nil()));
+                let sel_filter_k = sel_src.map(|s| s.filter.kind).unwrap_or_default();
+                let sel_is_audio = sel_src.map(|s| s.supports_audio_filters()).unwrap_or(false);
+                let sel_audio_count = sel_src.map(|s| s.audio_filters.len()).unwrap_or(0);
 
                 scene.selected_source_id = new_selected;
                 if let Some((tgt_id, delta)) = pending_slide_target {
@@ -2128,7 +2190,13 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                     );
                     blank_resp.context_menu(|ui| {
                         if let Some(src) = &app.copied_source {
-                            if ui.button(format!("{}  Paste '{}'  Ctrl+V", icons::CLIPBOARD, src.name)).clicked() {
+                            if ui
+                                .add(
+                                    egui::Button::new(format!("{}  Paste '{}'", icons::CLIPBOARD, src.name))
+                                        .shortcut_text("Ctrl+V"),
+                                )
+                                .clicked()
+                            {
                                 pending_action = Some(SourceContextAction::Paste);
                                 ui.close_menu();
                             }
@@ -2141,6 +2209,8 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                                 false,
                                 SourceColorTag::None,
                                 sel_filter_k,
+                                sel_is_audio,
+                                sel_audio_count,
                                 app.copied_source.as_ref().map(|s| s.name.as_str()),
                             &mut pending_action,
                             );
@@ -2702,7 +2772,66 @@ fn execute_source_context_action(app: &mut NexoraApp, action: SourceContextActio
             scene.selected_source_id = Some(id);
             app.show_source_filters_dialog = true;
         }
-        SourceContextAction::Copy(id) => {
+
+        SourceContextAction::AddAudioFilter(id, kind) => {
+
+            let scene = app.studio.preview_scene_mut();
+
+            scene.selected_source_id = Some(id);
+
+            if let Some(src) = scene.selected_source_mut() {
+
+                if src.supports_audio_filters() {
+
+                    src.audio_filters.push(crate::audio::filters::AudioFilter::new(kind));
+
+                }
+
+            }
+
+            app.show_audio_filters_dialog = true;
+
+            app.studio.sync_if_linked();
+
+            app.save_all_state();
+
+        }
+
+        SourceContextAction::ApplyCleanMicPreset(id) => {
+
+            let scene = app.studio.preview_scene_mut();
+
+            scene.selected_source_id = Some(id);
+
+            if let Some(src) = scene.selected_source_mut() {
+
+                if src.supports_audio_filters() {
+
+                    // Replaces rather than appends, so running the preset twice is idempotent.
+
+                    src.audio_filters = crate::audio::filters::clean_mic_preset();
+
+                }
+
+            }
+
+            app.show_audio_filters_dialog = true;
+
+            app.studio.sync_if_linked();
+
+            app.save_all_state();
+
+        }
+
+        SourceContextAction::OpenAudioFilters(id) => {
+
+            let scene = app.studio.preview_scene_mut();
+
+            scene.selected_source_id = Some(id);
+
+            app.show_audio_filters_dialog = true;
+
+        }        SourceContextAction::Copy(id) => {
             app.copy_source_by_id(id);
         }
         SourceContextAction::Paste => {
@@ -2802,6 +2931,96 @@ fn render_audio_mixer_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) 
                     "mic_bus",
                     strip_w,
                 );
+
+                // OBS-style per-source audio buses: one full-width row card per audio-capable
+                // source that is present in Preview or Program, with its own device picker,
+                // fader, MUTE and live meter — fully independent of the two global buses above.
+                let mut source_audio_changed = false;
+                {
+                    let available_mics = app.audio_mixer.microphone.available_devices.clone();
+                    let available_outs = app.audio_mixer.desktop_audio.available_devices.clone();
+                    let program_ids: std::collections::HashSet<uuid::Uuid> = app
+                        .studio
+                        .program_scene()
+                        .sources
+                        .iter()
+                        .filter(|s| s.visible)
+                        .map(|s| s.id)
+                        .collect();
+                    let preview_id = app.studio.preview_scene_id;
+                    let program_id = app.studio.program_scene_id;
+                    let mut seen_audio_ids = std::collections::HashSet::new();
+
+                    for scene in &mut app.studio.scenes {
+                        if scene.id != program_id && scene.id != preview_id {
+                            continue;
+                        }
+                        for src in &mut scene.sources {
+                            if !seen_audio_ids.insert(src.id) {
+                                continue;
+                            }
+
+                            let is_live_on_pgm = program_ids.contains(&src.id);
+                            let src_name = src.name.clone();
+
+                            // Only touch the three audio capture kinds; everything else is
+                            // rendered elsewhere in this panel (MediaSource) or not at all.
+                            // `is_app` is read BEFORE the mutable `kind` borrow below, so the
+                            // shared borrow has already ended by the time `device_slot` holds it.
+                            let is_app = matches!(
+                                src.kind,
+                                SourceKind::ApplicationAudioCapture { .. }
+                            );
+                            let (is_input, device_slot, volume, muted) = match &mut src.kind {
+                                SourceKind::AudioInputCapture {
+                                    device_name,
+                                    volume,
+                                    muted,
+                                } => (true, device_name, volume, muted),
+                                SourceKind::AudioOutputCapture {
+                                    device_name,
+                                    volume,
+                                    muted,
+                                } => (false, device_name, volume, muted),
+                                SourceKind::ApplicationAudioCapture {
+                                    executable_name,
+                                    volume,
+                                    muted,
+                                    ..
+                                } => (false, executable_name, volume, muted),
+                                _ => continue,
+                            };
+
+                            let bus_id = NexoraApp::source_bus_id(src.id);
+                            let level = app.audio_mixer.source_level(&bus_id);
+
+                            ui.add_space(3.0);
+                            ui.separator();
+                            ui.add_space(2.0);
+
+                            if render_source_audio_strip(
+                                ui,
+                                &p,
+                                &src_name,
+                                &bus_id,
+                                is_input,
+                                is_app,
+                                is_live_on_pgm,
+                                volume,
+                                muted,
+                                device_slot,
+                                level,
+                                if is_input { &available_mics } else { &available_outs },
+                                strip_w,
+                            ) {
+                                source_audio_changed = true;
+                            }
+                        }
+                    }
+                }
+                if source_audio_changed {
+                    app.studio.sync_if_linked();
+                }
 
                 // Also show direct Audio Playback controls for any Media Source in Program or Preview
                 let mut media_changed = false;
@@ -3086,10 +3305,28 @@ fn render_audio_channel_strip(
         },
     );
 
-    // Row 3: Live WASAPI Peak + Hold Level Meter Bar
-    let meter_w = row_w.max(60.0);
+    // Row 3: Live WASAPI Peak + Hold Level Meter Bar (shared painter, see `paint_level_meter`)
+    let level = channel.effective_level();
+    let hold = if channel.muted || disabled { 0.0 } else { channel.peak_hold };
+    paint_level_meter(ui, p, level, hold, row_w).on_hover_text(format!(
+        "Live Signal: {:.0}% | Peak Hold: {:.0}%",
+        level * 100.0,
+        hold * 100.0
+    ));
+}
+
+/// Draws the 7 px 3-zone level meter shared by the global channel strips and the per-source
+/// audio bus rows: green up to `-9 dB` (70%), amber to `-3 dB` (88%), red above that, with a
+/// 2.5 px illuminated peak-hold pill.
+fn paint_level_meter(
+    ui: &mut egui::Ui,
+    p: &ThemePalette,
+    level: f32,
+    peak_hold: f32,
+    meter_w: f32,
+) -> egui::Response {
     let meter_h = 7.0_f32;
-    let (meter_rect, meter_resp) = ui.allocate_exact_size(Vec2::new(meter_w, meter_h), Sense::hover());
+    let (meter_rect, meter_resp) = ui.allocate_exact_size(Vec2::new(meter_w.max(60.0), meter_h), Sense::hover());
     let painter = ui.painter_at(meter_rect);
 
     // Track background well with smooth rounded corners and subtle border
@@ -3102,89 +3339,81 @@ fn render_audio_channel_strip(
     );
 
     // Studio calibration tick marks at -9 dB (70%) and -3 dB (88%)
-    let mark_70_x = meter_rect.min.x + meter_rect.width() * 0.70;
-    let mark_88_x = meter_rect.min.x + meter_rect.width() * 0.88;
     let tick_stroke = Stroke::new(1.0_f32, p.border_subtle.gamma_multiply(0.7));
-    painter.line_segment(
-        [
-            Pos2::new(mark_70_x, meter_rect.min.y + 1.0),
-            Pos2::new(mark_70_x, meter_rect.max.y - 1.0),
-        ],
-        tick_stroke,
-    );
-    painter.line_segment(
-        [
-            Pos2::new(mark_88_x, meter_rect.min.y + 1.0),
-            Pos2::new(mark_88_x, meter_rect.max.y - 1.0),
-        ],
-        tick_stroke,
-    );
+    for frac in [0.70_f32, 0.88_f32] {
+        let x = meter_rect.min.x + meter_rect.width() * frac;
+        painter.line_segment(
+            [
+                Pos2::new(x, meter_rect.min.y + 1.0),
+                Pos2::new(x, meter_rect.max.y - 1.0),
+            ],
+            tick_stroke,
+        );
+    }
 
-    let level = channel.effective_level();
     if level > 0.005 {
         // Safe green zone (0.0 .. 0.70)
         let green_end = level.min(0.70);
         let green_right_radius = if level <= 0.70 { 3 } else { 0 };
-        let green_rect = Rect::from_min_max(
-            meter_rect.min,
-            Pos2::new(meter_rect.min.x + meter_rect.width() * green_end, meter_rect.max.y),
+        painter.rect_filled(
+            Rect::from_min_max(
+                meter_rect.min,
+                Pos2::new(meter_rect.min.x + meter_rect.width() * green_end, meter_rect.max.y),
+            ),
+            CornerRadius {
+                nw: 3,
+                sw: 3,
+                ne: green_right_radius,
+                se: green_right_radius,
+            },
+            p.meter_ok,
         );
-        let green_corner = CornerRadius {
-            nw: 3,
-            sw: 3,
-            ne: green_right_radius,
-            se: green_right_radius,
-        };
-        painter.rect_filled(green_rect, green_corner, p.meter_ok);
 
-        // Caution yellow zone (0.70 .. 0.88)
+        // Caution amber zone (0.70 .. 0.88)
         if level > 0.70 {
             let warn_end = level.min(0.88);
             let warn_right_radius = if level <= 0.88 { 3 } else { 0 };
-            let warn_rect = Rect::from_min_max(
-                Pos2::new(meter_rect.min.x + meter_rect.width() * 0.70, meter_rect.min.y),
-                Pos2::new(meter_rect.min.x + meter_rect.width() * warn_end, meter_rect.max.y),
+            painter.rect_filled(
+                Rect::from_min_max(
+                    Pos2::new(meter_rect.min.x + meter_rect.width() * 0.70, meter_rect.min.y),
+                    Pos2::new(meter_rect.min.x + meter_rect.width() * warn_end, meter_rect.max.y),
+                ),
+                CornerRadius {
+                    nw: 0,
+                    sw: 0,
+                    ne: warn_right_radius,
+                    se: warn_right_radius,
+                },
+                p.meter_warn,
             );
-            let warn_corner = CornerRadius {
-                nw: 0,
-                sw: 0,
-                ne: warn_right_radius,
-                se: warn_right_radius,
-            };
-            painter.rect_filled(warn_rect, warn_corner, p.meter_warn);
         }
 
         // Clip red zone (0.88 .. 1.00)
         if level > 0.88 {
-            let clip_end = level.min(1.0);
-            let clip_rect = Rect::from_min_max(
-                Pos2::new(meter_rect.min.x + meter_rect.width() * 0.88, meter_rect.min.y),
-                Pos2::new(meter_rect.min.x + meter_rect.width() * clip_end, meter_rect.max.y),
+            painter.rect_filled(
+                Rect::from_min_max(
+                    Pos2::new(meter_rect.min.x + meter_rect.width() * 0.88, meter_rect.min.y),
+                    Pos2::new(
+                        meter_rect.min.x + meter_rect.width() * level.min(1.0),
+                        meter_rect.max.y,
+                    ),
+                ),
+                CornerRadius { nw: 0, sw: 0, ne: 3, se: 3 },
+                p.meter_clip,
             );
-            let clip_corner = CornerRadius {
-                nw: 0,
-                sw: 0,
-                ne: 3,
-                se: 3,
-            };
-            painter.rect_filled(clip_rect, clip_corner, p.meter_clip);
         }
     }
 
-    // Professional Peak Hold Indicator:
-    // A clean, illuminated 2.5px pill marker matching signal intensity instead of an arbitrary black line
-    if channel.peak_hold > 0.008 && !channel.muted && !disabled {
-        let hold_norm = channel.peak_hold.clamp(0.0, 1.0);
-        let hold_center_x = (meter_rect.min.x + meter_rect.width() * hold_norm).clamp(
-            meter_rect.min.x + 1.5,
-            meter_rect.max.x - 1.5,
-        );
+    // Professional peak-hold indicator: a 2.5 px pill matching signal intensity.
+    if peak_hold > 0.008 {
+        let hold_norm = peak_hold.clamp(0.0, 1.0);
+        let hold_center_x = (meter_rect.min.x + meter_rect.width() * hold_norm)
+            .clamp(meter_rect.min.x + 1.5, meter_rect.max.x - 1.5);
         let pill_half_w = 1.25_f32;
         let hold_rect = Rect::from_min_max(
             Pos2::new(hold_center_x - pill_half_w, meter_rect.min.y),
             Pos2::new(hold_center_x + pill_half_w, meter_rect.max.y),
         );
-
         let peak_color = if hold_norm > 0.88 {
             p.meter_clip
         } else if hold_norm > 0.70 {
@@ -3192,7 +3421,6 @@ fn render_audio_channel_strip(
         } else {
             p.meter_ok
         };
-
         painter.rect_filled(hold_rect, CornerRadius::same(1), peak_color);
         painter.rect_stroke(
             hold_rect,
@@ -3202,11 +3430,207 @@ fn render_audio_channel_strip(
         );
     }
 
-    meter_resp.on_hover_text(format!(
+    meter_resp
+}
+
+/// One full-width row card for a per-source audio bus (OBS-style).
+///
+/// Layout matches the global channel strips so the panel reads as a single consistent mixer:
+/// row 1 = MUTE toggle + source name + `PGM`/`PRV` badge + volume slider + dB readout,
+/// row 2 = full-width device picker (or the resolved application name), row 3 = live meter.
+///
+/// Returns `true` when the user changed something that needs a scene re-sync.
+#[allow(clippy::too_many_arguments)]
+fn render_source_audio_strip(
+    ui: &mut egui::Ui,
+    p: &ThemePalette,
+    src_name: &str,
+    bus_id: &str,
+    is_input: bool,
+    is_app: bool,
+    is_live_on_pgm: bool,
+    volume: &mut f32,
+    muted: &mut bool,
+    device_name: &mut String,
+    level: crate::audio::SourceLevel,
+    available_devices: &[String],
+    row_w: f32,
+) -> bool {
+    let mut changed = false;
+
+    // Row 1: MUTE toggle + name + PGM/PRV badge | volume slider + dB readout
+    ui.allocate_ui_with_layout(
+        Vec2::new(row_w, 20.0),
+        Layout::left_to_right(Align::Center),
+        |ui| {
+            let mute_label = if *muted {
+                if is_input {
+                    format!("{} MUTE", icons::MICROPHONE_OFF)
+                } else {
+                    format!("{} MUTE", icons::VOLUME_OFF)
+                }
+            } else if is_input {
+                format!("{} ON", icons::MICROPHONE)
+            } else {
+                format!("{} ON", icons::VOLUME)
+            };
+            let mute_btn = egui::Button::new(
+                RichText::new(mute_label)
+                    .small()
+                    .strong()
+                    .color(if *muted { p.rec_red } else { p.text_primary }),
+            )
+            .min_size(Vec2::new(54.0, 20.0));
+
+            if ui
+                .add(mute_btn)
+                .on_hover_text("Mute / unmute this source's audio bus")
+                .clicked()
+            {
+                *muted = !*muted;
+                changed = true;
+            }
+
+            // Source bus badge: distinguishes Direction (IN/OUT/APP) from PGM/PRV liveness.
+            let bus_tag = if is_app {
+                "APP"
+            } else if is_input {
+                "IN"
+            } else {
+                "OUT"
+            };
+            ui.label(
+                RichText::new(bus_tag)
+                    .size(9.5)
+                    .strong()
+                    .color(p.text_muted),
+            )
+            .on_hover_text(if is_app {
+                "Application Audio Capture bus"
+            } else if is_input {
+                "Audio Input Capture bus"
+            } else {
+                "Audio Output Capture bus"
+            });
+
+            let status_tag = if is_live_on_pgm { "PGM" } else { "PRV" };
+            let status_col = if is_live_on_pgm {
+                p.accent_program
+            } else {
+                p.accent_preview
+            };
+            ui.label(
+                RichText::new(status_tag)
+                    .size(9.5)
+                    .strong()
+                    .color(status_col),
+            )
+            .on_hover_text(if is_live_on_pgm {
+                "Live on Program — this audio is recorded"
+            } else {
+                "Standby in Preview — audio will be recorded once transitioned to Program"
+            });
+
+            ui.label(
+                RichText::new(truncate_str(src_name, 12))
+                    .strong()
+                    .size(11.0),
+            );
+
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                let db = if *muted || *volume <= 0.0001 {
+                    -60.0_f32
+                } else {
+                    (20.0 * volume.log10()).max(-60.0)
+                };
+                let pct = if *muted {
+                    0
+                } else {
+                    (volume.clamp(0.0, 1.0) * 100.0).round() as i32
+                };
+                let db_str = if db <= -59.5 {
+                    format!("{:>3}% (-∞ dB)", pct)
+                } else {
+                    format!("{:>3}% ({:+.1}dB)", pct, db)
+                };
+                ui.label(
+                    RichText::new(db_str)
+                        .size(10.5)
+                        .monospace()
+                        .color(p.text_secondary),
+                );
+
+                let rem_w = (ui.available_width() - 6.0).clamp(42.0, 120.0);
+                ui.scope(|ui| {
+                    ui.spacing_mut().slider_width = rem_w;
+                    if ui
+                        .add_enabled(
+                            !*muted,
+                            egui::Slider::new(volume, 0.0..=1.0)
+                                .show_value(false)
+                                .trailing_fill(true),
+                        )
+                        .changed()
+                    {
+                        changed = true;
+                    }
+                });
+            });
+        },
+    );
+
+    // Row 2: full-width device picker. Application Audio Capture is bound to the chosen
+    // application, so it shows the executable instead of a device list.
+    ui.allocate_ui_with_layout(
+        Vec2::new(row_w, 20.0),
+        Layout::left_to_right(Align::Center),
+        |ui| {
+            if is_app {
+                let max_chars = ((row_w - 34.0) / 6.6).clamp(18.0, 58.0) as usize;
+                ui.add(
+                    egui::Label::new(
+                        RichText::new(truncate_str(device_name, max_chars))
+                            .size(10.5)
+                            .color(p.text_primary),
+                    )
+                    .truncate(),
+                )
+                .on_hover_text(format!(
+                    "Application: {}\nChange it from the source's Properties dialog.",
+                    device_name
+                ));
+            } else {
+                let max_chars = ((row_w - 34.0) / 6.6).clamp(18.0, 58.0) as usize;
+                let display_dev = truncate_str(device_name, max_chars);
+                egui::ComboBox::from_id_salt(bus_id)
+                    .selected_text(display_dev)
+                    .width(row_w)
+                    .show_ui(ui, |ui| {
+                        for dev in available_devices {
+                            if ui
+                                .selectable_value(device_name, dev.clone(), dev)
+                                .changed()
+                            {
+                                changed = true;
+                            }
+                        }
+                    })
+                    .response
+                    .on_hover_text(format!("Active Device: {}", device_name));
+            }
+        },
+    );
+
+    // Row 3: live meter (muted / disabled buses are drawn empty)
+    let shown_level = if *muted { 0.0 } else { level.current_peak };
+    let shown_hold = if *muted { 0.0 } else { level.peak_hold };
+    paint_level_meter(ui, p, shown_level, shown_hold, row_w).on_hover_text(format!(
         "Live Signal: {:.0}% | Peak Hold: {:.0}%",
-        level * 100.0,
-        channel.peak_hold * 100.0
+        shown_level * 100.0,
+        shown_hold * 100.0
     ));
+
+    changed
 }
 
 fn render_recording_controls_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {

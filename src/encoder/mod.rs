@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+pub mod endpoint;
 pub mod writer;
 pub use writer::Mp4RecordingWriter;
 

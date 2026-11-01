@@ -1900,7 +1900,8 @@ pub(crate) fn render_source_item_on_canvas(
                 .map(|d| d.id.as_str())
                 .unwrap_or(monitor_id.as_str());
             let key = format!("DISP:{}:{}", resolved_id, capture_cursor);
-            app.capture_engine.get_or_update_texture(egui_ctx, &key)
+            app.capture_engine
+                .get_or_update_filtered_texture(egui_ctx, &key, &src.filter)
         }
         SourceKind::WindowCapture {
             window_hwnd,
@@ -1913,7 +1914,8 @@ pub(crate) fn render_source_item_on_canvas(
             ..
         } => {
             let key = format!("WIN:{}:{}", window_hwnd, capture_cursor);
-            app.capture_engine.get_or_update_texture(egui_ctx, &key)
+            app.capture_engine
+                .get_or_update_filtered_texture(egui_ctx, &key, &src.filter)
         }
         SourceKind::WebcamDevice {
             device_id,

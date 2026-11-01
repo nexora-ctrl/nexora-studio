@@ -1,11 +1,16 @@
 use std::collections::VecDeque;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::Arc;
 use std::thread;
 use std::time::Instant;
 
+#[cfg(target_os = "windows")]
+use crate::audio::bus::SourceBusKind;
+use crate::audio::bus::SourceBusSpec;
+#[cfg(target_os = "windows")]
+use crate::audio::filters::AudioFilterChainRuntime;
 #[cfg(target_os = "windows")]
 use windows::core::*;
 #[cfg(target_os = "windows")]
@@ -16,7 +21,7 @@ use windows::Win32::Media::MediaFoundation::*;
 use windows::Win32::System::Com::*;
 
 /// Internal mixing sample rate (AAC stream rate)
-const MIX_RATE: u32 = 48_000;
+pub(crate) const MIX_RATE: u32 = 48_000;
 
 #[inline]
 fn pack_u32_pair(high: u32, low: u32) -> u64 {
@@ -47,10 +52,17 @@ pub enum EncoderPacket {
         desk_volume: f32,
         desk_muted: bool,
         desk_enabled: bool,
+        /// Endpoint friendly name selected in the Audio Mixer panel. Without this the recorder
+        /// silently always used the Windows default device.
+        desk_device: String,
         mic_volume: f32,
         mic_muted: bool,
         mic_enabled: bool,
+        mic_device: String,
     },
+    /// Per-source audio buses (OBS-style). Replaces the previous list wholesale; the encoder
+    /// opens / closes dedicated WASAPI streams to match. Sent only when the routing changes.
+    SourceBuses(Vec<SourceBusSpec>),
     Pause(bool),
     Stop,
 }
@@ -59,6 +71,14 @@ pub struct Mp4RecordingWriter {
     sender: SyncSender<EncoderPacket>,
     is_running: Arc<AtomicBool>,
     handle: Option<thread::JoinHandle<()>>,
+    /// Video frames that never reached the encoder thread.
+    ///
+    /// The channel is bounded (see `sync_channel` below), so when the encoder falls behind — a
+    /// slow disk, a full CPU, or a capture rate above what the encoder can absorb — `try_send`
+    /// fails and the frame is gone. Nothing used to count that, which made the "Drop" indicator in
+    /// the status bar permanently read 0 even while frames were being lost. This counter is the
+    /// only honest source for that number.
+    dropped_frames: Arc<AtomicU64>,
 }
 
 impl Mp4RecordingWriter {
@@ -72,6 +92,7 @@ impl Mp4RecordingWriter {
         let (tx, rx) = sync_channel::<EncoderPacket>(32);
         let is_running = Arc::new(AtomicBool::new(true));
         let is_running_clone = is_running.clone();
+        let dropped_frames = Arc::new(AtomicU64::new(0));
 
         let handle = thread::Builder::new()
             .name("Mp4EncoderThread".to_string())
@@ -91,13 +112,25 @@ impl Mp4RecordingWriter {
             sender: tx,
             is_running,
             handle: Some(handle),
+            dropped_frames,
         })
     }
 
     pub fn push_frame(&self, rgba: Vec<u8>, width: u32, height: u32) {
         if self.is_running.load(Ordering::Relaxed) {
-            let _ = self.sender.try_send(EncoderPacket::Frame { rgba, width, height });
+            if self
+                .sender
+                .try_send(EncoderPacket::Frame { rgba, width, height })
+                .is_err()
+            {
+                self.dropped_frames.fetch_add(1, Ordering::Relaxed);
+            }
         }
+    }
+
+    /// Number of video frames dropped because the encoder queue was full.
+    pub fn dropped_frames(&self) -> u64 {
+        self.dropped_frames.load(Ordering::Relaxed)
     }
 
     /// Mirrors the live Audio Mixer panel (volume faders, mute + device enable) into the recording pipeline.
@@ -106,19 +139,32 @@ impl Mp4RecordingWriter {
         desk_volume: f32,
         desk_muted: bool,
         desk_enabled: bool,
+        desk_device: &str,
         mic_volume: f32,
         mic_muted: bool,
         mic_enabled: bool,
+        mic_device: &str,
     ) {
         if self.is_running.load(Ordering::Relaxed) {
             let _ = self.sender.try_send(EncoderPacket::Mixer {
                 desk_volume,
                 desk_muted,
                 desk_enabled,
+                desk_device: desk_device.to_string(),
                 mic_volume,
                 mic_muted,
                 mic_enabled,
+                mic_device: mic_device.to_string(),
             });
+        }
+    }
+
+    /// Replaces the per-source audio bus list. Only called when the routing actually changes
+    /// (source added/removed, device switched, application changed) so the encoder thread is
+    /// never asked to re-open WASAPI streams on every frame.
+    pub fn set_source_buses(&self, buses: Vec<SourceBusSpec>) {
+        if self.is_running.load(Ordering::Relaxed) {
+            let _ = self.sender.try_send(EncoderPacket::SourceBuses(buses));
         }
     }
 
@@ -145,125 +191,9 @@ impl Drop for Mp4RecordingWriter {
 }
 
 #[cfg(target_os = "windows")]
-struct WasapiCaptureEndpoint {
-    _client: Option<IAudioClient>,
-    capture: Option<IAudioCaptureClient>,
-    channels: usize,
-    bits_per_sample: u16,
-    sample_rate: u32,
-}
-
+use crate::audio::endpoints::resolve_endpoint;
 #[cfg(target_os = "windows")]
-impl WasapiCaptureEndpoint {
-    unsafe fn open(dev: &IMMDevice, is_loopback: bool) -> Self {
-        let mut client_opt = None;
-        let mut capture_opt = None;
-        let mut channels = 2usize;
-        let mut bits_per_sample = 32u16;
-        let mut sample_rate = MIX_RATE;
-
-        if let Ok(client) = dev.Activate::<IAudioClient>(CLSCTX_ALL, None) {
-            if let Ok(mix_fmt_ptr) = client.GetMixFormat() {
-                if !mix_fmt_ptr.is_null() {
-                    let fmt = *mix_fmt_ptr;
-                    channels = (fmt.nChannels as usize).max(1);
-                    bits_per_sample = fmt.wBitsPerSample;
-                    sample_rate = fmt.nSamplesPerSec.max(1);
-
-                    let flags = if is_loopback {
-                        AUDCLNT_STREAMFLAGS_LOOPBACK
-                    } else {
-                        0
-                    };
-
-                    if client
-                        .Initialize(
-                            AUDCLNT_SHAREMODE_SHARED,
-                            flags,
-                            1_000_000, // 100ms buffer
-                            0,
-                            mix_fmt_ptr,
-                            None,
-                        )
-                        .is_ok()
-                    {
-                        if let Ok(cap) = client.GetService::<IAudioCaptureClient>() {
-                            if client.Start().is_ok() {
-                                capture_opt = Some(cap);
-                                client_opt = Some(client);
-                            }
-                        }
-                    }
-                }
-                CoTaskMemFree(Some(mix_fmt_ptr as *const _));
-            }
-        }
-
-        Self {
-            _client: client_opt,
-            capture: capture_opt,
-            channels,
-            bits_per_sample,
-            sample_rate,
-        }
-    }
-
-    /// Drains every pending WASAPI packet into a continuous native-rate stereo FIFO.
-    /// The FIFO is never truncated mid-waveform, so no sample discontinuity is introduced.
-    unsafe fn drain_into(&self, queue: &mut VecDeque<(f32, f32)>) {
-        let Some(ref cap) = self.capture else { return };
-        let mut packet_len = cap.GetNextPacketSize().unwrap_or(0);
-        let mut safety = 0;
-
-        while packet_len > 0 && safety < 128 {
-            safety += 1;
-            let mut data_ptr: *mut u8 = std::ptr::null_mut();
-            let mut num_frames = 0u32;
-            let mut flags = 0u32;
-
-            if cap
-                .GetBuffer(&mut data_ptr, &mut num_frames, &mut flags, None, None)
-                .is_ok()
-            {
-                let silent = (flags & (AUDCLNT_BUFFERFLAGS_SILENT.0 as u32)) != 0;
-                let ch = self.channels;
-
-                if silent || data_ptr.is_null() || num_frames == 0 {
-                    for _ in 0..num_frames {
-                        queue.push_back((0.0, 0.0));
-                    }
-                } else if self.bits_per_sample == 32 {
-                    let total_samples = (num_frames as usize) * ch;
-                    let floats = std::slice::from_raw_parts(data_ptr as *const f32, total_samples);
-
-                    for frame_idx in 0..(num_frames as usize) {
-                        let base = frame_idx * ch;
-                        let l = floats[base];
-                        let r = if ch > 1 { floats[base + 1] } else { l };
-                        let l_val = if l.is_finite() { l.clamp(-1.0, 1.0) } else { 0.0 };
-                        let r_val = if r.is_finite() { r.clamp(-1.0, 1.0) } else { 0.0 };
-                        queue.push_back((l_val, r_val));
-                    }
-                } else if self.bits_per_sample == 16 {
-                    let total_samples = (num_frames as usize) * ch;
-                    let ints = std::slice::from_raw_parts(data_ptr as *const i16, total_samples);
-
-                    for frame_idx in 0..(num_frames as usize) {
-                        let base = frame_idx * ch;
-                        let l = (ints[base] as f32) / 32768.0;
-                        let r = if ch > 1 { (ints[base + 1] as f32) / 32768.0 } else { l };
-                        queue.push_back((l.clamp(-1.0, 1.0), r.clamp(-1.0, 1.0)));
-                    }
-                }
-
-                let _ = cap.ReleaseBuffer(num_frames);
-            } else {
-                break;
-            }
-            packet_len = cap.GetNextPacketSize().unwrap_or(0);
-        }
-    }
-}
+use crate::encoder::endpoint::{CaptureEndpoint, LoopbackSilencePump};
 
 /// Linear-interpolating resampler from a native-rate stereo FIFO into the 48 kHz mix rate.
 #[cfg(target_os = "windows")]
@@ -322,175 +252,73 @@ impl StereoResampler {
     }
 }
 
-/// One-pole DC blocker / high-pass (~80 Hz) removing hum and rumble from the microphone.
+/// One live per-source audio bus: a dedicated WASAPI stream plus its own resampling FIFO and
+/// user-configured filter chain, summed into the mix alongside the global buses.
 #[cfg(target_os = "windows")]
-struct DcBlocker {
-    x1: (f32, f32),
-    y1: (f32, f32),
+struct ActiveSourceBus {
+    spec: SourceBusSpec,
+    endpoint: Option<CaptureEndpoint>,
+    queue: VecDeque<(f32, f32)>,
+    resampler: StereoResampler,
+    chain: AudioFilterChainRuntime,
+    /// `true` while this bus is backed by a full-desktop render loopback, so it needs the
+    /// endpoint clock kept alive by a silence pump.
+    needs_pump: bool,
 }
 
 #[cfg(target_os = "windows")]
-impl DcBlocker {
-    fn new() -> Self {
-        Self {
-            x1: (0.0, 0.0),
-            y1: (0.0, 0.0),
-        }
-    }
-
-    #[inline]
-    fn process(&mut self, l: f32, r: f32) -> (f32, f32) {
-        // coefficient 0.995 -> ~77 Hz corner at 48 kHz
-        let yl = l - self.x1.0 + 0.995 * self.y1.0;
-        let yr = r - self.x1.1 + 0.995 * self.y1.1;
-        self.x1 = (l, r);
-        self.y1 = (yl, yr);
-        (yl, yr)
-    }
-}
-
-/// Studio microphone conditioner: adaptive noise gate + hiss rolloff.
-///
-/// 1. `dc` removes mains hum / rumble / any DC offset.
-/// 2. The noise floor is tracked continuously with a min-statistics envelope follower,
-///    so the gate threshold adapts to whatever the microphone's real self-noise is
-///    (laptop fan, room tone, preamp hiss) instead of relying on a fixed magic number.
-/// 3. Gain glides open (5 ms) and closed (260 ms) — slow enough that ambience fades
-///    out smoothly and never "chatters" into clicks.
-/// 4. A gentle one-pole low-pass at ~11 kHz tames residual broadband hiss without
-///    dulling speech intelligibility.
-#[cfg(target_os = "windows")]
-struct MicConditioner {
-    dc: DcBlocker,
-    noise_floor: f32,
-    gain: f32,
-    attack: f32,
-    release: f32,
-    lp_l: f32,
-    lp_r: f32,
-    lp_coeff: f32,
-}
-
-#[cfg(target_os = "windows")]
-impl MicConditioner {
-    fn new() -> Self {
-        let fs = MIX_RATE as f32;
-        // Open in ~4 ms, close over ~260 ms
-        let attack = 1.0 - (-1.0f32 / (0.004 * fs)).exp();
-        let release = 1.0 - (-1.0f32 / (0.260 * fs)).exp();
-        // One-pole low-pass corner at 11 kHz
-        let lp_coeff = 1.0 - (-(2.0 * std::f32::consts::PI * 11_000.0) / fs).exp();
+impl ActiveSourceBus {
+    unsafe fn open(spec: SourceBusSpec) -> Self {
+        let endpoint = crate::encoder::endpoint::open_for_spec(&spec);
+        let rate = endpoint.as_ref().map(|c| c.sample_rate()).unwrap_or(MIX_RATE);
+        let needs_pump = matches!(spec.kind, SourceBusKind::RenderLoopback)
+            || (matches!(spec.kind, SourceBusKind::ProcessLoopback { .. }) && endpoint.is_some());
+        // No implicit conditioning: whatever the user configured is exactly what runs.
+        let chain = AudioFilterChainRuntime::from_chain(&spec.filters);
 
         Self {
-            dc: DcBlocker::new(),
-            noise_floor: 0.0005,
-            gain: 0.0,
-            attack,
-            release,
-            lp_l: 0.0,
-            lp_r: 0.0,
-            lp_coeff,
+            spec,
+            endpoint,
+            queue: VecDeque::with_capacity(1 << 15),
+            resampler: StereoResampler::new(rate),
+            chain,
+            needs_pump,
         }
     }
 
-    #[inline]
-    fn process(&mut self, l: f32, r: f32) -> (f32, f32) {
-        // 1. Remove DC offset / hum
-        let (dl, dr) = self.dc.process(l, r);
-
-        // 2. Gentle high-frequency rolloff to soften hiss
-        self.lp_l += (dl - self.lp_l) * self.lp_coeff;
-        self.lp_r += (dr - self.lp_r) * self.lp_coeff;
-        let (fl, fr) = (self.lp_l, self.lp_r);
-
-        // 3. Adaptive noise-floor tracking (min-statistics envelope)
-        let level = fl.abs().max(fr.abs());
-        let floor_coeff = if level < self.noise_floor {
-            0.0015 // fall quickly toward true quiet
-        } else {
-            0.0000025 // rise extremely slowly so speech never lifts the floor
-        };
-        self.noise_floor += (level - self.noise_floor) * floor_coeff;
-        self.noise_floor = self.noise_floor.clamp(0.00002, 0.05);
-
-        // 4. Gate hysteresis: open ~11 dB above the estimated floor, close just below it
-        let open_thresh = (self.noise_floor * 3.6).max(0.0035);
-        let close_thresh = open_thresh * 0.82;
-        let target = if self.gain > 0.35 {
-            if level > close_thresh { 1.0 } else { 0.0 }
-        } else if level > open_thresh {
-            1.0
-        } else {
-            0.0
-        };
-
-        // 5. Smooth gain glide (no chattering)
-        let coeff = if target > self.gain {
-            self.attack
-        } else {
-            self.release
-        };
-        self.gain += (target - self.gain) * coeff;
-        if self.gain < 0.0002 {
-            self.gain = 0.0;
-        }
-
-        (fl * self.gain, fr * self.gain)
-    }
-}
-
-/// Keeper of a silent playback stream so WASAPI loopback capture never starves
-/// when no application is currently playing audio on the default endpoint.
-#[cfg(target_os = "windows")]
-struct LoopbackSilencePump {
-    client: IAudioClient,
-    render: IAudioRenderClient,
-    block_align: u32,
-    period_frames: u32,
-}
-
-#[cfg(target_os = "windows")]
-impl LoopbackSilencePump {
-    unsafe fn start(dev: &IMMDevice) -> Option<Self> {
-        let client: IAudioClient = dev.Activate(CLSCTX_ALL, None).ok()?;
-        let mix_fmt_ptr = client.GetMixFormat().ok()?;
-        let block_align = (*mix_fmt_ptr).nBlockAlign as u32;
-        let rate = (*mix_fmt_ptr).nSamplesPerSec;
-
-        if client
-            .Initialize(AUDCLNT_SHAREMODE_SHARED, 0, 1_000_000, 0, mix_fmt_ptr, None)
-            .is_err()
+    /// Applies the *non-routing* half of a spec update (fader, mute, enable, filters) to an
+    /// already-open bus, so editing a parameter never tears down the WASAPI stream.
+    fn update_spec(&mut self, spec: SourceBusSpec) {
+        if crate::audio::filters::filters_signature(&spec.filters)
+            != crate::audio::filters::filters_signature(&self.spec.filters)
         {
-            CoTaskMemFree(Some(mix_fmt_ptr as *const _));
-            return None;
+            self.chain = AudioFilterChainRuntime::from_chain(&spec.filters);
         }
-        CoTaskMemFree(Some(mix_fmt_ptr as *const _));
-
-        let render: IAudioRenderClient = client.GetService().ok()?;
-        if client.Start().is_err() {
-            return None;
-        }
-
-        Some(Self {
-            client,
-            render,
-            block_align,
-            // ~20 ms period keeps the endpoint clock alive with minimal writes
-            period_frames: (rate / 50).max(1),
-        })
+        self.spec = spec;
     }
 
-    unsafe fn pump(&self) {
-        let padding = self.client.GetCurrentPadding().unwrap_or(0);
-        let needed = self.period_frames.saturating_sub(padding);
-        if needed > 0 {
-            if let Ok(buf_ptr) = self.render.GetBuffer(needed) {
-                if !buf_ptr.is_null() {
-                    let total_bytes = (needed as usize) * (self.block_align as usize);
-                    std::ptr::write_bytes(buf_ptr, 0, total_bytes);
-                    let _ = self.render.ReleaseBuffer(needed, 0);
-                }
-            }
+    /// Pulls every pending packet, then drains exactly one 48 kHz stereo frame.
+    /// Returns silence (fading to avoid clicks) when the stream has no data yet.
+    unsafe fn next_frame(&mut self) -> (f32, f32) {
+        if let Some(ref ep) = self.endpoint {
+            ep.drain_into(&mut self.queue);
+        }
+
+        // Safety cap (1.5 s) so a stalled source can never grow memory unbounded.
+        let cap_len = (MIX_RATE as usize * 3) / 2;
+        while self.queue.len() > cap_len {
+            self.queue.pop_front();
+        }
+
+        let (l, r) = match self.resampler.next(&mut self.queue) {
+            Some(v) => v,
+            None => self.resampler.starved(),
+        };
+
+        if self.chain.is_transparent() {
+            (l, r)
+        } else {
+            self.chain.process(l, r)
         }
     }
 }
@@ -596,8 +424,8 @@ fn run_mf_encoder_loop(
         }
 
         // --- 3. Live WASAPI capture endpoints (Desktop loopback + Microphone) ---
-        let mut desk_cap: Option<WasapiCaptureEndpoint> = None;
-        let mut mic_cap: Option<WasapiCaptureEndpoint> = None;
+        let mut desk_cap: Option<CaptureEndpoint> = None;
+        let mut mic_cap: Option<CaptureEndpoint> = None;
         let mut silence_pump: Option<LoopbackSilencePump> = None;
 
         if a_stream_idx_opt.is_some() {
@@ -606,24 +434,23 @@ fn run_mf_encoder_loop(
             {
                 if let Ok(render_dev) = enumerator.GetDefaultAudioEndpoint(eRender, eConsole) {
                     silence_pump = LoopbackSilencePump::start(&render_dev);
-                    desk_cap = Some(WasapiCaptureEndpoint::open(&render_dev, true));
+                    desk_cap = Some(CaptureEndpoint::open_device(&render_dev, true));
                 }
                 let cap_dev_res = enumerator
                     .GetDefaultAudioEndpoint(eCapture, eCommunications)
                     .or_else(|_| enumerator.GetDefaultAudioEndpoint(eCapture, eConsole));
                 if let Ok(cap_dev) = cap_dev_res {
-                    mic_cap = Some(WasapiCaptureEndpoint::open(&cap_dev, false));
+                    mic_cap = Some(CaptureEndpoint::open_device(&cap_dev, false));
                 }
             }
         }
 
         // --- 4. Mixing pipeline state ---
-        let desk_rate = desk_cap.as_ref().map(|c| c.sample_rate).unwrap_or(MIX_RATE);
-        let mic_rate = mic_cap.as_ref().map(|c| c.sample_rate).unwrap_or(MIX_RATE);
+        let desk_rate = desk_cap.as_ref().map(|c| c.sample_rate()).unwrap_or(MIX_RATE);
+        let mic_rate = mic_cap.as_ref().map(|c| c.sample_rate()).unwrap_or(MIX_RATE);
 
         let mut desk_res = StereoResampler::new(desk_rate);
         let mut mic_res = StereoResampler::new(mic_rate);
-        let mut mic_cond = MicConditioner::new();
 
         // Live mixer values mirrored from the Audio Mixer dock panel
         let mut desk_volume = 0.85f32;
@@ -633,6 +460,21 @@ fn run_mf_encoder_loop(
 
         let mut desk_queue: VecDeque<(f32, f32)> = VecDeque::with_capacity(1 << 15);
         let mut mic_queue: VecDeque<(f32, f32)> = VecDeque::with_capacity(1 << 15);
+
+        // --- 4b. Per-source audio buses (OBS-style) ---
+        // Each source bus owns its own WASAPI stream, FIFO, resampler and DSP chain, and is
+        // summed after the two global buses. Muting `Mic / Aux` therefore cannot silence an
+        // `Audio Input Capture`, which is the whole point of the per-source bus model.
+        let mut source_buses: Vec<ActiveSourceBus> = Vec::new();
+        let mut source_bus_signature: String = String::new();
+        let mut rebuild_source_buses: Option<Vec<SourceBusSpec>> = None;
+        let mut all_bus_silence_pumps: Vec<LoopbackSilencePump> = Vec::new();
+
+        // Global bus device selections (now actually honoured by the recorder).
+        let mut desk_device_name = String::new();
+        let mut mic_device_name = String::new();
+        let mut reopen_desk = false;
+        let mut reopen_mic = false;
 
         // Pre-roll: hold ~60 ms of audio before feeding the encoder so the very first
         // blocks are never starved (removes the start-of-recording "pop").
@@ -668,14 +510,46 @@ fn run_mf_encoder_loop(
                     desk_volume: dv,
                     desk_muted: dm,
                     desk_enabled: de,
+                    desk_device: dd,
                     mic_volume: mv,
                     mic_muted: mm,
                     mic_enabled: me,
+                    mic_device: md,
                 } => {
                     desk_volume = if de { dv.clamp(0.0, 1.5) } else { 0.0 };
                     desk_muted = dm || !de;
                     mic_volume = if me { mv.clamp(0.0, 1.5) } else { 0.0 };
                     mic_muted = mm || !me;
+
+                    // The global buses follow the device chosen in the Audio Mixer panel.
+                    // Re-open only when the selection actually changed.
+                    if desk_device_name != dd {
+                        desk_device_name = dd;
+                        reopen_desk = true;
+                    }
+                    if mic_device_name != md {
+                        mic_device_name = md;
+                        reopen_mic = true;
+                    }
+                }
+                EncoderPacket::SourceBuses(specs) => {
+                    let signature = specs
+                        .iter()
+                        .map(|s| s.routing_signature())
+                        .collect::<Vec<_>>()
+                        .join(";");
+                    if signature != source_bus_signature {
+                        source_bus_signature = signature;
+                        rebuild_source_buses = Some(specs);
+                    } else {
+                        // Routing unchanged (only faders / mutes / filters moved) — update in place
+                        // so no WASAPI stream is needlessly torn down and re-opened.
+                        for spec in specs {
+                            if let Some(bus) = source_buses.iter_mut().find(|b| b.spec.bus_id == spec.bus_id) {
+                                bus.update_spec(spec);
+                            }
+                        }
+                    }
                 }
                 EncoderPacket::Frame { rgba, width, height } => {
                     if pause_start_instant.is_some() || width == 0 || height == 0 || rgba.is_empty()
@@ -734,13 +608,112 @@ fn run_mf_encoder_loop(
                         }
                     }
 
-                    // Keep the loopback endpoint clock alive
+                    // Keep every loopback endpoint clock alive
                     if let Some(ref pump) = silence_pump {
+                        pump.pump();
+                    }
+                    for pump in &all_bus_silence_pumps {
                         pump.pump();
                     }
 
                     // --- Continuous audio production ---
                     if let Some(a_stream_idx) = a_stream_idx_opt {
+                        // Apply routing changes that arrived this frame. Global buses are
+                        // re-opened only when the user actually picked another device.
+                        if reopen_desk || reopen_mic {
+                            if let Ok(enumerator) = CoCreateInstance::<_, IMMDeviceEnumerator>(
+                                &MMDeviceEnumerator,
+                                None,
+                                CLSCTX_ALL,
+                            ) {
+                                if reopen_desk {
+                                    reopen_desk = false;
+                                    if let Some(dev) = resolve_endpoint(
+                                        &enumerator,
+                                        eRender,
+                                        &desk_device_name,
+                                    ) {
+                                        silence_pump = LoopbackSilencePump::start(&dev);
+                                        desk_cap = Some(CaptureEndpoint::open_device(&dev, true));
+                                        let rate = desk_cap
+                                            .as_ref()
+                                            .map(|c| c.sample_rate())
+                                            .unwrap_or(MIX_RATE);
+                                        desk_res = StereoResampler::new(rate);
+                                        desk_queue.clear();
+                                    }
+                                }
+                                if reopen_mic {
+                                    reopen_mic = false;
+                                    if let Some(dev) = resolve_endpoint(
+                                        &enumerator,
+                                        eCapture,
+                                        &mic_device_name,
+                                    ) {
+                                        mic_cap = Some(CaptureEndpoint::open_device(&dev, false));
+                                        let rate = mic_cap
+                                            .as_ref()
+                                            .map(|c| c.sample_rate())
+                                            .unwrap_or(MIX_RATE);
+                                        mic_res = StereoResampler::new(rate);
+                                        mic_queue.clear();
+                                    }
+                                }
+                            } else {
+                                reopen_desk = false;
+                                reopen_mic = false;
+                            }
+                        }
+
+                        // Rebuild the per-source bus set when its routing changed.
+                        if let Some(specs) = rebuild_source_buses.take() {
+                            source_buses.clear();
+                            all_bus_silence_pumps.clear();
+                            for spec in specs {
+                                source_buses.push(ActiveSourceBus::open(spec));
+                            }
+                            // Any bus capturing a render endpoint needs its clock kept alive.
+                            if let Ok(enumerator) = CoCreateInstance::<_, IMMDeviceEnumerator>(
+                                &MMDeviceEnumerator,
+                                None,
+                                CLSCTX_ALL,
+                            ) {
+                                for bus in &source_buses {
+                                    if !bus.needs_pump {
+                                        continue;
+                                    }
+                                    let flow = if bus.spec.kind.is_input() {
+                                        eCapture
+                                    } else {
+                                        eRender
+                                    };
+                                    if let Some(dev) = resolve_endpoint(
+                                        &enumerator,
+                                        flow,
+                                        &bus.spec.device_name,
+                                    ) {
+                                        if let Some(pump) = LoopbackSilencePump::start(&dev) {
+                                            all_bus_silence_pumps.push(pump);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // --- Suppress double capture: a source bus and a global bus resolving
+                        // to the same endpoint must not both be summed (that would double the
+                        // audio). The global bus yields, because the per-source bus is the one
+                        // the user explicitly configured in the mixer.
+                        let desk_id = desk_cap.as_ref().map(|c| c.endpoint_id()).unwrap_or("");
+                        let mic_id = mic_cap.as_ref().map(|c| c.endpoint_id()).unwrap_or("");
+                        let source_ids: Vec<&str> = source_buses
+                            .iter()
+                            .filter_map(|b| b.endpoint.as_ref().map(|e| e.endpoint_id()))
+                            .filter(|id| !id.is_empty())
+                            .collect();
+                        let desk_suppressed = !desk_id.is_empty() && source_ids.contains(&desk_id);
+                        let mic_suppressed = !mic_id.is_empty() && source_ids.contains(&mic_id);
+
                         if let Some(ref d) = desk_cap {
                             d.drain_into(&mut desk_queue);
                         }
@@ -758,7 +731,13 @@ fn run_mf_encoder_loop(
                         }
 
                         if !primed {
-                            if desk_queue.len() >= preroll_samples as usize || mic_queue.len() >= preroll_samples as usize {
+                            let any_source_ready = source_buses
+                                .iter()
+                                .any(|b| b.queue.len() >= preroll_samples as usize);
+                            if desk_queue.len() >= preroll_samples as usize
+                                || mic_queue.len() >= preroll_samples as usize
+                                || any_source_ready
+                            {
                                 primed = true;
                             }
                         }
@@ -773,31 +752,49 @@ fn run_mf_encoder_loop(
                             pcm_bytes.clear();
                             pcm_bytes.reserve(needed_samples * 4);
 
-                            let desk_gain = if desk_muted { 0.0 } else { desk_volume };
-                            let mic_gain = if mic_muted { 0.0 } else { mic_volume };
+                            let desk_gain = if desk_muted || desk_suppressed {
+                                0.0
+                            } else {
+                                desk_volume
+                            };
+                            let mic_gain = if mic_muted || mic_suppressed {
+                                0.0
+                            } else {
+                                mic_volume
+                            };
 
                             for _ in 0..needed_samples {
-                                let (mut dl, mut dr) = match desk_res.next(&mut desk_queue) {
-                                    Some(v) => v,
-                                    None => desk_res.starved(),
+                                let (dl, dr) = if desk_gain > 0.0 {
+                                    match desk_res.next(&mut desk_queue) {
+                                        Some(v) => v,
+                                        None => desk_res.starved(),
+                                    }
+                                } else {
+                                    (0.0, 0.0)
                                 };
+
                                 let (ml, mr) = match mic_res.next(&mut mic_queue) {
                                     Some(v) => v,
                                     None => (0.0, 0.0),
                                 };
 
-                                // Mic conditioning: de-hum + hiss rolloff + adaptive noise gate
-                                let (gl, gr) = mic_cond.process(ml, mr);
-                                let (mut ml, mut mr) = (gl, gr);
+                                // Global buses stay raw, exactly like OBS: filtering is the job of
+                                // the per-source chains, which keeps `Mic / Aux` a true device bus
+                                // and makes sure a microphone is never processed twice.
+                                let mut sum_l = dl * desk_gain + ml * mic_gain;
+                                let mut sum_r = dr * desk_gain + mr * mic_gain;
 
-                                dl *= desk_gain;
-                                dr *= desk_gain;
-                                ml *= mic_gain;
-                                mr *= mic_gain;
+                                // Per-source buses: each keeps its own isolation and filter chain.
+                                for bus in &mut source_buses {
+                                    let gain = bus.spec.effective_gain();
+                                    let (sl, sr) = bus.next_frame();
+                                    sum_l += sl * gain;
+                                    sum_r += sr * gain;
+                                }
 
                                 // Sum then soft-limit (no hard clipping distortion)
-                                let mix_l = soft_limit(dl + ml);
-                                let mix_r = soft_limit(dr + mr);
+                                let mix_l = soft_limit(sum_l);
+                                let mix_r = soft_limit(sum_r);
 
                                 let i_l = (mix_l * 32767.0).clamp(-32768.0, 32767.0) as i16;
                                 let i_r = (mix_r * 32767.0).clamp(-32768.0, 32767.0) as i16;

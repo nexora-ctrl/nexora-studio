@@ -33,6 +33,110 @@ pub(crate) fn standard_singleline_text_width<'a>(text: &'a mut String, hint: &'a
     edit
 }
 
+pub(crate) const AUDIO_FILTER_CARD_WIDTH: f32 = 496.0;
+pub(crate) const AUDIO_FILTER_CARD_CONTENT_WIDTH: f32 = 472.0;
+pub(crate) const SLIDER_PARAM_LABEL_WIDTH: f32 = 130.0;
+pub(crate) const SLIDER_PARAM_RAIL_WIDTH: f32 = 185.0;
+pub(crate) const SLIDER_PARAM_BOX_WIDTH: f32 = 64.0;
+pub(crate) const SLIDER_PARAM_BOX_HEIGHT: f32 = 22.0;
+pub(crate) const SLIDER_PARAM_RESET_WIDTH: f32 = 64.0;
+pub(crate) const SLIDER_PARAM_FONT_SIZE: f32 = 11.5;
+
+/// Standardized 4-column slider parameter row:
+/// [Label (130px)] [Slider Rail (170px)] [Value Box (64x22px)] [Reset Box (64x22px)]
+/// All gray boundary boxes have identical size (64x22px) and font size (11.5pt).
+pub(crate) fn standard_slider_param_row<T: egui::emath::Numeric>(
+    ui: &mut egui::Ui,
+    label: &str,
+    tooltip: &str,
+    value: &mut T,
+    range: std::ops::RangeInclusive<T>,
+    suffix: &str,
+    decimals: usize,
+    default_val: Option<T>,
+    reset_label: Option<&str>,
+) -> bool {
+    let mut changed = false;
+
+    // Col 1: Parameter Label
+    ui.add(egui::Label::new(RichText::new(label).size(SLIDER_PARAM_FONT_SIZE)).truncate())
+        .on_hover_text(tooltip);
+
+    // Col 2: Pure Slider Rail
+    ui.scope(|ui| {
+        ui.spacing_mut().slider_width = SLIDER_PARAM_RAIL_WIDTH;
+        changed |= ui
+            .add(
+                egui::Slider::new(value, range.clone())
+                    .show_value(false),
+            )
+            .changed();
+    });
+
+    // Col 3: Standardized Value Box (identical 64x22px, font 11.5pt)
+    ui.scope(|ui| {
+        ui.style_mut().drag_value_text_style = egui::TextStyle::Small;
+        ui.style_mut().text_styles.insert(
+            egui::TextStyle::Small,
+            egui::FontId::new(SLIDER_PARAM_FONT_SIZE, crate::ui::icons::rubik_family()),
+        );
+        changed |= ui
+            .add_sized(
+                Vec2::new(SLIDER_PARAM_BOX_WIDTH, SLIDER_PARAM_BOX_HEIGHT),
+                egui::DragValue::new(value)
+                    .range(range)
+                    .suffix(suffix)
+                    .fixed_decimals(decimals),
+            )
+            .changed();
+    });
+
+    // Col 4: Standardized Reset Button Box (identical 64x22px, font 11.5pt)
+    if let (Some(def), Some(rlbl)) = (default_val, reset_label) {
+        if ui
+            .add_sized(
+                Vec2::new(SLIDER_PARAM_RESET_WIDTH, SLIDER_PARAM_BOX_HEIGHT),
+                egui::Button::new(RichText::new(rlbl).size(SLIDER_PARAM_FONT_SIZE)),
+            )
+            .on_hover_text(format!("Reset to {}", rlbl))
+            .clicked()
+        {
+            *value = def;
+            changed = true;
+        }
+    } else {
+        ui.allocate_exact_size(
+            Vec2::new(SLIDER_PARAM_RESET_WIDTH, SLIDER_PARAM_BOX_HEIGHT),
+            egui::Sense::hover(),
+        );
+    }
+    ui.end_row();
+    changed
+}
+
+/// Read-only grey box used in the 3rd / 4th column of `standard_slider_param_row` rows.
+/// It has the exact same 64x22 px geometry, corner radius, border and 11.5 pt font as the
+/// editable value / reset boxes, so every row edge stays perfectly aligned vertically.
+pub(crate) fn slider_param_readonly_box(ui: &mut egui::Ui, text: &str, text_color: egui::Color32) {
+    let visuals = ui.visuals().widgets.inactive.clone();
+    egui::Frame::new()
+        .fill(visuals.bg_fill)
+        .corner_radius(visuals.corner_radius)
+        .stroke(visuals.bg_stroke)
+        .inner_margin(egui::Margin::symmetric(2, 0))
+        .show(ui, |ui| {
+            ui.set_width(SLIDER_PARAM_BOX_WIDTH);
+            ui.set_height(SLIDER_PARAM_BOX_HEIGHT);
+            ui.centered_and_justified(|ui| {
+                ui.label(
+                    RichText::new(text)
+                        .size(SLIDER_PARAM_FONT_SIZE)
+                        .color(text_color),
+                );
+            });
+        });
+}
+
 /// Truncates `text` with an ellipsis so that it fits within `max_w` pixels using `font`.
 pub(crate) fn truncate_pixels(ui: &egui::Ui, text: &str, max_w: f32, font: egui::FontId) -> String {
     let full = ui
@@ -680,7 +784,10 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
 
                                             let updater_arc = app.updater.clone();
                                             let (status, repo_url) = {
-                                                let st = updater_arc.lock().unwrap();
+                                                // A poisoned mutex must not crash the dialog render.
+                                                let st = updater_arc
+                                                    .lock()
+                                                    .unwrap_or_else(|poisoned| poisoned.into_inner());
                                                 (st.status.clone(), st.repo_url.clone())
                                             };
 
@@ -1347,6 +1454,12 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
         let mut selected_decode_scale = app.settings.media_decode_scale;
         let mut gpu_or_scale_changed = false;
         let mut open_slideshow_manager = false;
+        let mut refresh_audio_devices = false;
+
+        // Device lists backing the per-source audio buses. Cloned up-front so the mixer is not
+        // borrowed while the selected source is edited mutably further below.
+        let audio_input_devices = app.audio_mixer.microphone.available_devices.clone();
+        let audio_output_devices = app.audio_mixer.desktop_audio.available_devices.clone();
 
         let selected_src = app.studio.preview_scene().selected_source();
         let (title, window_id) = if let Some(src) = selected_src {
@@ -2030,14 +2143,92 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                     device_name,
                                     volume,
                                     muted,
+                                } => {
+                                    ui.label("Audio Device:");
+                                    ui.horizontal(|ui| {
+                                        let cur = if device_name.trim().is_empty() {
+                                            "Default Microphone (WASAPI)".to_string()
+                                        } else {
+                                            device_name.clone()
+                                        };
+                                        egui::ComboBox::from_id_salt("prop_audio_in_device")
+                                            .selected_text(truncate_str(&cur, 32))
+                                            .width(PROP_FIELD_W - 26.0)
+                                            .truncate()
+                                            .show_ui(ui, |ui| {
+                                                for dev in &audio_input_devices {
+                                                    any_changed |= ui
+                                                        .selectable_value(
+                                                            device_name,
+                                                            dev.clone(),
+                                                            dev,
+                                                        )
+                                                        .changed();
+                                                }
+                                            });
+                                        if ui
+                                            .add(
+                                                egui::Button::new(
+                                                    RichText::new(icons::REFRESH).small(),
+                                                )
+                                                .min_size(Vec2::new(22.0, PROP_FIELD_H)),
+                                            )
+                                            .on_hover_text("Re-scan connected recording devices")
+                                            .clicked()
+                                        {
+                                            refresh_audio_devices = true;
+                                        }
+                                    });
+                                    ui.end_row();
+
+                                    ui.label("Volume:");
+                                    ui.horizontal(|ui| {
+                                        any_changed |=
+                                            ui.add(egui::Slider::new(volume, 0.0..=1.0)).changed();
+                                        any_changed |= ui.checkbox(muted, "Mute").changed();
+                                    });
+                                    ui.end_row();
                                 }
-                                | SourceKind::AudioOutputCapture {
+                                SourceKind::AudioOutputCapture {
                                     device_name,
                                     volume,
                                     muted,
                                 } => {
                                     ui.label("Audio Device:");
-                                    any_changed |= ui.text_edit_singleline(device_name).changed();
+                                    ui.horizontal(|ui| {
+                                        let cur = if device_name.trim().is_empty() {
+                                            "Default System Output (WASAPI)".to_string()
+                                        } else {
+                                            device_name.clone()
+                                        };
+                                        egui::ComboBox::from_id_salt("prop_audio_out_device")
+                                            .selected_text(truncate_str(&cur, 32))
+                                            .width(PROP_FIELD_W - 26.0)
+                                            .truncate()
+                                            .show_ui(ui, |ui| {
+                                                for dev in &audio_output_devices {
+                                                    any_changed |= ui
+                                                        .selectable_value(
+                                                            device_name,
+                                                            dev.clone(),
+                                                            dev,
+                                                        )
+                                                        .changed();
+                                                }
+                                            });
+                                        if ui
+                                            .add(
+                                                egui::Button::new(
+                                                    RichText::new(icons::REFRESH).small(),
+                                                )
+                                                .min_size(Vec2::new(22.0, PROP_FIELD_H)),
+                                            )
+                                            .on_hover_text("Re-scan connected playback devices")
+                                            .clicked()
+                                        {
+                                            refresh_audio_devices = true;
+                                        }
+                                    });
                                     ui.end_row();
 
                                     ui.label("Volume:");
@@ -3127,6 +3318,9 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
         if refresh_catalog {
             app.capture_catalog.refresh_from_system();
         }
+        if refresh_audio_devices {
+            app.audio_mixer.refresh_devices_from_system();
+        }
         if any_changed {
             app.studio.sync_if_linked();
             app.save_all_state();
@@ -3822,6 +4016,567 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
             app.show_source_filters_dialog = false;
         }
     }
+
+/// Per-source audio filter chain editor (OBS-style).
+///
+/// Unlike the video keying dialog — where one key filter is active at a time — this renders an
+/// ordered, addable, removable list. Every filter can be bypassed individually, and a one-click
+/// `Clean Mic` preset installs the broadcast starting point (Noise Suppression + Noise Gate).
+fn render_audio_filters_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
+    if !app.show_audio_filters_dialog {
+        return;
+    }
+
+    let p = ThemePalette::for_mode(app.settings.theme);
+    let mut open = app.show_audio_filters_dialog;
+    let mut done_clicked = false;
+    let mut chain_changed = false;
+    // Removals are collected and applied after the iteration so the list is not mutated while
+    // it is being walked — and so an index shift cannot make the UI hit the wrong row.
+    let mut remove_idx: Option<usize> = None;
+    let mut move_up_idx: Option<usize> = None;
+    let mut move_down_idx: Option<usize> = None;
+    let mut request_preset = false;
+
+    let src_name = app
+        .studio
+        .preview_scene()
+        .selected_source()
+        .map(|s| s.name.clone())
+        .unwrap_or_else(|| "Source".to_string());
+
+    let is_audio = app
+        .studio
+        .preview_scene()
+        .selected_source()
+        .map(|s| s.supports_audio_filters())
+        .unwrap_or(false);
+
+    let win_resp = egui::Window::new(format!(
+        "{} Audio Filters for '{}'",
+        icons::ADJUSTMENTS,
+        truncate_str(&src_name, 24)
+    ))
+    .id(egui::Id::new("nexora_source_audio_filters_modal_win"))
+    .order(egui::Order::Foreground)
+    .open(&mut open)
+    .collapsible(false)
+    .resizable(false)
+    .auto_sized()
+    .default_width(520.0)
+    .max_width(520.0)
+    .pivot(egui::Align2::CENTER_CENTER)
+    .default_pos(ctx.screen_rect().center())
+    .constrain(true)
+    .show(ctx, |ui| {
+        block_window_body_drag(ui);
+        ui.add_space(2.0);
+        ui.set_width(AUDIO_FILTER_CARD_WIDTH);
+        ui.set_max_width(AUDIO_FILTER_CARD_WIDTH);
+
+        if !is_audio {
+            ui.vertical_centered(|ui| {
+                ui.add_space(14.0);
+                ui.label(
+                    RichText::new(format!("{} This source does not carry audio", icons::VOLUME_OFF))
+                        .size(13.0)
+                        .color(p.text_muted),
+                );
+                ui.add_space(4.0);
+                ui.label(
+                    RichText::new(
+                        "Audio filters apply to Audio Input Capture, Audio Output Capture,\nand Application Audio Capture sources.",
+                    )
+                    .small()
+                    .color(p.text_muted),
+                );
+                ui.add_space(14.0);
+            });
+            return;
+        }
+
+        if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
+            // --- Clean Top Toolbar Container ---
+            egui::Frame::new()
+                .fill(p.bg_elevated)
+                .corner_radius(egui::CornerRadius::same(6))
+                .stroke(Stroke::new(1.0_f32, p.border_subtle))
+                .inner_margin(egui::Margin::symmetric(12, 10))
+                .show(ui, |ui| {
+                    ui.set_width(AUDIO_FILTER_CARD_CONTENT_WIDTH);
+                    ui.horizontal(|ui| {
+                        ui.set_width(AUDIO_FILTER_CARD_CONTENT_WIDTH);
+                        ui.spacing_mut().item_spacing.x = 6.0;
+                        ui.add_sized(
+                            Vec2::new(70.0, 22.0),
+                            egui::Label::new(
+                                RichText::new("Add Filter:")
+                                    .size(11.5)
+                                    .strong()
+                                    .color(p.text_primary),
+                            )
+                            .selectable(false),
+                        );
+                        for fk in crate::audio::filters::AudioFilterKind::all() {
+                            if ui
+                                .add_sized(
+                                    Vec2::new(118.0, 22.0),
+                                    egui::Button::new(
+                                        RichText::new(format!("{} {}", icons::PLUS, fk.short_name()))
+                                            .size(11.0),
+                                    ),
+                                )
+                                .on_hover_text(fk.hover_explanation())
+                                .clicked()
+                            {
+                                src.audio_filters
+                                    .push(crate::audio::filters::AudioFilter::new(*fk));
+                                chain_changed = true;
+                            }
+                        }
+                    });
+
+                    ui.add_space(6.0);
+
+                    ui.horizontal(|ui| {
+                        ui.set_width(AUDIO_FILTER_CARD_CONTENT_WIDTH);
+                        if ui
+                            .add(
+                                crate::ui::button_3d::Button3D::new("Clean Mic Preset")
+                                    .icon(icons::SPARKLES)
+                                    .min_size(Vec2::new(140.0, 22.0))
+                                    .tooltip(
+                                        "Replace chain with Noise Suppression + Noise Gate — the standard broadcast starting point",
+                                    ),
+                            )
+                            .clicked()
+                        {
+                            request_preset = true;
+                        }
+
+                        if ui
+                            .add_enabled(
+                                !src.audio_filters.is_empty(),
+                                crate::ui::button_3d::Button3D::new("Clear All")
+                                    .icon(icons::TRASH)
+                                    .min_size(Vec2::new(90.0, 22.0))
+                                    .tooltip("Remove every filter from this source"),
+                            )
+                            .clicked()
+                        {
+                            src.audio_filters.clear();
+                            chain_changed = true;
+                        }
+
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let count_text = format!("{} filter(s) in chain", src.audio_filters.len());
+                            let count_color = if src.audio_filters.is_empty() {
+                                p.text_muted
+                            } else {
+                                p.accent_preview
+                            };
+                            ui.label(
+                                RichText::new(count_text)
+                                    .size(11.0)
+                                    .color(count_color),
+                            );
+                        });
+                    });
+                });
+
+            ui.add_space(8.0);
+
+            if src.audio_filters.is_empty() {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(14.0);
+                    ui.label(
+                        RichText::new(format!("{} No Audio Filters (Original Signal)", icons::VOLUME))
+                            .size(13.0)
+                            .color(p.text_muted),
+                    );
+                    ui.add_space(4.0);
+                    ui.label(
+                        RichText::new(
+                            "The source is recorded raw as captured. Click '+ Add Filter' or 'Clean Mic Preset' above.",
+                        )
+                        .size(11.0)
+                        .color(p.text_muted),
+                    );
+                    ui.add_space(14.0);
+                });
+            } else {
+                egui::ScrollArea::vertical()
+                    .max_height(460.0)
+                    .auto_shrink([false, true])
+                    .show(ui, |ui| {
+                        let count = src.audio_filters.len();
+                        for (idx, flt) in src.audio_filters.iter_mut().enumerate() {
+                            egui::Frame::new()
+                                .fill(p.bg_elevated)
+                                .corner_radius(egui::CornerRadius::same(6))
+                                .stroke(Stroke::new(
+                                    1.0_f32,
+                                    if flt.enabled {
+                                        p.border_strong
+                                    } else {
+                                        p.border_subtle
+                                    },
+                                ))
+                                .inner_margin(egui::Margin::symmetric(12, 10))
+                                .show(ui, |ui| {
+                                    ui.set_width(AUDIO_FILTER_CARD_CONTENT_WIDTH);
+                                    // --- Header Row ---
+                                    ui.horizontal(|ui| {
+                                        ui.set_width(AUDIO_FILTER_CARD_CONTENT_WIDTH);
+                                        if ui
+                                            .checkbox(&mut flt.enabled, "")
+                                            .on_hover_text("Bypass / enable this filter in the chain")
+                                            .changed()
+                                        {
+                                            chain_changed = true;
+                                        }
+
+                                        let (status_text, status_col) = if flt.enabled {
+                                            ("ACTIVE", p.accent_preview)
+                                        } else {
+                                            ("BYPASSED", p.text_muted)
+                                        };
+                                        egui::Frame::new()
+                                            .fill(p.bg_canvas_well)
+                                            .corner_radius(egui::CornerRadius::same(3))
+                                            .stroke(Stroke::new(1.0_f32, status_col))
+                                            .inner_margin(egui::Margin::symmetric(5, 2))
+                                            .show(ui, |ui| {
+                                                ui.label(
+                                                    RichText::new(status_text)
+                                                        .size(9.5)
+                                                        .strong()
+                                                        .color(status_col),
+                                                );
+                                            });
+
+                                        ui.label(
+                                            RichText::new(format!("{} {}", icons::FILTER, flt.kind.short_name()))
+                                                .strong()
+                                                .size(12.5)
+                                                .color(if flt.enabled {
+                                                    p.text_primary
+                                                } else {
+                                                    p.text_muted
+                                                }),
+                                        );
+
+                                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                            ui.spacing_mut().item_spacing.x = 4.0;
+
+                                            // Chain position badge (fixed width so the button cluster
+                                            // below stays pixel-aligned on every row).
+                                            let idx_text = format!("#{}", idx + 1);
+                                            egui::Frame::new()
+                                                .fill(p.bg_canvas_well)
+                                                .corner_radius(egui::CornerRadius::same(3))
+                                                .stroke(Stroke::new(1.0_f32, p.border_subtle))
+                                                .inner_margin(egui::Margin::symmetric(5, 2))
+                                                .show(ui, |ui| {
+                                                    ui.set_min_width(22.0);
+                                                    ui.centered_and_justified(|ui| {
+                                                        ui.label(
+                                                            RichText::new(&idx_text)
+                                                                .size(10.0)
+                                                                .monospace()
+                                                                .color(p.text_muted),
+                                                        );
+                                                    });
+                                                });
+
+                                            if ui
+                                                .add(
+                                                    egui::Button::new(RichText::new(icons::TRASH).size(11.0))
+                                                        .min_size(Vec2::new(26.0, 22.0)),
+                                                )
+                                                .on_hover_text("Delete this filter from chain")
+                                                .clicked()
+                                            {
+                                                remove_idx = Some(idx);
+                                            }
+
+                                            if ui
+                                                .add_enabled(
+                                                    idx + 1 < count,
+                                                    egui::Button::new(RichText::new(icons::CHEVRON_DOWN).size(11.0))
+                                                        .min_size(Vec2::new(26.0, 22.0)),
+                                                )
+                                                .on_hover_text("Move later in chain")
+                                                .clicked()
+                                            {
+                                                move_down_idx = Some(idx);
+                                            }
+
+                                            if ui
+                                                .add_enabled(
+                                                    idx > 0,
+                                                    egui::Button::new(RichText::new(icons::CHEVRON_UP).size(11.0))
+                                                        .min_size(Vec2::new(26.0, 22.0)),
+                                                )
+                                                .on_hover_text("Move earlier in chain")
+                                                .clicked()
+                                            {
+                                                move_up_idx = Some(idx);
+                                            }
+                                        });
+                                    });
+
+                                    ui.add_space(8.0);
+
+                                    // --- Standardized 4-Column Parameter Form ---
+                                    egui::Grid::new(format!("af_grid_{}", flt.id))
+                                        .num_columns(4)
+                                        .spacing([8.0, 6.0])
+                                        .min_col_width(SLIDER_PARAM_LABEL_WIDTH)
+                                        .show(ui, |ui| match flt.kind {
+                                            crate::audio::filters::AudioFilterKind::Gain => {
+                                                chain_changed |= standard_slider_param_row(
+                                                    ui,
+                                                    "Gain:",
+                                                    "Boost or cut this source only. Positive values make a quiet microphone audible.",
+                                                    &mut flt.gain_db,
+                                                    -30.0..=30.0,
+                                                    " dB",
+                                                    1,
+                                                    Some(0.0),
+                                                    Some("0 dB"),
+                                                );
+                                            }
+                                            crate::audio::filters::AudioFilterKind::NoiseGate => {
+                                                chain_changed |= standard_slider_param_row(
+                                                    ui,
+                                                    "Close Threshold:",
+                                                    "Signal below this level is silenced. Raise until background noise disappears, then back off slightly.",
+                                                    &mut flt.gate_threshold_db,
+                                                    -80.0..=0.0,
+                                                    " dB",
+                                                    1,
+                                                    Some(-45.0),
+                                                    Some("-45 dB"),
+                                                );
+
+                                                // Synced Open Threshold (read-only mirror, aligned to the
+                                                // exact same 4-column geometry as every editable row).
+                                                ui.add(
+                                                    egui::Label::new(
+                                                        RichText::new("Open Threshold:")
+                                                            .size(SLIDER_PARAM_FONT_SIZE),
+                                                    )
+                                                    .truncate(),
+                                                )
+                                                .on_hover_text(
+                                                    "Fixed hysteresis: the gate opens 3 dB above the close threshold to prevent chatter.",
+                                                );
+
+                                                // Col 2: Inactive rail mirroring the derived threshold.
+                                                ui.scope(|ui| {
+                                                    ui.spacing_mut().slider_width = SLIDER_PARAM_RAIL_WIDTH;
+                                                    let mut dummy = flt.gate_threshold_db - 3.0;
+                                                    ui.add_enabled(
+                                                        false,
+                                                        egui::Slider::new(&mut dummy, -83.0..=-3.0)
+                                                            .show_value(false),
+                                                    );
+                                                });
+
+                                                // Col 3: Value box — identical size/font to editable rows.
+                                                slider_param_readonly_box(
+                                                    ui,
+                                                    &format!("{:.1} dB", flt.gate_threshold_db - 3.0),
+                                                    p.accent_preview,
+                                                );
+
+                                                // Col 4: Auto lock box — identical size/font to reset boxes.
+                                                slider_param_readonly_box(
+                                                    ui,
+                                                    &format!("{} Auto", icons::LOCK),
+                                                    p.text_muted,
+                                                );
+                                                ui.end_row();
+
+                                                chain_changed |= standard_slider_param_row(
+                                                    ui,
+                                                    "Attack Time:",
+                                                    "How fast gate opens on voice. Fast attack (0.5–10 ms) avoids clipping word starts.",
+                                                    &mut flt.gate_attack_ms,
+                                                    0.5..=50.0,
+                                                    " ms",
+                                                    1,
+                                                    Some(4.0),
+                                                    Some("4 ms"),
+                                                );
+
+                                                chain_changed |= standard_slider_param_row(
+                                                    ui,
+                                                    "Hold Time:",
+                                                    "How long gate stays open after speech stops. Prevents cutting off trailing words.",
+                                                    &mut flt.gate_hold_ms,
+                                                    0.0..=1000.0,
+                                                    " ms",
+                                                    0,
+                                                    Some(150.0),
+                                                    Some("150 ms"),
+                                                );
+
+                                                chain_changed |= standard_slider_param_row(
+                                                    ui,
+                                                    "Release Time:",
+                                                    "How slowly gate fades to silent after hold. 200–500 ms gives smooth broadcast tail.",
+                                                    &mut flt.gate_release_ms,
+                                                    10.0..=2000.0,
+                                                    " ms",
+                                                    0,
+                                                    Some(280.0),
+                                                    Some("280 ms"),
+                                                );
+                                            }
+                                            crate::audio::filters::AudioFilterKind::NoiseSuppression => {
+                                                chain_changed |= standard_slider_param_row(
+                                                    ui,
+                                                    "Suppression Level:",
+                                                    "Maximum reduction applied to steady background hiss without muting voice.",
+                                                    &mut flt.ns_reduction_db,
+                                                    0.0..=30.0,
+                                                    " dB",
+                                                    1,
+                                                    Some(12.0),
+                                                    Some("12 dB"),
+                                                );
+
+                                                let mut pct = flt.ns_sensitivity * 100.0;
+                                                let pct_changed = standard_slider_param_row(
+                                                    ui,
+                                                    "Sensitivity:",
+                                                    "How aggressively background noise is detected. Raise for loud rooms, lower if voice thins.",
+                                                    &mut pct,
+                                                    0.0..=100.0,
+                                                    " %",
+                                                    0,
+                                                    Some(50.0),
+                                                    Some("50 %"),
+                                                );
+                                                if pct_changed {
+                                                    flt.ns_sensitivity = (pct / 100.0).clamp(0.0, 1.0);
+                                                    chain_changed = true;
+                                                }
+                                            }
+                                        });
+
+                                    // --- Sleek Collapsible Guide / Explanation ---
+                                    ui.add_space(4.0);
+                                    let guide_id = ui.make_persistent_id(format!("af_guide_{}", flt.id));
+                                    let mut is_expanded = ui.data_mut(|d| *d.get_temp_mut_or_default::<bool>(guide_id));
+
+                                    ui.horizontal(|ui| {
+                                        let arrow = if is_expanded {
+                                            icons::CHEVRON_UP
+                                        } else {
+                                            icons::CHEVRON_DOWN
+                                        };
+                                        if ui
+                                            .button(
+                                                RichText::new(format!("{} Filter Guide & Tuning Tips", arrow))
+                                                    .size(10.0)
+                                                    .color(p.text_muted),
+                                            )
+                                            .on_hover_text("Click to view broadcast tuning guidance for this filter")
+                                            .clicked()
+                                        {
+                                            is_expanded = !is_expanded;
+                                            ui.data_mut(|d| d.insert_temp(guide_id, is_expanded));
+                                        }
+                                    });
+
+                                    if is_expanded {
+                                        ui.add_space(2.0);
+                                        egui::Frame::new()
+                                            .fill(p.bg_panel)
+                                            .corner_radius(egui::CornerRadius::same(4))
+                                            .stroke(Stroke::new(1.0_f32, p.border_subtle))
+                                            .inner_margin(egui::Margin::symmetric(8, 6))
+                                            .show(ui, |ui| {
+                                                ui.label(
+                                                    RichText::new(flt.kind.hover_explanation())
+                                                        .size(10.5)
+                                                        .color(p.text_secondary),
+                                                );
+                                            });
+                                    }
+                                });
+
+                            ui.add_space(6.0);
+                        }
+                    });
+            }
+
+            // Deferred mutations keep the borrow above scoped and the ordering unambiguous.
+            if let Some(i) = remove_idx {
+                if i < src.audio_filters.len() {
+                    src.audio_filters.remove(i);
+                    chain_changed = true;
+                }
+            }
+            if let Some(i) = move_up_idx {
+                if i > 0 && i < src.audio_filters.len() {
+                    src.audio_filters.swap(i - 1, i);
+                    chain_changed = true;
+                }
+            }
+            if let Some(i) = move_down_idx {
+                if i + 1 < src.audio_filters.len() {
+                    src.audio_filters.swap(i, i + 1);
+                    chain_changed = true;
+                }
+            }
+            if request_preset {
+                src.audio_filters = crate::audio::filters::clean_mic_preset();
+                chain_changed = true;
+            }
+        }
+
+        ui.add_space(8.0);
+        ui.separator();
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            ui.set_width(AUDIO_FILTER_CARD_WIDTH);
+            ui.label(
+                RichText::new(format!("{} Real-time audio processing", icons::CHECK))
+                    .size(11.0)
+                    .color(p.text_muted),
+            );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui
+                    .add(crate::ui::button_3d::Button3D::primary("Done").min_size(Vec2::new(84.0, 24.0)))
+                    .clicked()
+                {
+                    done_clicked = true;
+                }
+            });
+        });
+        ui.add_space(2.0);
+    });
+
+    if let Some(ref r) = win_resp {
+        decorate_modal_window(ctx, &r.response, &mut open);
+    }
+
+    if chain_changed {
+        app.studio.sync_if_linked();
+        app.save_all_state();
+    }
+
+    if done_clicked || !open {
+        app.show_audio_filters_dialog = false;
+    }
+}
+
+    // 4c. Per-source audio filter chain (Gain / Noise Gate / Noise Suppression)
+    render_audio_filters_dialog(ctx, app);
 
     // 5. Save Screen & Layout Preset Modal Dialog
     if app.show_save_layout_dialog {

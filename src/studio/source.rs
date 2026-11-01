@@ -1443,6 +1443,12 @@ pub struct SourceItem {
     pub color_tag: SourceColorTag,
     #[serde(default)]
     pub filter: SourceFilterConfig,
+    /// Ordered audio filter chain (Gain / Noise Gate / Noise Suppression).
+    ///
+    /// Only meaningful for the audio capture kinds — every other source kind simply leaves it
+    /// empty, which costs nothing and keeps the project format uniform.
+    #[serde(default)]
+    pub audio_filters: Vec<crate::audio::filters::AudioFilter>,
 }
 
 impl SourceItem {
@@ -1460,7 +1466,21 @@ impl SourceItem {
             transform,
             color_tag: SourceColorTag::None,
             filter: SourceFilterConfig::default(),
+            audio_filters: Vec::new(),
         }
+    }
+
+    /// Whether this source kind can host an audio filter chain.
+    ///
+    /// The two global mixer buses (`Mic / Aux`, `Desktop Audio`) operate on raw devices and stay
+    /// unfiltered, exactly like OBS; filtering happens on the per-source capture kinds.
+    pub fn supports_audio_filters(&self) -> bool {
+        matches!(
+            self.kind,
+            SourceKind::AudioInputCapture { .. }
+                | SourceKind::AudioOutputCapture { .. }
+                | SourceKind::ApplicationAudioCapture { .. }
+        )
     }
 
     pub fn apply_tv_text_template(&mut self, template: TvTextTemplate) {
