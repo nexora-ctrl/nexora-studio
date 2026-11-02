@@ -40,6 +40,26 @@ pub enum ScenesViewMode {
     Grid,
 }
 
+/// How the Audio Mixer panel arranges its channels.
+///
+/// The mixer grew three different kinds of entry — the two global buses, one bus per audio
+/// source, and media playback — and the original single layout stretched all of them across the
+/// full panel width. That reads fine for two channels and badly for eight, so the panel can be
+/// switched to a denser arrangement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum AudioMixerViewMode {
+    /// Full-width horizontal strips: fader, device picker and meter stacked per channel.
+    ///
+    /// The roomiest layout and the only one that has space for the device picker, so it is the
+    /// default.
+    #[default]
+    Strip,
+    /// One compact line per channel, stacked vertically.
+    List,
+    /// Narrow vertical columns standing side by side, left to right.
+    Columns,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum VideoPreset {
     FullHd60,
@@ -235,6 +255,15 @@ pub struct AppSettings {
     pub window_pos: Option<(f32, f32)>,
     pub window_maximized: bool,
     pub dock_height: f32,
+    /// Relative widths of the four bottom-dock panels (Scenes, Source, Audio Mixer, Controls).
+    ///
+    /// Stored as weights rather than pixels so the layout keeps its proportions when the window is
+    /// resized. The dock used to hardcode an equal split, which is the worst case for `Controls`:
+    /// it carries the most buttons and was always given a quarter of the width.
+    ///
+    /// Serde keeps this field optional (`#[serde(default)]` on the struct) so older config files
+    /// that predate the field still load, falling back to the equal split.
+    pub dock_panel_widths: [f32; 4],
     pub library_drawer_width: f32,
     pub active_layout_name: String,
     pub saved_layout_presets: Vec<ScreenLayoutPreset>,
@@ -242,6 +271,8 @@ pub struct AppSettings {
     pub preferred_gpu_name: String,
     pub media_decode_scale: MediaDecodeScale,
     pub scenes_view_mode: ScenesViewMode,
+    /// Which arrangement the Audio Mixer panel uses for its channels.
+    pub audio_mixer_view_mode: AudioMixerViewMode,
 }
 
 impl Default for AppSettings {
@@ -262,6 +293,8 @@ impl Default for AppSettings {
             window_pos: None,
             window_maximized: true,
             dock_height: 245.0,
+            // Equal split: the historical behaviour, so upgrading users see no layout change.
+            dock_panel_widths: [1.0, 1.0, 1.0, 1.0],
             library_drawer_width: 275.0,
             active_layout_name: "Default Studio Layout".to_string(),
             saved_layout_presets: Vec::new(),
@@ -269,6 +302,7 @@ impl Default for AppSettings {
             preferred_gpu_name: String::new(),
             media_decode_scale: MediaDecodeScale::Performance540p,
             scenes_view_mode: ScenesViewMode::List,
+            audio_mixer_view_mode: AudioMixerViewMode::Strip,
         }
     }
 }

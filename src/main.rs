@@ -45,9 +45,24 @@ fn main() -> eframe::Result<()> {
     wgpu_options.present_mode = eframe::egui_wgpu::wgpu::PresentMode::AutoVsync;
     wgpu_options.desired_maximum_frame_latency = Some(1);
 
+    // Pin the renderer to Vulkan / DirectX 12 and keep the OpenGL backend out of the adapter list.
+    //
+    // `egui_wgpu`'s default is `Backends::PRIMARY | Backends::GL`, so on a laptop with an Intel
+    // iGPU wgpu may happily pick the *OpenGL* adapter. That adapter lives in `igxelpicd64.dll`,
+    // whose driver faults with an access violation (0xc0000005) as soon as a second window — the
+    // Projector — asks for its own GL surface, which force-closes the whole studio. Vulkan and
+    // DirectX 12 share no code with that driver and every Windows 10/11 machine has one of them.
+    if let eframe::egui_wgpu::WgpuSetup::CreateNew(setup) = &mut wgpu_options.wgpu_setup {
+        setup.instance_descriptor.backends =
+            eframe::egui_wgpu::wgpu::Backends::VULKAN | eframe::egui_wgpu::wgpu::Backends::DX12;
+        // Prefer the discrete GPU: it keeps the projector smooth and stays away from the iGPU.
+        setup.power_preference = eframe::egui_wgpu::wgpu::PowerPreference::HighPerformance;
+    }
+
     let native_options = eframe::NativeOptions {
         viewport,
         vsync: true,
+        renderer: eframe::Renderer::Wgpu,
         wgpu_options,
         ..Default::default()
     };
@@ -287,7 +302,7 @@ mod tests {
 
         let updater = UpdaterState::default();
         assert_eq!(updater.status, UpdateStatus::Idle);
-        assert_eq!(updater.current_version, "0.6.0");
+        assert_eq!(updater.current_version, "0.7.0");
     }
 
     #[test]

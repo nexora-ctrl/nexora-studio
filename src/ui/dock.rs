@@ -39,40 +39,60 @@ pub fn render_bottom_studio_dock(ctx: &egui::Context, app: &mut NexoraApp) {
             let total_h = ui.available_height();
             let gap = 6.0;
 
-            let active_count = [
+            let visible = [
                 app.settings.panels.show_scenes,
                 app.settings.panels.show_sources,
                 app.settings.panels.show_audio_mixer,
                 app.settings.panels.show_recording_controls,
-            ]
-            .into_iter()
-            .filter(|b| *b)
-            .count()
-            .max(1);
+            ];
+            let active_count = visible.into_iter().filter(|b| *b).count().max(1);
 
             let usable_w = (total_w - gap * (active_count.saturating_sub(1) as f32)).max(240.0);
-            let col_w = (usable_w / (active_count as f32)).floor();
             let card_h = total_h.floor().max(160.0);
-            let card_size = Vec2::new(col_w, card_h);
+
+            // Distribute the width by the user-adjustable weights instead of splitting equally.
+            // Weights are normalized over the visible panels only, so hiding a panel gives its
+            // share to the others rather than leaving a hole in the dock.
+            let col_widths = resolve_dock_column_widths(
+                &mut app.settings.dock_panel_widths,
+                visible,
+                usable_w,
+            );
 
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = gap;
 
-                if app.settings.panels.show_scenes {
-                    render_scenes_panel(ui, app, card_size);
-                }
+                let mut drawn = 0usize;
 
-                if app.settings.panels.show_sources {
-                    render_sources_panel(ui, app, card_size);
-                }
+                // The splitter between two cards is drawn by the *left* card, so each card only
+                // needs to know the width of its right neighbour.
+                let draw_panel = |ui: &mut egui::Ui,
+                                  app: &mut NexoraApp,
+                                  panel_idx: usize,
+                                  right_panel_idx: Option<usize>,
+                                  vis_idx: usize| {
+                    let size = Vec2::new(col_widths[vis_idx], card_h);
+                    let rect = match panel_idx {
+                        0 => render_scenes_panel(ui, app, size),
+                        1 => render_sources_panel(ui, app, size),
+                        2 => render_audio_mixer_panel(ui, app, size),
+                        _ => render_recording_controls_panel(ui, app, size),
+                    };
+                    // The splitter redistributes width between `panel_idx` and the next *visible*
+                    // panel — a hidden panel in between must keep its stored weight untouched.
+                    if let (Some(right_idx), Some(rect)) = (right_panel_idx, rect) {
+                        let right_w = col_widths[vis_idx + 1];
+                        draw_dock_column_splitter(ui, ctx, app, rect, right_w, panel_idx, right_idx);
+                    }
+                };
 
-                if app.settings.panels.show_audio_mixer {
-                    render_audio_mixer_panel(ui, app, card_size);
+                let visible_idx: Vec<usize> = (0..visible.len()).filter(|i| visible[*i]).collect();
+                for (vis_idx, panel_idx) in visible_idx.iter().enumerate() {
+                    let right_panel_idx = visible_idx.get(vis_idx + 1).copied();
+                    draw_panel(ui, app, *panel_idx, right_panel_idx, vis_idx);
+                    drawn += 1;
                 }
-
-                if app.settings.panels.show_recording_controls {
-                    render_recording_controls_panel(ui, app, card_size);
-                }
+                debug_assert_eq!(drawn, active_count);
             });
         });
 
@@ -172,11 +192,15 @@ impl DockCardRegions {
     }
 }
 
+/// Paints a dock card and returns both its inner regions and its outer rect.
+///
+/// The outer rect is handed back so the caller can place a resize splitter on the card's right
+/// edge; the regions alone describe the inside of the card and cannot be used for that.
 fn paint_and_split_dock_card(
     ui: &mut egui::Ui,
     p: &ThemePalette,
     card_size: Vec2,
-) -> DockCardRegions {
+) -> (DockCardRegions, Rect) {
     let (card_rect, _) = ui.allocate_exact_size(card_size, Sense::hover());
     let painter = ui.painter();
     painter.rect(
@@ -215,11 +239,14 @@ fn paint_and_split_dock_card(
         Stroke::new(1.0_f32, p.border_subtle),
     );
 
-    DockCardRegions {
-        header,
-        body,
-        footer,
-    }
+    (
+        DockCardRegions {
+            header,
+            body,
+            footer,
+        },
+        card_rect,
+    )
 }
 
 fn paint_icon_action_btn(
@@ -229,8 +256,22 @@ fn paint_icon_action_btn(
     p: &ThemePalette,
     tooltip: &str,
 ) -> bool {
-    let btn_size = Vec2::new(24.0, 22.0);
-    let (rect, resp) = ui.allocate_exact_size(btn_size, Sense::click());
+    paint_icon_action_btn_sized(ui, icon, accent_color, p, tooltip, Vec2::new(24.0, 22.0))
+}
+
+/// Same as [`paint_icon_action_btn`], but with an explicit size.
+///
+/// The button reserves exactly `size` in its parent, so it can be used as one column of a row
+/// whose columns have to line up with the columns of the other rows.
+fn paint_icon_action_btn_sized(
+    ui: &mut egui::Ui,
+    icon: &str,
+    accent_color: Option<Color32>,
+    p: &ThemePalette,
+    tooltip: &str,
+    size: Vec2,
+) -> bool {
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     let hovered = resp.hovered();
 
     if hovered {
@@ -280,6 +321,67 @@ fn paint_icon_action_btn(
     clicked
 }
 
+/// Paints a single line of text inside `rect`, vertically centred.
+///
+/// The text is laid out by hand instead of through a `Label`, because a label is laid out by the
+/// parent `Ui` and claims only as much width as the text happens to need. A column built from
+/// labels would therefore be as wide as its longest entry, and the columns next to it would no
+/// longer line up. Here the caller reserves the column first and the text is simply drawn into it.
+///
+/// With `truncate` the text is cut with an ellipsis when it does not fit; without it the text is
+/// drawn at its natural width and may stick out of the rect.
+fn paint_single_line_text(
+    ui: &egui::Ui,
+    rect: Rect,
+    text: &str,
+    font_id: egui::FontId,
+    color: Color32,
+    align: egui::Align,
+    truncate: bool,
+) {
+    let galley = if truncate {
+        let mut job = egui::text::LayoutJob::default();
+        job.append(
+            text,
+            0.0,
+            egui::text::TextFormat {
+                font_id,
+                color,
+                ..Default::default()
+            },
+        );
+        job.wrap.max_width = rect.width();
+        job.wrap.max_rows = 1;
+        job.wrap.break_anywhere = true;
+        job.halign = egui::Align::Min;
+        ui.fonts(|f| f.layout_job(job))
+    } else {
+        ui.painter().layout_no_wrap(text.to_owned(), font_id, color)
+    };
+
+    let x = match align {
+        egui::Align::Min => rect.left(),
+        egui::Align::Center => rect.center().x - galley.size().x * 0.5,
+        egui::Align::Max => rect.right() - galley.size().x,
+    };
+    let pos = Pos2::new(x, rect.center().y - galley.size().y * 0.5);
+    ui.painter().galley(pos, galley, color);
+}
+
+/// Measures how wide a status pill will be, without drawing it.
+///
+/// The scene rows need this *before* they place the scene name: the badges have a fixed width, so
+/// measuring them first lets the name take exactly the leftover space instead of the badge
+/// overrunning it.
+fn status_pill_width(ui: &egui::Ui, text: &str) -> f32 {
+    let galley = ui.painter().layout_no_wrap(
+        text.to_string(),
+        egui::FontId::proportional(10.0),
+        Color32::TRANSPARENT,
+    );
+    galley.size().x + 6.5 * 2.0
+}
+
 fn paint_status_pill(
     ui: &mut egui::Ui,
     text: &str,
@@ -313,14 +415,288 @@ fn paint_status_pill(
     }
 }
 
-fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
+/// Minimum width a dock panel may be shrunk to by dragging.
+///
+/// Below this the card's header controls (the `—` button and the status badges) start to overlap,
+/// so the splitter refuses to go further instead of producing an unusable panel.
+///
+/// This is the fallback for panels without a tailored limit; see [`dock_panel_min_w`].
+const DOCK_PANEL_MIN_W: f32 = 150.0;
+
+/// Width a mixer row needs before the numeric dB readout is worth showing.
+///
+/// Below it the readout is dropped and the fader takes the freed space. The fader's tooltip still
+/// reports the exact value, so nothing is actually lost — only the always-on number disappears.
+const MIXER_DB_READOUT_MIN_W: f32 = 200.0;
+
+/// Minimum room kept for a scene name in the Scenes list.
+///
+/// The name is the whole point of a scene row, so the status badges give way before it does.
+const SCENE_NAME_MIN_W: f32 = 44.0;
+
+/// Rough advance width of one glyph of the 12 pt scene name, in px.
+///
+/// The scene name shares its row with the status badges, so it has to be truncated by the space
+/// that is actually left over rather than by a character count.
+const SCENE_NAME_CHAR_W: f32 = 6.4;
+
+/// Width of the mute button in the compact mixer list.
+const MIXER_MUTE_W: f32 = 24.0;
+
+/// Width of the transport button slot in the compact mixer list.
+///
+/// The slot is reserved in every row, even in the rows of channels that cannot be paused, so that
+/// the faders of all rows start at the same x.
+const MIXER_TRANSPORT_W: f32 = 24.0;
+
+/// Height of one row in the compact mixer list.
+const MIXER_ROW_H: f32 = 20.0;
+
+/// Font size of the channel name in the compact mixer list.
+const MIXER_NAME_FONT_SIZE: f32 = 11.0;
+
+/// Font size of the `IN` / `OUT` / `APP` / `PGM` tags in the compact mixer list.
+const MIXER_TAG_FONT_SIZE: f32 = 9.5;
+
+/// Font size of the percentage readout in the compact mixer list.
+///
+/// Only the percentage is shown; the exact dB lives in the fader's tooltip.
+const MIXER_READOUT_FONT_SIZE: f32 = 10.5;
+
+/// Width of one column in the OBS-style mixer layout.
+const MIXER_COL_W: f32 = 86.0;
+
+/// The lowest dB the OBS-style mixer columns print on their scale.
+const MIXER_SCALE_MIN_DB: f32 = -60.0;
+
+/// The dB value of a linear gain, floored at -60 dB like a broadcast meter.
+fn mixer_volume_to_db(volume: f32) -> f32 {
+    if volume <= 0.0001 {
+        MIXER_SCALE_MIN_DB
+    } else {
+        (20.0 * volume.log10()).clamp(MIXER_SCALE_MIN_DB, 0.0)
+    }
+}
+
+/// The linear gain of a dB value, with -60 dB standing for silence.
+fn mixer_db_to_volume(db: f32) -> f32 {
+    if db <= MIXER_SCALE_MIN_DB {
+        0.0
+    } else {
+        10.0_f32.powf(db / 20.0)
+    }
+}
+
+/// Minimum row width for the compact mixer list to show the `IN` / `OUT` / `PGM` tags.
+///
+/// Below this the tags are dropped for every row at once, so the faders stay aligned.
+const MIXER_TAGS_MIN_ROW_W: f32 = 330.0;
+
+/// Minimum width of the channel name in the compact mixer list.
+const MIXER_NAME_MIN_W: f32 = 44.0;
+
+/// Minimum width of the fader in the compact mixer list.
+///
+/// Below this the fader cannot be grabbed reliably, which is worse than losing a name.
+const MIXER_FADER_MIN_W: f32 = 54.0;
+
+/// Per-panel lower bound for the width splitter, indexed like [`resolve_dock_column_widths`].
+///
+/// A single shared minimum could not be right for all four cards: `Scenes` carries a `LIVE` /
+/// `PREVIEW` badge row plus the list/grid toggle, while `Source` now holds only a `+` and a `v`.
+/// Holding the wide one at a width its header cannot render, or forcing the narrow one to stay
+/// wider than its contents, both look broken. Each limit is the width at which that specific card
+/// still renders correctly:
+///
+/// - `Scenes` (200) — the list/grid toggle, the minimize button and the `Duplicate` / `Rename`
+///   footer buttons all fit side by side.
+/// - `Source` (150) — the header and the `+` / `v` footer pair, plus enough room for the layer
+///   name to stay readable; longer names clip, as they always did.
+/// - `Audio Mixer` (240) — one bus row needs `MUTE` + name + fader + dB readout. The dB readout
+///   drops out first when the row is squeezed, but the fader itself must stay usable.
+/// - `Controls` (200) — the three footer buttons (`Open Folder`, `Library`, `VCam`) in full.
+///
+/// The four floors sum to 790 px. A narrower window cannot honour them all, and the resolver
+/// scales the row down uniformly instead — the panels stay reachable, just cramped.
+const DOCK_PANEL_MIN_W_BY_INDEX: [f32; 4] = [200.0, 150.0, 240.0, 200.0];
+
+/// The shrink limit that applies to one dock panel.
+///
+/// Unknown indices fall back to the generic [`DOCK_PANEL_MIN_W`] rather than panicking, so a future
+/// fifth panel degrades gracefully instead of crashing on a missing entry.
+fn dock_panel_min_w(panel_idx: usize) -> f32 {
+    DOCK_PANEL_MIN_W_BY_INDEX
+        .get(panel_idx)
+        .copied()
+        .unwrap_or(DOCK_PANEL_MIN_W)
+}
+
+/// Turns the stored per-panel weights into concrete pixel widths for the visible panels.
+///
+/// The four weights are normalized over *visible* panels only, so hiding one panel hands its share
+/// to the others instead of leaving an empty column.
+///
+/// The returned widths always sum to exactly `usable_w`. When the minimum-width floor is more than
+/// the dock can afford, every panel is scaled down proportionally rather than letting the columns
+/// overflow — the cards would otherwise be pushed past the right edge of the window and become
+/// unreachable. Panels may therefore end up narrower than `DOCK_PANEL_MIN_W` on a small window,
+/// which is the lesser problem: a cramped panel is still usable, an off-screen one is not.
+fn resolve_dock_column_widths(
+    weights: &mut [f32; 4],
+    visible: [bool; 4],
+    usable_w: f32,
+) -> Vec<f32> {
+    // A weight of zero or worse (possible from a hand-edited config file) would collapse a panel
+    // to nothing and make it impossible to grab its splitter again.
+    for w in weights.iter_mut() {
+        if !w.is_finite() || *w <= 0.0 {
+            *w = 1.0;
+        }
+    }
+
+    let visible_idx: Vec<usize> = (0..4).filter(|i| visible[*i]).collect();
+    if visible_idx.is_empty() {
+        return Vec::new();
+    }
+
+    let budget = usable_w.max(1.0);
+    let weight_sum: f32 = visible_idx.iter().map(|i| weights[*i]).sum();
+
+    // Each panel clamps to its own floor, so a card whose contents need more room is not squeezed
+    // to the same width as one that only holds two small buttons.
+    let floors: Vec<f32> = visible_idx.iter().map(|i| dock_panel_min_w(*i)).collect();
+
+    let mut widths: Vec<f32> = visible_idx
+        .iter()
+        .enumerate()
+        .map(|(n, i)| {
+            let share = if weight_sum > 0.0 {
+                weights[*i] / weight_sum
+            } else {
+                1.0 / visible_idx.len() as f32
+            };
+            (budget * share).max(floors[n])
+        })
+        .collect();
+
+    // Shrink whatever exceeds its own floor, widest first, to absorb the overshoot the
+    // minimum-width clamps introduced.
+    let mut overflow = widths.iter().sum::<f32>() - budget;
+    while overflow > 0.5 {
+        let Some(widest) = widths
+            .iter()
+            .enumerate()
+            .filter(|(n, w)| **w > floors[*n])
+            .max_by(|a, b| a.1.total_cmp(b.1))
+            .map(|(i, _)| i)
+        else {
+            break;
+        };
+        let give = overflow.min(widths[widest] - floors[widest]);
+        widths[widest] -= give;
+        overflow -= give;
+    }
+
+    // Still over budget means the floors themselves do not fit (narrow window, four panels). Scale
+    // everything down uniformly so the row stays inside the dock instead of overflowing.
+    if overflow > 0.5 {
+        let total: f32 = widths.iter().sum();
+        let scale = budget / total;
+        for w in widths.iter_mut() {
+            *w *= scale;
+        }
+    }
+
+    widths
+}
+
+/// Draws and handles the resize splitter that sits between two dock panels.
+///
+/// Dragging transfers width between the card on the left (`rect`) and the one on the right
+/// (`right_w`): the pair's combined width is held constant, so one panel growing always means its
+/// neighbour shrinking. That keeps the rest of the dock from shifting while a single boundary is
+/// dragged, which is what makes the interaction feel predictable.
+fn draw_dock_column_splitter(
+    ui: &mut egui::Ui,
+    ctx: &egui::Context,
+    app: &mut NexoraApp,
+    rect: Rect,
+    right_w: f32,
+    panel_idx: usize,
+    right_panel_idx: usize,
+) {
     let p = ThemePalette::for_mode(app.settings.theme);
-    let regions = paint_and_split_dock_card(ui, &p, size);
+    let gap_w = ui.spacing().item_spacing.x;
+    let hit_rect = Rect::from_min_max(
+        Pos2::new(rect.max.x, rect.min.y),
+        Pos2::new(rect.max.x + gap_w, rect.max.y),
+    );
+
+    let resp = ui.interact(
+        hit_rect,
+        egui::Id::new(("nexora_dock_col_splitter", panel_idx)),
+        Sense::drag(),
+    );
+
+    let hovered = resp.hovered() || resp.dragged();
+    if hovered {
+        ctx.set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+        ctx.request_repaint();
+    }
+
+    let drag_delta = resp.drag_delta().x;
+    if resp.dragged() && drag_delta.abs() > 0.0 {
+        let left_w = rect.width();
+        let total = left_w + right_w;
+        // Each side is held to its own floor, so a drag cannot collapse a neighbour to nothing and
+        // cannot squeeze a card below the width its contents need. The pair's total stays constant:
+        // whatever the left panel gains, the right one gives up.
+        let left_min = dock_panel_min_w(panel_idx);
+        let right_min = dock_panel_min_w(right_panel_idx);
+        // `lo`/`hi` are ordered defensively: when the pair cannot even hold both floors, the
+        // remaining space is split rather than panicking on an inverted clamp range.
+        let lo = left_min.min(total - right_min);
+        let hi = (total - right_min).max(left_min);
+        let new_left = (left_w + drag_delta).clamp(lo, hi);
+        if right_panel_idx < app.settings.dock_panel_widths.len() {
+            let cur_left = app.settings.dock_panel_widths[panel_idx];
+            let cur_right = app.settings.dock_panel_widths[right_panel_idx];
+            // Convert the pixel sizes back into weights so the split survives a window resize.
+            let left_ratio = if total > 0.0 { new_left / total } else { 0.5 };
+            let weight_total = cur_left + cur_right;
+            if left_ratio > 0.0 && left_ratio < 1.0 {
+                app.settings.dock_panel_widths[panel_idx] = weight_total * left_ratio;
+                app.settings.dock_panel_widths[right_panel_idx] = weight_total * (1.0 - left_ratio);
+            }
+        }
+    }
+
+    if hovered {
+        let col = if resp.dragged() {
+            p.accent_preview
+        } else {
+            p.accent_primary.gamma_multiply(0.7)
+        };
+        ui.painter().line_segment(
+            [
+                Pos2::new(hit_rect.center().x, hit_rect.min.y + 4.0),
+                Pos2::new(hit_rect.center().x, hit_rect.max.y - 4.0),
+            ],
+            Stroke::new(1.8_f32, col),
+        );
+    }
+}
+
+/// Returns the card's outer rect so the caller can attach a width splitter to its right edge.
+fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) -> Option<Rect> {
+    let p = ThemePalette::for_mode(app.settings.theme);
+    let (regions, card_rect) = paint_and_split_dock_card(ui, &p, size);
 
     regions.with_header(ui, |ui| {
         ui.label(
-            RichText::new("Scenes")
-                .size(12.0)
+            RichText::new("SCENES")
+                .size(13.5)
+                .strong()
                 .color(p.text_primary),
         );
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -383,32 +759,39 @@ fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
             }
 
             ui.add_space(4.0);
-            paint_status_pill(
-                ui,
-                &format!("{} LIVE", icons::PLAYER_RECORD),
-                Color32::from_rgba_unmultiplied(
-                    p.accent_program.r(),
-                    p.accent_program.g(),
-                    p.accent_program.b(),
-                    36,
-                ),
-                p.accent_program,
-                p.accent_program,
-                "Red = Scene currently LIVE on Program output",
-            );
-            paint_status_pill(
-                ui,
-                &format!("{} PREVIEW", icons::EYE),
-                Color32::from_rgba_unmultiplied(
-                    p.accent_preview.r(),
-                    p.accent_preview.g(),
-                    p.accent_preview.b(),
-                    36,
-                ),
-                p.accent_preview,
-                p.accent_preview,
-                "Teal = Scene currently edited in Preview",
-            );
+            // The legend explains the row badges below, so it is the first thing to go when the
+            // header runs out of room — the same information is still on every scene row.
+            let legend_needed = status_pill_width(ui, &format!("{} LIVE", icons::PLAYER_RECORD))
+                + status_pill_width(ui, &format!("{} PREVIEW", icons::EYE))
+                + 4.0;
+            if ui.available_width() >= legend_needed {
+                paint_status_pill(
+                    ui,
+                    &format!("{} LIVE", icons::PLAYER_RECORD),
+                    Color32::from_rgba_unmultiplied(
+                        p.accent_program.r(),
+                        p.accent_program.g(),
+                        p.accent_program.b(),
+                        36,
+                    ),
+                    p.accent_program,
+                    p.accent_program,
+                    "Red = Scene currently LIVE on Program output",
+                );
+                paint_status_pill(
+                    ui,
+                    &format!("{} PREVIEW", icons::EYE),
+                    Color32::from_rgba_unmultiplied(
+                        p.accent_preview.r(),
+                        p.accent_preview.g(),
+                        p.accent_preview.b(),
+                        36,
+                    ),
+                    p.accent_preview,
+                    p.accent_preview,
+                    "Teal = Scene currently edited in Preview",
+                );
+            }
         });
     });
 
@@ -917,7 +1300,91 @@ fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                             }
                         };
 
-                        let name_text = truncate_str(&scene.name, 18);
+                        // The status badges have a fixed width that does not depend on the panel
+                        // size, so they are measured *before* the scene name is laid out. The name
+                        // then gets exactly the leftover room instead of being overrun by a badge.
+                        let text_x = row_rect.min.x + 33.0;
+
+                        let live_label = format!("{} LIVE", icons::PLAYER_RECORD);
+                        let preview_label = format!("{} PREVIEW", icons::EYE);
+                        let standby_label = "STANDBY".to_string();
+
+                        // Icon-only fallbacks: the glyph alone still reads as live / preview, so a
+                        // narrow row drops the words rather than letting the badge overlap the name.
+                        let live_compact = icons::PLAYER_RECORD.to_string();
+                        let preview_compact = icons::EYE.to_string();
+                        let standby_compact = icons::MINUS.to_string();
+
+                        // (full label, compact label, background, border, text colour, tooltip)
+                        let mut badges: Vec<(&str, &str, Color32, Color32, Color32, &str)> =
+                            Vec::new();
+                        if is_pgm {
+                            badges.push((
+                                live_label.as_str(),
+                                live_compact.as_str(),
+                                p.accent_program,
+                                p.accent_program,
+                                Color32::WHITE,
+                                "This scene is currently LIVE on Program output",
+                            ));
+                        }
+                        if is_prv {
+                            badges.push((
+                                preview_label.as_str(),
+                                preview_compact.as_str(),
+                                Color32::from_rgba_unmultiplied(
+                                    p.accent_preview.r(),
+                                    p.accent_preview.g(),
+                                    p.accent_preview.b(),
+                                    45,
+                                ),
+                                p.accent_preview,
+                                p.accent_preview,
+                                "This scene is currently open in Preview editor",
+                            ));
+                        }
+                        if badges.is_empty() {
+                            badges.push((
+                                standby_label.as_str(),
+                                standby_compact.as_str(),
+                                Color32::TRANSPARENT,
+                                p.border_subtle,
+                                p.text_secondary,
+                                "Click to open in Preview • Double-click to Transition to LIVE",
+                            ));
+                        }
+
+                        let pill_gap = 4.0;
+                        let badges_right = row_rect.max.x - 7.0;
+                        // Room the badges may take while the scene name still keeps its minimum.
+                        let badges_room = (badges_right - text_x - SCENE_NAME_MIN_W).max(0.0);
+
+                        let measure = |ui: &egui::Ui, pick: usize| -> f32 {
+                            badges
+                                .iter()
+                                .map(|b| {
+                                    let label = if pick == 0 { b.0 } else { b.1 };
+                                    status_pill_width(ui, label)
+                                })
+                                .sum::<f32>()
+                                + pill_gap * (badges.len() as f32 - 1.0)
+                        };
+                        let full_w = measure(ui, 0);
+                        let compact_w = measure(ui, 1);
+
+                        // Fall back to the icon-only pills when the worded ones would not fit.
+                        let use_compact = full_w > badges_room;
+                        let badges_w = if use_compact { compact_w } else { full_w };
+                        let badges_rect = Rect::from_min_max(
+                            Pos2::new(badges_right - badges_w, row_rect.min.y + 2.0),
+                            Pos2::new(badges_right, row_rect.max.y - 2.0),
+                        );
+
+                        // The name may occupy everything between the icon column and the badges.
+                        let name_area_max_x = badges_rect.min.x - 6.0;
+                        let name_max_w = (name_area_max_x - text_x).max(0.0);
+
+                        let name_text = truncate_to_width(&scene.name, name_max_w, SCENE_NAME_CHAR_W);
                         let name_galley = ui.painter().layout_no_wrap(
                             name_text,
                             FontId::proportional(12.0),
@@ -935,66 +1402,49 @@ fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
                         let desc_h = desc_galley.size().y;
                         let total_text_h = name_h + desc_h + gap_y;
                         let text_top_y = (mid_y - total_text_h * 0.5).round();
-                        let text_x = row_rect.min.x + 33.0;
+
+                        // Both text lines are clipped to the name column so a long subtitle can
+                        // never run underneath the badges.
+                        let text_clip = Rect::from_min_max(
+                            Pos2::new(text_x, row_rect.min.y),
+                            Pos2::new(name_area_max_x, row_rect.max.y),
+                        );
+                        let painter = ui.painter().with_clip_rect(text_clip);
 
                         // Draw clean, regular weight scene name (not bold)
-                        ui.painter().galley(
+                        painter.galley(
                             Pos2::new(text_x, text_top_y),
                             name_galley,
                             p.text_primary,
                         );
 
                         // Draw subtitle with comfortable breathing room below scene name
-                        ui.painter().galley(
+                        painter.galley(
                             Pos2::new(text_x, text_top_y + name_h + gap_y),
                             desc_galley,
                             p.text_secondary,
                         );
 
                         // Right-side visual status badges
-                        let badges_rect = Rect::from_min_max(
-                            Pos2::new(text_x + 80.0, row_rect.min.y + 2.0),
-                            Pos2::new(row_rect.max.x - 7.0, row_rect.max.y - 2.0),
-                        );
                         let mut badges_ui = ui.new_child(
                             egui::UiBuilder::new()
                                 .max_rect(badges_rect)
                                 .layout(Layout::right_to_left(Align::Center)),
                         );
-                        badges_ui.spacing_mut().item_spacing.x = 4.0;
-                        if is_pgm {
+                        badges_ui.spacing_mut().item_spacing.x = pill_gap;
+                        for badge in &badges {
+                            let (label, bg_fill, border_col, text_col, tooltip) = if use_compact {
+                                (badge.1, badge.2, badge.3, badge.4, badge.5)
+                            } else {
+                                (badge.0, badge.2, badge.3, badge.4, badge.5)
+                            };
                             paint_status_pill(
                                 &mut badges_ui,
-                                &format!("{} LIVE", icons::PLAYER_RECORD),
-                                p.accent_program,
-                                p.accent_program,
-                                Color32::WHITE,
-                                "This scene is currently LIVE on Program output",
-                            );
-                        }
-                        if is_prv {
-                            paint_status_pill(
-                                &mut badges_ui,
-                                &format!("{} PREVIEW", icons::EYE),
-                                Color32::from_rgba_unmultiplied(
-                                    p.accent_preview.r(),
-                                    p.accent_preview.g(),
-                                    p.accent_preview.b(),
-                                    45,
-                                ),
-                                p.accent_preview,
-                                p.accent_preview,
-                                "This scene is currently open in Preview editor",
-                            );
-                        }
-                        if !is_pgm && !is_prv {
-                            paint_status_pill(
-                                &mut badges_ui,
-                                "STANDBY",
-                                Color32::TRANSPARENT,
-                                p.border_subtle,
-                                p.text_secondary,
-                                "Click to open in Preview • Double-click to Transition to LIVE",
+                                label,
+                                bg_fill,
+                                border_col,
+                                text_col,
+                                tooltip,
                             );
                         }
 
@@ -1091,6 +1541,10 @@ fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
     });
 
     regions.with_footer(ui, |ui| {
+        // Only `+` is left here. Rename, Duplicate and Delete all live on the scene row's
+        // right-click menu, so repeating them in the footer just stole width from the one button
+        // the footer is for — and the row menu is the only one of the two that acts on the scene
+        // you actually right-clicked.
         let add_scene_btn = crate::ui::button_3d::Button3D::new("")
             .icon(icons::PLUS)
             .min_size(Vec2::new(26.0, 24.0))
@@ -1099,38 +1553,9 @@ fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
         if ui.add(add_scene_btn).clicked() {
             app.open_add_scene_dialog();
         }
-
-        let can_delete = app.studio.scenes.len() > 1;
-        let del_scene_btn = crate::ui::button_3d::Button3D::new("")
-            .icon(icons::MINUS)
-            .min_size(Vec2::new(26.0, 24.0))
-            .enabled(can_delete)
-            .tooltip("Remove selected Scene");
-
-        if ui.add(del_scene_btn).clicked() {
-            let id = app.studio.preview_scene_id;
-            app.studio.delete_scene(id);
-        }
-
-        let dup_scene_btn = crate::ui::button_3d::Button3D::new("Duplicate")
-            .icon(icons::COPY)
-            .min_size(Vec2::new(72.0, 24.0))
-            .tooltip("Duplicate active Scene");
-
-        if ui.add(dup_scene_btn).clicked() {
-            app.studio.duplicate_preview_scene();
-        }
-
-        let ren_scene_btn = crate::ui::button_3d::Button3D::new("Rename")
-            .icon(icons::EDIT)
-            .min_size(Vec2::new(66.0, 24.0))
-            .tooltip("Rename active Scene");
-
-        if ui.add(ren_scene_btn).clicked() {
-            app.rename_scene_buffer = app.studio.preview_scene().name.clone();
-            app.show_rename_scene_dialog = true;
-        }
     });
+
+    Some(card_rect)
 }
 
 fn color_tag_tint(tag: SourceColorTag) -> Option<Color32> {
@@ -1710,7 +2135,8 @@ fn populate_source_context_menu(
     }
 }
 
-fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
+/// Returns the card's outer rect so the caller can attach a width splitter to its right edge.
+fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) -> Option<Rect> {
     let p = ThemePalette::for_mode(app.settings.theme);
     let mut pending_action: Option<SourceContextAction> = None;
 
@@ -1739,13 +2165,13 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
         }
     }
 
-    let selected_id = app.studio.preview_scene().selected_source_id;
-    let regions = paint_and_split_dock_card(ui, &p, size);
+    let (regions, card_rect) = paint_and_split_dock_card(ui, &p, size);
 
     regions.with_header(ui, |ui| {
         ui.label(
-            RichText::new("Source")
-                .size(12.0)
+            RichText::new("SOURCE")
+                .size(13.5)
+                .strong()
                 .color(p.text_primary),
         );
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -1759,11 +2185,7 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
             {
                 app.settings.panels.show_sources = false;
             }
-            ui.label(
-                RichText::new("Right-click to edit")
-                    .small()
-                    .color(p.text_muted),
-            );
+            paint_header_hint(ui, &p, "Right-click to edit", 11.0, false);
         });
     });
 
@@ -2225,91 +2647,30 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
     });
 
     regions.with_footer(ui, |ui| {
-        let add_btn = crate::ui::button_3d::Button3D::new("Add Source")
+        // Eight buttons share one footer, so the labels have to give way before the row does.
+        // Built-in labelled buttons are split into icon-only `+` / `-` keys, while `Properties` and
+        // `Filters` keep their text at full width and shorten to `Props` / `Filter` when squeezed.
+        // The footer is down to a single control: a bare `+` that opens the add dialog.
+        //
+        // Everything else that used to live here — Remove, Rename, Filters, Properties, the
+        // layer-order arrows, and even the source-type dropdown — is reachable from the row's
+        // right-click menu, and the add dialog itself lets the source type be picked. Repeating
+        // them in the footer only stole width from the one button the footer is for.
+        let add_btn = crate::ui::button_3d::Button3D::new("")
             .icon(icons::PLUS)
-            .min_size(Vec2::new(96.0, 24.0))
+            .min_size(Vec2::new(26.0, 24.0))
             .tooltip("Add Source: Open complete layer addition dialog");
 
         if ui.add(add_btn).clicked() {
             pending_action = Some(SourceContextAction::OpenAddSourceDialog(crate::studio::source::AddSourceType::DisplayCapture));
-        }
-
-        let add_menu_resp = ui.menu_button(
-            RichText::new(icons::CHEVRON_DOWN).small(),
-            |ui| {
-                populate_add_source_menu(ui, &mut pending_action);
-            },
-        );
-        add_menu_resp
-            .response
-            .on_hover_text("Select source type directly from pop-up menu");
-
-        let has_sel = selected_id.is_some();
-
-        let rem_btn = crate::ui::button_3d::Button3D::new("")
-            .icon(icons::MINUS)
-            .min_size(Vec2::new(26.0, 24.0))
-            .enabled(has_sel)
-            .tooltip("Remove selected Source");
-
-        if ui.add(rem_btn).clicked() {
-            if let Some(id) = selected_id {
-                pending_action = Some(SourceContextAction::Remove(id));
-            }
-        }
-
-        let prop_btn = crate::ui::button_3d::Button3D::new("Properties")
-            .icon(icons::SETTINGS)
-            .min_size(Vec2::new(80.0, 24.0))
-            .enabled(has_sel)
-            .tooltip("Open Source Properties (Configure Monitor, Window, Camera, etc.)");
-
-        if ui.add(prop_btn).clicked() {
-            if let Some(id) = selected_id {
-                pending_action = Some(SourceContextAction::OpenProperties(id));
-            }
-        }
-
-        let flt_btn = crate::ui::button_3d::Button3D::new("Filters")
-            .icon(icons::FILTER)
-            .min_size(Vec2::new(68.0, 24.0))
-            .enabled(has_sel)
-            .tooltip("Open Filters (Chroma Key, Color Key, Luma Key)");
-
-        if ui.add(flt_btn).clicked() {
-            if let Some(id) = selected_id {
-                pending_action = Some(SourceContextAction::OpenFilters(id));
-            }
-        }
-
-        let up_btn = crate::ui::button_3d::Button3D::new("")
-            .icon(icons::ARROW_UP)
-            .min_size(Vec2::new(26.0, 24.0))
-            .enabled(has_sel)
-            .tooltip("Move Source Up (Bring Forward — Closer to Front of Screen)");
-
-        if ui.add(up_btn).clicked() {
-            if let Some(id) = selected_id {
-                pending_action = Some(SourceContextAction::MoveUp(id));
-            }
-        }
-
-        let down_btn = crate::ui::button_3d::Button3D::new("")
-            .icon(icons::ARROW_DOWN)
-            .min_size(Vec2::new(26.0, 24.0))
-            .enabled(has_sel)
-            .tooltip("Move Source Down (Send Backward — Behind Other Layers)");
-
-        if ui.add(down_btn).clicked() {
-            if let Some(id) = selected_id {
-                pending_action = Some(SourceContextAction::MoveDown(id));
-            }
         }
     });
 
     if let Some(action) = pending_action {
         execute_source_context_action(app, action);
     }
+
+    Some(card_rect)
 }
 
 fn execute_source_context_action(app: &mut NexoraApp, action: SourceContextAction) {
@@ -2877,14 +3238,1033 @@ fn truncate_str(text: &str, max_chars: usize) -> String {
     }
 }
 
-fn render_audio_mixer_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
+/// Rough advance width of one average glyph at the 12.5 pt button font, in px.
+///
+/// Only used to pick between two pre-written labels, so an estimate is enough — being off by a
+/// few px just moves the switchover point by one character. Measuring the real galley per button
+/// per frame would mean laying out every candidate label every frame, which is the cost this whole
+/// helper exists to avoid.
+const DOCK_BTN_CHAR_W: f32 = 6.6;
+
+/// Horizontal space a dock footer button spends on things that are not its label.
+///
+/// `Button3D` centres `"{icon}  {text}"` in a `min_size` box, and egui adds `button_padding` on
+/// both sides of the allocated rect. Icon + gap + padding is roughly this much; the rest is label.
+const DOCK_BTN_CHROME_W: f32 = 34.0;
+
+/// Picks a button label that still fits the footer it is drawn in.
+///
+/// The four dock panels can each be dragged from ~150 px to ~65% of the window, so a footer that
+/// has room for "Properties" at one width has room for only "Props" at another. Rather than let
+/// `Button3D` clip the overflow away — which is what made the buttons look broken — each label has
+/// a hand-written short form that keeps its meaning, and the longest one that fits the measured
+/// budget wins.
+///
+/// Returns the **longest** candidate that fits, falling back to the shortest so a very narrow panel
+/// still shows something recognisable (and keeps its tooltip as the full explanation).
+fn dock_button_label(available_w: f32, long: &'static str, short: &'static str) -> &'static str {
+    if dock_label_fits(available_w, long) {
+        long
+    } else {
+        short
+    }
+}
+
+/// Whether a label plus its icon and padding fits inside `available_w`.
+fn dock_label_fits(available_w: f32, label: &str) -> bool {
+    let label_w = label.chars().count() as f32 * DOCK_BTN_CHAR_W;
+    label_w + DOCK_BTN_CHROME_W <= available_w
+}
+
+/// Rough advance width of one average glyph at `text_size` pt, in px.
+///
+/// Used to decide whether a header hint still fits; like [`DOCK_BTN_CHAR_W`] this is an estimate,
+/// which is fine because the decision is only "does this roughly fit".
+fn dock_text_width(text: &str, text_size: f32) -> f32 {
+    text.chars().count() as f32 * text_size * 0.53
+}
+
+/// Draws a right-aligned header hint (e.g. `48 kHz`, `Right-click to edit`), dropping it when the
+/// panel is too narrow to show it beside the title.
+///
+/// The hints used to be drawn unconditionally, which in a squeezed panel made them collide with the
+/// title and the minimize button. Suppressing them is the right trade: a hint is decoration, the
+/// title and the controls are not.
+fn paint_header_hint(
+    ui: &mut egui::Ui,
+    p: &ThemePalette,
+    text: &str,
+    text_size: f32,
+    monospace: bool,
+) {
+    let reserved_for_title_and_controls = 150.0;
+    if ui.available_width() < dock_text_width(text, text_size) + reserved_for_title_and_controls {
+        return;
+    }
+    let mut rich = RichText::new(text).size(text_size).color(p.text_muted);
+    if monospace {
+        rich = rich.monospace();
+    }
+    ui.label(rich);
+}
+
+/// Truncates `text` so that it occupies at most `max_w` pixels.
+///
+/// Unlike [`truncate_str`], which limits by character count, this one limits by the space that is
+/// actually available. The scene name sits next to the status badges, and how much room is left
+/// depends on the panel width and on whether the badges had to shrink to their icon-only form.
+fn truncate_to_width(text: &str, max_w: f32, char_w: f32) -> String {
+    if max_w <= 0.0 {
+        return String::new();
+    }
+    let max_chars = (max_w / char_w).floor().max(0.0) as usize;
+    if text.chars().count() <= max_chars {
+        return text.to_string();
+    }
+    if max_chars <= 1 {
+        return "…".to_string();
+    }
+    let prefix: String = text.chars().take(max_chars - 1).collect();
+    format!("{}…", prefix)
+}
+
+/// One channel of the audio mixer, normalised across the three kinds of entry the panel holds:
+/// the two global buses, one bus per audio source, and media playback.
+///
+/// Normalising them is what makes the alternative layouts possible: one renderer can draw any
+/// channel, so the panel does not need a separate implementation per kind of entry.
+struct MixerChannel<'a> {
+    /// Display name of the channel.
+    name: String,
+    /// Icon on the mute button while the channel is unmuted.
+    icon: &'static str,
+    /// Icon on the mute button while the channel is muted.
+    icon_off: &'static str,
+    /// Short tags drawn next to the name: the direction of the bus and whether it is live.
+    ///
+    /// The strip layout shows both, and so do the compact layouts — but the compact ones drop
+    /// them first when the row runs out of room.
+    tags: [Option<(&'static str, Color32)>; 2],
+    /// Mute state, borrowed so a layout renderer can toggle it.
+    muted: &'a mut bool,
+    /// Volume in 0..=1, borrowed so a layout renderer can drive the fader.
+    volume: &'a mut f32,
+    /// Playback state of a media source, borrowed so the transport button can toggle it.
+    is_playing: Option<&'a mut bool>,
+    /// Live signal level in 0..=1.
+    level: f32,
+    /// Held peak in 0..=1.
+    peak_hold: f32,
+    /// Set when a renderer changed the mute state or the volume.
+    changed: bool,
+    /// Set when a renderer changed a media source's playback state.
+    transport_changed: bool,
+}
+
+impl MixerChannel<'_> {
+    /// The percentage of the channel volume, formatted the way the strip layout shows it.
+    fn percent_readout(&self) -> String {
+        let pct = if *self.muted {
+            0.0_f32
+        } else {
+            (*self.volume).clamp(0.0, 1.0) * 100.0
+        };
+        format!("{:>3.0}%", pct)
+    }
+
+    /// The dB readout for this channel, formatted the way the strip layout shows it.
+    fn db_readout(&self) -> String {
+        let muted = *self.muted;
+        let volume = *self.volume;
+        let db = if muted || volume <= 0.0001 {
+            -60.0_f32
+        } else {
+            (20.0 * volume.log10()).max(-60.0)
+        };
+        let pct = if muted {
+            0
+        } else {
+            (volume.clamp(0.0, 1.0) * 100.0).round() as i32
+        };
+        if db <= -59.5 {
+            format!("{:>3}% (-∞ dB)", pct)
+        } else {
+            format!("{:>3}% ({:+.1}dB)", pct, db)
+        }
+    }
+}
+
+/// Live level of every audio-capturing source in the preview and program scenes, keyed by id.
+///
+/// Read before the mixer is borrowed mutably: `source_level` needs the whole mixer, which cannot
+/// be borrowed at the same time as the individual channels it would hand out.
+fn mixer_source_levels(
+    app: &NexoraApp,
+) -> std::collections::HashMap<uuid::Uuid, crate::audio::SourceLevel> {
+    let mut levels = std::collections::HashMap::new();
+    let preview_id = app.studio.preview_scene_id;
+    let program_id = app.studio.program_scene_id;
+    for scene in &app.studio.scenes {
+        if scene.id != program_id && scene.id != preview_id {
+            continue;
+        }
+        for src in &scene.sources {
+            let is_capture = matches!(
+                src.kind,
+                SourceKind::AudioInputCapture { .. }
+                    | SourceKind::AudioOutputCapture { .. }
+                    | SourceKind::ApplicationAudioCapture { .. }
+            );
+            if !is_capture {
+                continue;
+            }
+            let bus_id = NexoraApp::source_bus_id(src.id);
+            levels.insert(src.id, app.audio_mixer.source_level(&bus_id));
+        }
+    }
+    levels
+}
+
+/// Collects every channel the mixer should show, in display order.
+///
+/// The order is the two global buses first, then one bus per audio-capturing source, then media
+/// playback sources. All three layouts use this order, so switching between them never reshuffles
+/// the channels under the user's fingers.
+fn collect_mixer_channels<'a>(app: &'a mut NexoraApp) -> Vec<MixerChannel<'a>> {
     let p = ThemePalette::for_mode(app.settings.theme);
-    let regions = paint_and_split_dock_card(ui, &p, size);
+
+    // Both sets are read up front, before the mixer is borrowed mutably: `source_level` needs the
+    // whole mixer, which cannot be borrowed at the same time as the channels themselves.
+    let levels = mixer_source_levels(app);
+    let program_audio_ids: std::collections::HashSet<uuid::Uuid> = app
+        .studio
+        .program_scene()
+        .sources
+        .iter()
+        .filter(|s| s.visible)
+        .filter(|s| {
+            matches!(
+                s.kind,
+                SourceKind::AudioInputCapture { .. }
+                    | SourceKind::AudioOutputCapture { .. }
+                    | SourceKind::ApplicationAudioCapture { .. }
+            )
+        })
+        .map(|s| s.id)
+        .collect();
+    let program_media_ids: std::collections::HashSet<uuid::Uuid> = app
+        .studio
+        .program_scene()
+        .sources
+        .iter()
+        .filter(|s| s.visible && matches!(s.kind, SourceKind::MediaSource { .. }))
+        .map(|s| s.id)
+        .collect();
+
+    let preview_id = app.studio.preview_scene_id;
+    let program_id = app.studio.program_scene_id;
+
+    let NexoraApp {
+        audio_mixer,
+        studio,
+        ..
+    } = app;
+
+    let mut channels: Vec<MixerChannel<'a>> = Vec::new();
+
+    // --- The two global buses ---
+    // The name, level and peak are read first: taking a mutable borrow of one field of a channel
+    // would otherwise collide with the immutable read of the whole channel.
+    let (desk_name, desk_level, desk_hold) = {
+        let ch = &audio_mixer.desktop_audio;
+        (ch.label.clone(), ch.effective_level(), ch.peak_hold)
+    };
+    channels.push(MixerChannel {
+        name: desk_name,
+        icon: icons::VOLUME,
+        icon_off: icons::VOLUME_OFF,
+        tags: [None, None],
+        muted: &mut audio_mixer.desktop_audio.muted,
+        volume: &mut audio_mixer.desktop_audio.volume,
+        is_playing: None,
+        level: desk_level,
+        peak_hold: desk_hold,
+        changed: false,
+        transport_changed: false,
+    });
+
+    let (mic_name, mic_level, mic_hold) = {
+        let ch = &audio_mixer.microphone;
+        (ch.label.clone(), ch.effective_level(), ch.peak_hold)
+    };
+    channels.push(MixerChannel {
+        name: mic_name,
+        icon: icons::MICROPHONE,
+        icon_off: icons::MICROPHONE_OFF,
+        tags: [None, None],
+        muted: &mut audio_mixer.microphone.muted,
+        volume: &mut audio_mixer.microphone.volume,
+        is_playing: None,
+        level: mic_level,
+        peak_hold: mic_hold,
+        changed: false,
+        transport_changed: false,
+    });
+
+    // --- One bus per audio-capturing source, then media playback ---
+    let mut seen_ids = std::collections::HashSet::new();
+    for scene in &mut studio.scenes {
+        if scene.id != program_id && scene.id != preview_id {
+            continue;
+        }
+        for src in &mut scene.sources {
+            let src_id = src.id;
+            if !seen_ids.insert(src_id) {
+                continue;
+            }
+            let name = src.name.clone();
+            let src_level = levels.get(&src_id).copied().unwrap_or_default();
+            // Whether the source is live on Program decides the colour of the `PGM` / `PRV` tag.
+            let live_tag = |is_live: bool| {
+                if is_live {
+                    ("PGM", p.accent_program)
+                } else {
+                    ("PRV", p.accent_preview)
+                }
+            };
+
+            // `kind` is bound to a local first: the mutable borrows of the fields below have to
+            // outlive the `match` statement they are created in.
+            let kind = &mut src.kind;
+            match kind {
+                SourceKind::AudioInputCapture { volume, muted, .. } => {
+                    channels.push(MixerChannel {
+                        name,
+                        icon: icons::MICROPHONE,
+                        icon_off: icons::MICROPHONE_OFF,
+                        tags: [
+                            Some(("IN", p.text_muted)),
+                            Some(live_tag(program_audio_ids.contains(&src_id))),
+                        ],
+                        muted,
+                        volume,
+                        is_playing: None,
+                        level: src_level.current_peak,
+                        peak_hold: src_level.peak_hold,
+                        changed: false,
+                        transport_changed: false,
+                    });
+                }
+                SourceKind::AudioOutputCapture { volume, muted, .. } => {
+                    channels.push(MixerChannel {
+                        name,
+                        icon: icons::VOLUME,
+                        icon_off: icons::VOLUME_OFF,
+                        tags: [
+                            Some(("OUT", p.text_muted)),
+                            Some(live_tag(program_audio_ids.contains(&src_id))),
+                        ],
+                        muted,
+                        volume,
+                        is_playing: None,
+                        level: src_level.current_peak,
+                        peak_hold: src_level.peak_hold,
+                        changed: false,
+                        transport_changed: false,
+                    });
+                }
+                SourceKind::ApplicationAudioCapture { volume, muted, .. } => {
+                    channels.push(MixerChannel {
+                        name,
+                        icon: icons::VOLUME,
+                        icon_off: icons::VOLUME_OFF,
+                        tags: [
+                            Some(("APP", p.text_muted)),
+                            Some(live_tag(program_audio_ids.contains(&src_id))),
+                        ],
+                        muted,
+                        volume,
+                        is_playing: None,
+                        level: src_level.current_peak,
+                        peak_hold: src_level.peak_hold,
+                        changed: false,
+                        transport_changed: false,
+                    });
+                }
+                SourceKind::MediaSource {
+                    volume,
+                    muted,
+                    is_playing,
+                    ..
+                } => {
+                    channels.push(MixerChannel {
+                        name,
+                        icon: icons::VOLUME,
+                        icon_off: icons::VOLUME_OFF,
+                        tags: [
+                            None,
+                            Some(live_tag(program_media_ids.contains(&src_id))),
+                        ],
+                        muted,
+                        volume,
+                        is_playing: Some(is_playing),
+                        level: 0.0,
+                        peak_hold: 0.0,
+                        changed: false,
+                        transport_changed: false,
+                    });
+                }
+                _ => continue,
+            }
+        }
+    }
+
+    channels
+}
+
+/// Draws a thin live-level line under a mixer channel.
+///
+/// The strip layout uses a 7 px meter; in the denser layouts that would cost as much vertical
+/// space as it saves, so the level is reduced to a 3 px line.
+fn paint_mixer_thin_meter(
+    ui: &mut egui::Ui,
+    p: &ThemePalette,
+    level: f32,
+    peak_hold: f32,
+    w: f32,
+) {
+    let h = 3.0_f32;
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(w.max(40.0), h), Sense::hover());
+    let painter = ui.painter_at(rect);
+    painter.rect_filled(rect, CornerRadius::same(1), p.bg_canvas_well);
+
+    if level > 0.005 {
+        let level = level.clamp(0.0, 1.0);
+        let fill = if level > 0.88 {
+            p.meter_clip
+        } else if level > 0.70 {
+            p.meter_warn
+        } else {
+            p.meter_ok
+        };
+        painter.rect_filled(
+            Rect::from_min_max(
+                rect.min,
+                Pos2::new(rect.min.x + rect.width() * level, rect.max.y),
+            ),
+            CornerRadius::same(1),
+            fill,
+        );
+    }
+
+    if peak_hold > 0.008 {
+        let x = rect.min.x + rect.width() * peak_hold.clamp(0.0, 1.0);
+        painter.rect_filled(
+            Rect::from_min_max(
+                Pos2::new(x - 1.0, rect.min.y),
+                Pos2::new(x + 1.0, rect.max.y),
+            ),
+            CornerRadius::same(1),
+            Color32::WHITE,
+        );
+    }
+}
+
+/// The column geometry shared by every row of the compact mixer list.
+///
+/// The widths are measured from the text that is actually drawn and every row uses the same
+/// numbers, so the faders start at the same x in every row — no matter how long the channel names
+/// are, and no matter which rows happen to carry a transport button or a tag.
+struct MixerRowLayout {
+    /// Width of the whole row.
+    row_w: f32,
+    /// Width of the mute button.
+    mute_w: f32,
+    /// Width of the transport button slot; zero when no channel in the list can be paused.
+    transport_w: f32,
+    /// Width reserved for the channel name.
+    name_w: f32,
+    /// Width of one tag slot.
+    tag_w: f32,
+    /// Number of tag slots reserved in every row.
+    tag_slots: usize,
+    /// Width of the fader.
+    fader_w: f32,
+    /// Width of the percentage readout.
+    readout_w: f32,
+    /// Horizontal gap between two columns.
+    gap: f32,
+}
+
+impl MixerRowLayout {
+    /// The number of columns a row is built from.
+    fn cols(&self) -> f32 {
+        4.0 + self.tag_slots as f32 + if self.transport_w > 0.0 { 1.0 } else { 0.0 }
+    }
+
+    /// The width of the columns that do not change: mute, transport, tags and readout.
+    ///
+    /// What is left of the row after these is shared between the channel name and the fader.
+    fn fixed_w(&self) -> f32 {
+        self.mute_w
+            + self.transport_w
+            + self.tag_slots as f32 * self.tag_w
+            + self.readout_w
+            + (self.cols() - 1.0) * self.gap
+    }
+
+    /// The width the columns of one row take up, gaps included.
+    ///
+    /// This is the width the row has to fill exactly: any other value would either leave a gap or
+    /// push the fader out of the panel.
+    fn total_w(&self) -> f32 {
+        self.fixed_w() + self.name_w + self.fader_w
+    }
+}
+
+/// Works out the column widths of the compact mixer rows.
+///
+/// The readout and the tags are measured from the text they will show, so a number can never be
+/// clipped and a tag can never overrun its slot. What is left over is split between the channel
+/// name and the fader — the fader first, because a row without a usable fader is worthless while
+/// a shortened name is still readable.
+fn mixer_row_layout(
+    ui: &egui::Ui,
+    p: &ThemePalette,
+    channels: &[MixerChannel<'_>],
+    row_w: f32,
+) -> MixerRowLayout {
+    let gap = ui.spacing().item_spacing.x;
+
+    // The readout is measured from the widest number it can show.
+    let readout_w = ui
+        .painter()
+        .layout_no_wrap(
+            "100%".to_owned(),
+            egui::FontId::monospace(MIXER_READOUT_FONT_SIZE),
+            p.text_secondary,
+        )
+        .size()
+        .x
+        + 4.0;
+
+    // The tag slot is as wide as the widest tag needs it, and the same in every row, so the
+    // faders line up.
+    let tag_font = egui::FontId::new(MIXER_TAG_FONT_SIZE, egui::FontFamily::Proportional);
+    let mut tag_w = 0.0_f32;
+    let mut tag_slots = 0_usize;
+    for ch in channels {
+        tag_slots = tag_slots.max(ch.tags.iter().filter(|t| t.is_some()).count());
+        for (text, color) in ch.tags.iter().flatten() {
+            let w = ui
+                .painter()
+                .layout_no_wrap((*text).to_owned(), tag_font.clone(), *color)
+                .size()
+                .x;
+            tag_w = tag_w.max(w);
+        }
+    }
+    if tag_slots > 0 {
+        tag_w += 8.0;
+    }
+    // In a narrow panel the tags go entirely — for every row at once, because a tag that is
+    // sometimes there and sometimes not would break the alignment.
+    if row_w < MIXER_TAGS_MIN_ROW_W {
+        tag_slots = 0;
+        tag_w = 0.0;
+    }
+
+    // The transport button only exists for media sources, but its slot is reserved in every row
+    // so a media channel does not push its fader out of line with the others.
+    let transport_w = if channels.iter().any(|c| c.is_playing.is_some()) {
+        MIXER_TRANSPORT_W
+    } else {
+        0.0
+    };
+
+    // Columns: mute | [transport] | name | [tags] | fader | readout.
+    //
+    // The name and the fader share what is left over. The fader comes first: a row without a
+    // usable fader is worthless, while a shortened name is still readable.
+    let mut lay = MixerRowLayout {
+        row_w,
+        mute_w: MIXER_MUTE_W,
+        transport_w,
+        name_w: 0.0,
+        tag_w,
+        tag_slots,
+        fader_w: 0.0,
+        readout_w,
+        gap,
+    };
+
+    let avail = (row_w - lay.fixed_w()).max(0.0);
+    lay.name_w = (avail * 0.38).clamp(MIXER_NAME_MIN_W.min(avail), avail);
+    lay.fader_w = avail - lay.name_w;
+    if lay.fader_w < MIXER_FADER_MIN_W {
+        lay.name_w = (lay.name_w - (MIXER_FADER_MIN_W - lay.fader_w)).max(0.0);
+        lay.fader_w = avail - lay.name_w;
+    }
+    lay.fader_w = lay.fader_w.max(MIXER_FADER_MIN_W.min(avail));
+
+    // The columns have to fill the row exactly. Should the arithmetic ever come out wider than
+    // the panel, the name gives way — a fader that is pushed out of sight is worse than a name
+    // that is shortened.
+    let overflow = lay.total_w() - lay.row_w;
+    if overflow > 0.0 {
+        lay.name_w = (lay.name_w - overflow).max(0.0);
+    }
+
+    lay
+}
+
+/// Draws one channel as a compact horizontal line: mute, name, tag, fader and level readout.
+///
+/// This is the dense layout — roughly a third of the height of a full strip — for when the mixer
+/// holds more channels than the panel can show comfortably.
+fn render_mixer_channel_row(
+    ui: &mut egui::Ui,
+    p: &ThemePalette,
+    ch: &mut MixerChannel<'_>,
+    lay: &MixerRowLayout,
+) {
+    // The fader's tooltip carries the exact dB value, so the number in the row can stay short.
+    let readout = ch.db_readout();
+    let percent = ch.percent_readout();
+    let name_font = egui::FontId::new(MIXER_NAME_FONT_SIZE, egui::FontFamily::Proportional);
+    let tag_font = egui::FontId::new(MIXER_TAG_FONT_SIZE, egui::FontFamily::Proportional);
+    let readout_font = egui::FontId::monospace(MIXER_READOUT_FONT_SIZE);
+
+    ui.allocate_ui_with_layout(
+        Vec2::new(lay.row_w, MIXER_ROW_H),
+        Layout::left_to_right(Align::Center),
+        |ui| {
+            // --- Mute ---
+            let icon = if *ch.muted { ch.icon_off } else { ch.icon };
+            let color = if *ch.muted { p.rec_red } else { p.text_secondary };
+            if paint_icon_action_btn_sized(
+                ui,
+                icon,
+                Some(color),
+                p,
+                if *ch.muted {
+                    "Unmute channel"
+                } else {
+                    "Mute channel"
+                },
+                Vec2::new(lay.mute_w, MIXER_ROW_H),
+            ) {
+                *ch.muted = !*ch.muted;
+                ch.changed = true;
+            }
+
+            // --- Transport (media sources only) ---
+            //
+            // The slot is reserved in every row, so a media channel does not push its fader out of
+            // line with the faders of the other rows.
+            if lay.transport_w > 0.0 {
+                if let Some(is_playing) = ch.is_playing.as_deref_mut() {
+                    let play_icon = if *is_playing {
+                        icons::PLAYER_PAUSE
+                    } else {
+                        icons::PLAYER_PLAY
+                    };
+                    if paint_icon_action_btn_sized(
+                        ui,
+                        play_icon,
+                        None,
+                        p,
+                        "Pause / Play Media",
+                        Vec2::new(lay.transport_w, MIXER_ROW_H),
+                    ) {
+                        *is_playing = !*is_playing;
+                        ch.transport_changed = true;
+                    }
+                } else {
+                    ui.allocate_exact_size(Vec2::new(lay.transport_w, MIXER_ROW_H), Sense::hover());
+                }
+            }
+
+            // --- Name ---
+            //
+            // The column is reserved first and the name is painted into it, so the width of the
+            // name never depends on how long the name happens to be.
+            let (name_rect, _) =
+                ui.allocate_exact_size(Vec2::new(lay.name_w, MIXER_ROW_H), Sense::hover());
+            paint_single_line_text(
+                ui,
+                name_rect,
+                &ch.name,
+                name_font,
+                p.text_primary,
+                egui::Align::Min,
+                true,
+            );
+
+            // --- Tags ---
+            //
+            // Every row reserves the same number of tag slots, so the fader always starts at the
+            // same x.
+            for slot in 0..lay.tag_slots {
+                let (tag_rect, _) =
+                    ui.allocate_exact_size(Vec2::new(lay.tag_w, MIXER_ROW_H), Sense::hover());
+                if let Some((text, color)) = ch.tags.get(slot).copied().flatten() {
+                    paint_single_line_text(
+                        ui,
+                        tag_rect,
+                        text,
+                        tag_font.clone(),
+                        color,
+                        egui::Align::Center,
+                        false,
+                    );
+                }
+            }
+
+            // --- Fader ---
+            ui.scope(|ui| {
+                ui.spacing_mut().slider_width = lay.fader_w;
+                let changed = ui
+                    .add_enabled(
+                        !*ch.muted,
+                        egui::Slider::new(&mut *ch.volume, 0.0..=1.0)
+                            .show_value(false)
+                            .trailing_fill(true),
+                    )
+                    .on_hover_text(readout.clone())
+                    .changed();
+                if changed {
+                    ch.changed = true;
+                }
+            });
+
+            // --- Readout ---
+            //
+            // The column is reserved like the others, and the number is right aligned inside it,
+            // so it ends flush with the right edge of the row.
+            let (readout_rect, _) =
+                ui.allocate_exact_size(Vec2::new(lay.readout_w, MIXER_ROW_H), Sense::hover());
+            paint_single_line_text(
+                ui,
+                readout_rect,
+                &percent,
+                readout_font,
+                p.text_secondary,
+                egui::Align::Max,
+                false,
+            );
+        },
+    );
+
+    paint_mixer_thin_meter(ui, p, ch.level, ch.peak_hold, lay.row_w);
+}
+
+/// Draws one channel as an OBS-style mixer column.
+///
+/// The column follows the layout of a mixer channel in OBS Studio, from top to bottom: the name of
+/// the channel, the dB readout, the upright fader with a level meter on its left and a dB scale
+/// printed on its right, and the mute button at the bottom.
+///
+/// The fader works in dB rather than in raw volume — 0 dB at the top of the travel and -60 dB at
+/// the bottom — so the printed scale stays true while the handle moves.
+fn render_mixer_channel_column(
+    ui: &mut egui::Ui,
+    p: &ThemePalette,
+    ch: &mut MixerChannel<'_>,
+    col_w: f32,
+    col_h: f32,
+) {
+    let name_h = 20.0_f32;
+    let db_h = 15.0_f32;
+    let mute_h = 24.0_f32;
+    let meter_w = 10.0_f32;
+    let scale_w = 24.0_f32;
+    let inner_w = (col_w - 4.0).max(40.0);
+
+    // The dB readout sits under the name, the way OBS Studio prints it.
+    let mut db = mixer_volume_to_db(*ch.volume);
+    let db_text = if *ch.muted || db <= -59.5 {
+        "-∞ dB".to_owned()
+    } else if db >= -0.05 {
+        "0.0 dB".to_owned()
+    } else {
+        format!("{db:.1} dB")
+    };
+
+    ui.allocate_ui_with_layout(
+        Vec2::new(col_w, col_h),
+        Layout::top_down(Align::Min),
+        |ui| {
+            // --- Name ---
+            let (name_rect, _) = ui.allocate_exact_size(Vec2::new(inner_w, name_h), Sense::hover());
+            paint_single_line_text(
+                ui,
+                name_rect,
+                &ch.name,
+                egui::FontId::new(10.5, egui::FontFamily::Proportional),
+                p.text_primary,
+                egui::Align::Min,
+                true,
+            );
+
+            // --- dB readout ---
+            let (db_rect, _) = ui.allocate_exact_size(Vec2::new(inner_w, db_h), Sense::hover());
+            paint_single_line_text(
+                ui,
+                db_rect,
+                &db_text,
+                egui::FontId::monospace(10.0),
+                p.text_secondary,
+                egui::Align::Max,
+                false,
+            );
+
+            // --- Fader, meter and scale ---
+            //
+            // The fader takes whatever room the fixed parts leave.
+            //
+            // For a *vertical* slider egui reads `slider_width` as its height, not its width —
+            // the width is the handle thickness. So the height goes into `slider_width` here.
+            let fader_h = (col_h
+                - name_h
+                - db_h
+                - mute_h
+                - ui.spacing().item_spacing.y * 3.0)
+                .max(60.0);
+
+            ui.allocate_ui_with_layout(
+                Vec2::new(inner_w, fader_h),
+                Layout::left_to_right(Align::Min),
+                |ui| {
+                    // The level meter stands to the left of the fader, like in OBS Studio.
+                    let (meter_rect, _) =
+                        ui.allocate_exact_size(Vec2::new(meter_w, fader_h), Sense::hover());
+                    paint_mixer_vertical_meter(ui, p, meter_rect, ch.level, ch.peak_hold);
+
+                    // The fader itself.
+                    let slider = ui
+                        .scope(|ui| {
+                            ui.spacing_mut().slider_width = fader_h;
+                            ui.add_enabled(
+                                !*ch.muted,
+                                egui::Slider::new(&mut db, MIXER_SCALE_MIN_DB..=0.0)
+                                    .vertical()
+                                    .show_value(false)
+                                    .trailing_fill(true),
+                            )
+                        })
+                        .inner;
+                    if slider.changed() {
+                        *ch.volume = mixer_db_to_volume(db);
+                        ch.changed = true;
+                    }
+
+                    // The dB scale is printed to the right of the fader, on the travel of its
+                    // handle, so the numbers stay true.
+                    let (scale_rect, _) =
+                        ui.allocate_exact_size(Vec2::new(scale_w, fader_h), Sense::hover());
+                    paint_mixer_db_scale(ui, p, scale_rect, slider.rect);
+                },
+            );
+
+            // --- Mute ---
+            let icon = if *ch.muted { ch.icon_off } else { ch.icon };
+            let color = if *ch.muted { p.rec_red } else { p.text_secondary };
+            if paint_icon_action_btn_sized(
+                ui,
+                icon,
+                Some(color),
+                p,
+                if *ch.muted {
+                    "Unmute channel"
+                } else {
+                    "Mute channel"
+                },
+                Vec2::new(26.0, mute_h - 2.0),
+            ) {
+                *ch.muted = !*ch.muted;
+                ch.changed = true;
+            }
+        },
+    );
+}
+
+/// Paints the vertical level meter that stands beside the fader.
+///
+/// The meter is a vertical bar: the louder the signal, the taller the bar. It keeps the same
+/// colours as the thin meter of the other layouts — green, yellow at the warning level and red
+/// when the signal clips.
+fn paint_mixer_vertical_meter(
+    ui: &egui::Ui,
+    p: &ThemePalette,
+    rect: Rect,
+    level: f32,
+    peak_hold: f32,
+) {
+    let painter = ui.painter_at(rect);
+    painter.rect_filled(rect, CornerRadius::same(1), p.bg_canvas_well);
+    painter.rect_stroke(
+        rect,
+        CornerRadius::same(1),
+        Stroke::new(1.0_f32, p.border_subtle),
+        egui::StrokeKind::Inside,
+    );
+
+    if level > 0.005 {
+        let level = level.clamp(0.0, 1.0);
+        let fill = if level > 0.88 {
+            p.meter_clip
+        } else if level > 0.70 {
+            p.meter_warn
+        } else {
+            p.meter_ok
+        };
+        let h = rect.height() * level;
+        painter.rect_filled(
+            Rect::from_min_max(Pos2::new(rect.min.x, rect.max.y - h), rect.max),
+            CornerRadius::same(1),
+            fill,
+        );
+    }
+
+    if peak_hold > 0.008 {
+        let y = rect.max.y - rect.height() * peak_hold.clamp(0.0, 1.0);
+        painter.rect_filled(
+            Rect::from_min_max(
+                Pos2::new(rect.min.x, y - 1.0),
+                Pos2::new(rect.max.x, y + 1.0),
+            ),
+            CornerRadius::ZERO,
+            Color32::WHITE,
+        );
+    }
+}
+
+/// Paints the dB scale printed next to the fader.
+///
+/// The numbers sit on the travel of the fader handle, so the value under the handle is the value
+/// the scale shows. When the column is too short for a label every 6 dB the scale gets coarser
+/// instead of overlapping.
+fn paint_mixer_db_scale(ui: &egui::Ui, p: &ThemePalette, rect: Rect, fader_rect: Rect) {
+    const STEPS: [i32; 5] = [6, 12, 20, 30, 60];
+
+    let label_h = 11.0_f32;
+    let slots = (rect.height() / label_h).floor() as i32;
+    let Some(step) = STEPS
+        .iter()
+        .copied()
+        .find(|s| (60 / s) + 1 <= slots)
+    else {
+        return;
+    };
+
+    // The handle of a vertical slider travels between `top + radius` and `bottom - radius`,
+    // where the radius is a quarter of the fader's thickness.
+    let thickness = fader_rect.width();
+    let inset = thickness / 2.5;
+    let travel_h = (fader_rect.height() - inset * 2.0).max(1.0);
+
+    let font = egui::FontId::monospace(8.5);
+    for tick in (0..=(60 / step)).rev() {
+        let value = -tick as f32 * step as f32;
+        // 0 dB sits at the top of the travel, -60 dB at the bottom.
+        let norm = (value - MIXER_SCALE_MIN_DB) / -MIXER_SCALE_MIN_DB;
+        let y = fader_rect.top() + inset + (1.0 - norm) * travel_h;
+
+        let text = format!("{value:.0}");
+        let galley = ui
+            .painter()
+            .layout_no_wrap(text, font.clone(), p.text_muted);
+        let pos = Pos2::new(rect.left(), y - galley.size().y * 0.5);
+        ui.painter().galley(pos, galley, p.text_muted);
+    }
+}
+
+/// Renders the mixer in the dense list layout: one compact line per channel.
+fn render_mixer_list(
+    ui: &mut egui::Ui,
+    app: &mut NexoraApp,
+    p: &ThemePalette,
+    body_size: Vec2,
+) {
+    let row_w = (body_size.x - 10.0).max(120.0);
+    let mut changed = false;
+    let mut transport_changed = false;
+
+    {
+        let mut channels = collect_mixer_channels(app);
+
+        // The column geometry is worked out once and shared by every row, so the faders line up
+        // down the panel.
+        let layout = mixer_row_layout(ui, p, &channels, row_w);
+
+        egui::ScrollArea::vertical()
+            .id_salt("audio_mixer_list_scroll")
+            .max_height(body_size.y)
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                for ch in &mut channels {
+                    render_mixer_channel_row(ui, p, ch, &layout);
+                    changed |= ch.changed;
+                    transport_changed |= ch.transport_changed;
+                }
+            });
+    }
+
+    if transport_changed {
+        app.studio.sync_media_transport_to_program();
+    }
+    if changed {
+        app.studio.sync_if_linked();
+    }
+}
+
+/// Renders the mixer in the column layout: the channels stand upright and run to the right.
+fn render_mixer_columns(
+    ui: &mut egui::Ui,
+    app: &mut NexoraApp,
+    p: &ThemePalette,
+    body_size: Vec2,
+) {
+    let col_w = MIXER_COL_W;
+    let mut changed = false;
+    let mut transport_changed = false;
+
+    {
+        let mut channels = collect_mixer_channels(app);
+        egui::ScrollArea::horizontal()
+            .id_salt("audio_mixer_columns_scroll")
+            .max_width(body_size.x)
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.horizontal_top(|ui| {
+                    for ch in &mut channels {
+                        render_mixer_channel_column(ui, p, ch, col_w, body_size.y);
+                        changed |= ch.changed;
+                        transport_changed |= ch.transport_changed;
+                    }
+                });
+            });
+    }
+
+    if transport_changed {
+        app.studio.sync_media_transport_to_program();
+    }
+    if changed {
+        app.studio.sync_if_linked();
+    }
+}
+
+/// Returns the card's outer rect so the caller can attach a width splitter to its right edge.
+fn render_audio_mixer_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) -> Option<Rect> {
+    let p = ThemePalette::for_mode(app.settings.theme);
+    let (regions, card_rect) = paint_and_split_dock_card(ui, &p, size);
 
     regions.with_header(ui, |ui| {
         ui.label(
-            RichText::new("Audio Mixer")
-                .size(12.0)
+            RichText::new("AUDIO MIXER")
+                .size(13.5)
+                .strong()
                 .color(p.text_primary),
         );
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -2898,16 +4278,72 @@ fn render_audio_mixer_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) 
             {
                 app.settings.panels.show_audio_mixer = false;
             }
-            ui.label(
-                RichText::new("48 kHz")
-                    .small()
-                    .monospace()
-                    .color(p.text_muted),
-            );
+            ui.add_space(3.0);
+
+            // Layout picker. The mixer holds three very different kinds of entry, and how many
+            // of them fit depends on the panel width — so the arrangement is the user's call:
+            // full strips, a dense list, or upright columns standing side by side.
+            let mode = app.settings.audio_mixer_view_mode;
+            let (mode_icon, mode_label) = match mode {
+                crate::settings::AudioMixerViewMode::Strip => (icons::LAYOUT_GRID, "Strips"),
+                crate::settings::AudioMixerViewMode::List => (icons::LIST, "List"),
+                crate::settings::AudioMixerViewMode::Columns => {
+                    (icons::LAYOUT_COLUMNS, "Columns")
+                }
+            };
+            let mut chosen: Option<crate::settings::AudioMixerViewMode> = None;
+            ui.menu_button(
+                RichText::new(mode_icon).size(13.0).color(p.accent_preview),
+                |ui| {
+                    ui.set_min_width(150.0);
+                    for (m, label, icon) in [
+                        (
+                            crate::settings::AudioMixerViewMode::Strip,
+                            "Strips",
+                            icons::LAYOUT_GRID,
+                        ),
+                        (crate::settings::AudioMixerViewMode::List, "List", icons::LIST),
+                        (
+                            crate::settings::AudioMixerViewMode::Columns,
+                            "Columns",
+                            icons::LAYOUT_COLUMNS,
+                        ),
+                    ] {
+                        if ui
+                            .selectable_label(mode == m, format!("{icon} {label}"))
+                            .clicked()
+                        {
+                            chosen = Some(m);
+                            ui.close_menu();
+                        }
+                    }
+                },
+            )
+            .response
+            .on_hover_text(format!("Mixer layout: {mode_label}"));
+            if let Some(m) = chosen {
+                app.settings.audio_mixer_view_mode = m;
+            }
+
+            paint_header_hint(ui, &p, "48 kHz", 11.0, true);
         });
     });
 
     regions.with_body(ui, |ui, body_size| {
+        // `Strip` keeps the historical full-width blocks; the two denser arrangements are drawn
+        // by their own functions.
+        let mode = app.settings.audio_mixer_view_mode;
+        match mode {
+            crate::settings::AudioMixerViewMode::List => {
+                render_mixer_list(ui, app, &p, body_size);
+                return;
+            }
+            crate::settings::AudioMixerViewMode::Columns => {
+                render_mixer_columns(ui, app, &p, body_size);
+                return;
+            }
+            crate::settings::AudioMixerViewMode::Strip => {}
+        }
         egui::ScrollArea::vertical()
             .id_salt("audio_mixer_scroll")
             .max_height(body_size.y)
@@ -3171,9 +4607,10 @@ fn render_audio_mixer_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) 
     });
 
     regions.with_footer(ui, |ui| {
-        let refresh_btn = crate::ui::button_3d::Button3D::new("Refresh")
+        let refresh_label = dock_button_label(ui.available_width(), "Refresh", "Sync");
+        let refresh_btn = crate::ui::button_3d::Button3D::new(refresh_label)
             .icon(icons::REFRESH)
-            .min_size(Vec2::new(72.0, 24.0))
+            .min_size(Vec2::new(0.0, 24.0))
             .tooltip("Rescan Windows WASAPI audio playback and microphone devices");
 
         if ui.add(refresh_btn).clicked() {
@@ -3182,12 +4619,16 @@ fn render_audio_mixer_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) 
 
         let both_muted =
             app.audio_mixer.desktop_audio.muted && app.audio_mixer.microphone.muted;
-        let mute_all_label = if both_muted { "Unmute All" } else { "Mute All" };
+        // "Unmute All" is two characters longer than "Mute All", so in a narrow panel the label has
+        // to shorten to the verb alone — the icon already says which direction it toggles.
+        let mute_long = if both_muted { "Unmute All" } else { "Mute All" };
+        let mute_short = if both_muted { "Unmute" } else { "Mute" };
+        let mute_all_label = dock_button_label(ui.available_width(), mute_long, mute_short);
         let mute_all_icon = if both_muted { icons::VOLUME } else { icons::VOLUME_OFF };
 
         let mute_btn = crate::ui::button_3d::Button3D::new(mute_all_label)
             .icon(mute_all_icon)
-            .min_size(Vec2::new(82.0, 24.0))
+            .min_size(Vec2::new(0.0, 24.0))
             .tooltip("Mute or unmute all audio channels");
 
         if ui.add(mute_btn).clicked() {
@@ -3197,13 +4638,15 @@ fn render_audio_mixer_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) 
         }
 
         let reset_btn = crate::ui::button_3d::Button3D::new("Reset")
-            .min_size(Vec2::new(52.0, 24.0))
+            .min_size(Vec2::new(0.0, 24.0))
             .tooltip("Reset audio channel levels to default");
 
         if ui.add(reset_btn).clicked() {
             app.audio_mixer.reset_levels();
         }
     });
+
+    Some(card_rect)
 }
 
 fn render_audio_channel_strip(
@@ -3262,12 +4705,18 @@ fn render_audio_channel_strip(
                 } else {
                     format!("{:>3}% ({:+.1}dB)", pct, db)
                 };
-                ui.label(
-                    RichText::new(db_str)
-                        .size(10.5)
-                        .monospace()
-                        .color(p.text_secondary),
-                );
+                // The numeric readout is the first thing to go when the strip is squeezed: the
+                // fader's own tooltip carries the same number, and a clipped readout would only
+                // push the fader into an unusable width.
+                let show_db = ui.available_width() >= MIXER_DB_READOUT_MIN_W;
+                if show_db {
+                    ui.label(
+                        RichText::new(db_str)
+                            .size(10.5)
+                            .monospace()
+                            .color(p.text_secondary),
+                    );
+                }
 
                 let rem_w = (ui.available_width() - 6.0).clamp(48.0, 140.0);
                 ui.scope(|ui| {
@@ -3553,12 +5002,16 @@ fn render_source_audio_strip(
                 } else {
                     format!("{:>3}% ({:+.1}dB)", pct, db)
                 };
-                ui.label(
-                    RichText::new(db_str)
-                        .size(10.5)
-                        .monospace()
-                        .color(p.text_secondary),
-                );
+                // Same rule as the global bus strips: the readout yields before the fader does.
+                let show_db = ui.available_width() >= MIXER_DB_READOUT_MIN_W;
+                if show_db {
+                    ui.label(
+                        RichText::new(db_str)
+                            .size(10.5)
+                            .monospace()
+                            .color(p.text_secondary),
+                    );
+                }
 
                 let rem_w = (ui.available_width() - 6.0).clamp(42.0, 120.0);
                 ui.scope(|ui| {
@@ -3633,14 +5086,16 @@ fn render_source_audio_strip(
     changed
 }
 
-fn render_recording_controls_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) {
+/// Returns the card's outer rect so the caller can attach a width splitter to its right edge.
+fn render_recording_controls_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) -> Option<Rect> {
     let p = ThemePalette::for_mode(app.settings.theme);
-    let regions = paint_and_split_dock_card(ui, &p, size);
+    let (regions, card_rect) = paint_and_split_dock_card(ui, &p, size);
 
     regions.with_header(ui, |ui| {
         ui.label(
-            RichText::new("Controls")
-                .size(12.0)
+            RichText::new("CONTROLS")
+                .size(13.5)
+                .strong()
                 .color(p.text_primary),
         );
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -3789,18 +5244,22 @@ fn render_recording_controls_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size:
     });
 
     regions.with_footer(ui, |ui| {
-        let open_btn = crate::ui::button_3d::Button3D::new("Open Folder")
+        // Three buttons in the narrowest default panel, so the labels shorten early rather than
+        // letting the last button clip. Every short form keeps the icon that identifies it.
+        let open_label = dock_button_label(ui.available_width(), "Open Folder", "Folder");
+        let open_btn = crate::ui::button_3d::Button3D::new(open_label)
             .icon(icons::FOLDER_OPEN)
-            .min_size(Vec2::new(90.0, 24.0))
+            .min_size(Vec2::new(0.0, 24.0))
             .tooltip("Open output directory in Windows Explorer");
 
         if ui.add(open_btn).clicked() {
             let _ = crate::platform::open_folder_in_explorer(&app.settings.output_directory);
         }
 
-        let lib_btn = crate::ui::button_3d::Button3D::new("Library")
+        let lib_label = dock_button_label(ui.available_width(), "Library", "Lib");
+        let lib_btn = crate::ui::button_3d::Button3D::new(lib_label)
             .icon(icons::MOVIE)
-            .min_size(Vec2::new(72.0, 24.0))
+            .min_size(Vec2::new(0.0, 24.0))
             .selected(app.settings.panels.show_library_drawer)
             .tooltip("Open Recording Library drawer");
 
@@ -3815,11 +5274,363 @@ fn render_recording_controls_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size:
 
         let vcam_btn = crate::ui::button_3d::Button3D::new("VCam")
             .icon(icons::SETTINGS)
-            .min_size(Vec2::new(65.0, 24.0))
+            .min_size(Vec2::new(0.0, 24.0))
             .tooltip("Virtual Camera Settings (Output Type: Program, Preview, Scene)");
 
         if ui.add(vcam_btn).clicked() {
             app.open_virtual_camera_dialog();
         }
     });
+
+    Some(card_rect)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        dock_button_label, dock_panel_min_w, icons, mixer_row_layout, resolve_dock_column_widths,
+        truncate_to_width, MixerChannel, ThemePalette, DOCK_PANEL_MIN_W, SCENE_NAME_CHAR_W,
+    };
+    use crate::settings::ThemeMode;
+    use egui::Color32;
+
+    fn widths(weights: [f32; 4], visible: [bool; 4], usable_w: f32) -> Vec<f32> {
+        let mut w = weights;
+        resolve_dock_column_widths(&mut w, visible, usable_w)
+    }
+
+    /// The default weights must reproduce the old equal split, so upgrading users see no change.
+    #[test]
+    fn equal_weights_split_the_dock_evenly() {
+        let w = widths([1.0; 4], [true; 4], 1200.0);
+        assert_eq!(w.len(), 4);
+        for col in &w {
+            assert!((col - 300.0).abs() < 0.01);
+        }
+    }
+
+    /// Weights scale proportionally: a panel with twice the weight of another gets twice the width.
+    ///
+    /// The budget is wide enough for every panel's floor, so nothing has to give way and the split
+    /// is purely proportional.
+    #[test]
+    fn weights_are_normalized_proportionally() {
+        let w = widths([2.0, 1.0, 1.0, 1.0], [true; 4], 2000.0);
+        assert!((w[0] - 800.0).abs() < 0.01);
+        assert!((w[1] - 400.0).abs() < 0.01);
+    }
+
+    /// A panel's floor outranks its proportional share.
+    ///
+    /// With a 1000 px dock the weights `[2, 1, 1, 1]` would hand the Audio Mixer only 200 px,
+    /// which is less than its 240 px floor. The floor wins: the mixer keeps what it needs and the
+    /// surplus is taken from the panel that has the most room to spare.
+    #[test]
+    fn a_panel_floor_wins_over_a_proportional_share() {
+        let w = widths([2.0, 1.0, 1.0, 1.0], [true; 4], 1000.0);
+        let mixer_floor = dock_panel_min_w(2);
+        assert!(
+            w[2] >= mixer_floor - 0.01,
+            "Audio Mixer got {} px, below its floor of {mixer_floor} px",
+            w[2]
+        );
+        for (idx, col) in w.iter().enumerate() {
+            assert!(
+                *col >= dock_panel_min_w(idx) - 0.01,
+                "panel {idx} is {col} px, below its floor"
+            );
+        }
+        assert!((w.iter().sum::<f32>() - 1000.0).abs() < 0.01);
+    }
+
+    /// Hiding a panel hands its share to the remaining ones instead of leaving a gap in the dock.
+    #[test]
+    fn hidden_panels_redistribute_their_share() {
+        let w = widths([1.0; 4], [true, true, false, false], 1000.0);
+        assert_eq!(w.len(), 2);
+        assert!((w.iter().sum::<f32>() - 1000.0).abs() < 0.01);
+        assert!((w[0] - 500.0).abs() < 0.01);
+    }
+
+    /// The columns never exceed the space the dock was given. When the per-panel floors cannot all
+    /// fit (four panels on a narrow window), the row is scaled down as a whole rather than
+    /// overflowing and pushing the last card off-screen where it cannot be reached.
+    #[test]
+    fn clamped_columns_still_fit_the_available_width() {
+        let w = widths([1.0; 4], [true; 4], 400.0);
+        let total: f32 = w.iter().sum();
+        assert!(
+            total <= 400.01,
+            "columns overflowed the dock: {}",
+            total
+        );
+        assert!(w.iter().all(|c| *c > 0.0));
+    }
+
+    /// A dragged boundary must be preserved: the weights passed in are never rewritten by the
+    /// resolver, so the user's split survives every frame it is recomputed on.
+    #[test]
+    fn resolver_does_not_mutate_valid_weights() {
+        let mut weights = [2.0, 1.0, 1.0, 1.0];
+        resolve_dock_column_widths(&mut weights, [true; 4], 1000.0);
+        assert_eq!(weights, [2.0, 1.0, 1.0, 1.0]);
+    }
+
+    /// When four minimum-width panels cannot all fit, they are scaled down together instead of
+    /// overflowing: an off-screen card would be unreachable, a cramped one still is not.
+    #[test]
+    fn columns_are_scaled_down_when_the_minimums_do_not_fit() {
+        let w = widths([1.0; 4], [true; 4], 200.0);
+        let total: f32 = w.iter().sum();
+        assert!(
+            (total - 200.0).abs() < 0.01,
+            "columns did not fit the dock: {}",
+            total
+        );
+        for col in &w {
+            assert!(*col > 0.0);
+        }
+    }
+
+    /// A zero or negative weight (from a hand-edited config file) is repaired rather than allowed to
+    /// collapse a panel to zero width, which would make its splitter impossible to grab again.
+    #[test]
+    fn invalid_weights_are_repaired() {
+        let w = widths([0.0, -5.0, f32::NAN, 1.0], [true; 4], 800.0);
+        for (idx, col) in w.iter().enumerate() {
+            assert!(
+                *col >= dock_panel_min_w(idx) - 0.01,
+                "panel {idx} was repaired below its own floor: {col}"
+            );
+            assert!(col.is_finite());
+        }
+    }
+
+    /// Each panel is held to its own floor, not to one shared number: a card whose contents need
+    /// more room must not be squeezed down to the same width as a card holding two small buttons.
+    #[test]
+    fn each_panel_respects_its_own_floor() {
+        // A budget wide enough for the floors, but with weights that would crush every panel.
+        let w = widths([1.0; 4], [true; 4], 800.0);
+        let floors = [
+            dock_panel_min_w(0),
+            dock_panel_min_w(1),
+            dock_panel_min_w(2),
+            dock_panel_min_w(3),
+        ];
+        for (idx, col) in w.iter().enumerate() {
+            assert!(
+                *col >= floors[idx] - 0.01,
+                "panel {idx} is {col} px, below its floor of {} px",
+                floors[idx]
+            );
+        }
+    }
+
+    /// Hiding a panel must not let the remaining ones inherit the hidden one's floor, and the
+    /// visible panels still have to fit their budget.
+    #[test]
+    fn hidden_panels_do_not_leak_their_floor() {
+        let w = widths([1.0; 4], [true, false, false, false], 400.0);
+        assert_eq!(w.len(), 1);
+        // The Scenes panel keeps its own floor even when it is the only one left.
+        assert!(w[0] >= dock_panel_min_w(0) - 0.01);
+        assert!((w.iter().sum::<f32>() - 400.0).abs() < 0.01);
+    }
+
+    /// A wide panel has room for the full label; nothing is shortened needlessly.
+    #[test]
+    fn full_label_is_kept_when_there_is_room() {
+        assert_eq!(dock_button_label(400.0, "Properties", "Props"), "Properties");
+        assert_eq!(dock_button_label(400.0, "Add Source", "Add"), "Add Source");
+    }
+
+    /// A narrow panel gets the short form instead of a label that would be clipped away.
+    #[test]
+    fn label_shortens_in_a_narrow_panel() {
+        assert_eq!(dock_button_label(70.0, "Properties", "Props"), "Props");
+        assert_eq!(dock_button_label(60.0, "Open Folder", "Folder"), "Folder");
+    }
+
+    /// Even a panel squeezed to the minimum still shows a usable label rather than an empty string.
+    #[test]
+    fn label_never_disappears_at_the_minimum_width() {
+        for (long, short) in [
+            ("Add Source", "Add"),
+            ("Properties", "Props"),
+            ("Filters", "Filter"),
+            ("Duplicate", "Dupe"),
+            ("Open Folder", "Folder"),
+            ("Library", "Lib"),
+            ("Refresh", "Sync"),
+        ] {
+            assert!(
+                !dock_button_label(DOCK_PANEL_MIN_W, long, short).is_empty(),
+                "label for {long} vanished at the minimum panel width"
+            );
+        }
+    }
+
+    /// The short form must actually save room, otherwise shortening would not help the panel fit.
+    #[test]
+    fn short_labels_are_strictly_shorter_than_long_ones() {
+        for (long, short) in [
+            ("Add Source", "Add"),
+            ("Properties", "Props"),
+            ("Filters", "Filter"),
+            ("Duplicate", "Dupe"),
+            ("Open Folder", "Folder"),
+            ("Library", "Lib"),
+            ("Refresh", "Sync"),
+        ] {
+            assert!(
+                short.chars().count() < long.chars().count(),
+                "\"{short}\" is not shorter than \"{long}\""
+            );
+        }
+    }
+
+    /// A scene name is truncated by the space that is actually left, not by a character count.
+    #[test]
+    fn scene_name_is_truncated_by_available_width() {
+        // Wide enough for the whole name: nothing is cut.
+        assert_eq!(truncate_to_width("Opening Titles", 200.0, 6.4), "Opening Titles");
+        // Too narrow: the name is shortened and marked as truncated.
+        let short = truncate_to_width("Opening Titles", 50.0, 6.4);
+        assert!(short.ends_with('…'), "truncated name lost its ellipsis: {short}");
+        assert!(short.chars().count() < "Opening Titles".chars().count());
+        // No room at all: nothing is drawn rather than a broken one-character name.
+        assert_eq!(truncate_to_width("Opening Titles", 0.0, 6.4), "");
+    }
+
+    /// The truncated name must never be wider than the space it was given.
+    #[test]
+    fn truncated_name_never_exceeds_its_budget() {
+        let name = "A Very Long Scene Name That Will Not Fit";
+        for max_w in [12.0, 30.0, 64.0, 128.0] {
+            let t = truncate_to_width(name, max_w, SCENE_NAME_CHAR_W);
+            let est_w = t.chars().count() as f32 * SCENE_NAME_CHAR_W;
+            assert!(
+                est_w <= max_w + SCENE_NAME_CHAR_W,
+                "\"{t}\" is ~{est_w} px wide, over its {max_w} px budget"
+            );
+        }
+    }
+
+    /// The compact mixer rows have to fill their width exactly.
+    ///
+    /// Every row shares one geometry, so the faders of all rows start at the same x. The geometry
+    /// has to add up to the width of the row: any less and the columns drift apart, any more and
+    /// the fader is pushed out of the panel.
+    #[test]
+    fn mixer_rows_fill_their_width_exactly() {
+        let mut muted_a = false;
+        let mut vol_a = 0.5_f32;
+        let mut muted_b = false;
+        let mut vol_b = 0.8_f32;
+        let mut muted_c = false;
+        let mut vol_c = 0.2_f32;
+        let mut playing = true;
+        let channels = vec![
+            MixerChannel {
+                name: "Desktop Audio".to_owned(),
+                icon: icons::VOLUME,
+                icon_off: icons::VOLUME_OFF,
+                tags: [None, None],
+                muted: &mut muted_a,
+                volume: &mut vol_a,
+                is_playing: None,
+                level: 0.0,
+                peak_hold: 0.0,
+                changed: false,
+                transport_changed: false,
+            },
+            MixerChannel {
+                name: "A Very Long Microphone Name".to_owned(),
+                icon: icons::MICROPHONE,
+                icon_off: icons::MICROPHONE_OFF,
+                tags: [Some(("IN", Color32::GRAY)), Some(("PGM", Color32::GREEN))],
+                muted: &mut muted_b,
+                volume: &mut vol_b,
+                is_playing: None,
+                level: 0.0,
+                peak_hold: 0.0,
+                changed: false,
+                transport_changed: false,
+            },
+            MixerChannel {
+                name: "Media".to_owned(),
+                icon: icons::VOLUME,
+                icon_off: icons::VOLUME_OFF,
+                tags: [None, None],
+                muted: &mut muted_c,
+                volume: &mut vol_c,
+                is_playing: Some(&mut playing),
+                level: 0.0,
+                peak_hold: 0.0,
+                changed: false,
+                transport_changed: false,
+            },
+        ];
+
+        egui::__run_test_ui(|ui| {
+            let p = ThemePalette::for_mode(ThemeMode::Dark);
+            for row_w in [240.0_f32, 330.0, 400.0, 720.0] {
+                let lay = mixer_row_layout(ui, &p, &channels, row_w);
+                let total = lay.total_w();
+                assert!(
+                    (total - row_w).abs() < 0.5,
+                    "a {row_w} px row was filled with {total} px of columns"
+                );
+                assert!(lay.name_w >= 0.0 && lay.fader_w >= 0.0);
+            }
+        });
+    }
+
+    /// The transport button and the tags get a slot in every row, even in the rows that do not
+    /// use them — otherwise a media channel would push its fader out of line with the others.
+    #[test]
+    fn mixer_rows_reserve_a_slot_for_every_column() {
+        let mut muted_a = false;
+        let mut vol_a = 0.5_f32;
+        let mut muted_b = false;
+        let mut vol_b = 0.8_f32;
+        let mut playing = true;
+        let channels = vec![
+            MixerChannel {
+                name: "Desktop Audio".to_owned(),
+                icon: icons::VOLUME,
+                icon_off: icons::VOLUME_OFF,
+                tags: [None, None],
+                muted: &mut muted_a,
+                volume: &mut vol_a,
+                is_playing: None,
+                level: 0.0,
+                peak_hold: 0.0,
+                changed: false,
+                transport_changed: false,
+            },
+            MixerChannel {
+                name: "Media".to_owned(),
+                icon: icons::VOLUME,
+                icon_off: icons::VOLUME_OFF,
+                tags: [Some(("APP", Color32::GRAY)), Some(("PRV", Color32::BLUE))],
+                muted: &mut muted_b,
+                volume: &mut vol_b,
+                is_playing: Some(&mut playing),
+                level: 0.0,
+                peak_hold: 0.0,
+                changed: false,
+                transport_changed: false,
+            },
+        ];
+
+        egui::__run_test_ui(|ui| {
+            let p = ThemePalette::for_mode(ThemeMode::Dark);
+            let lay = mixer_row_layout(ui, &p, &channels, 480.0);
+            assert!(lay.transport_w > 0.0, "the media channel has no transport slot");
+            assert_eq!(lay.tag_slots, 2, "the two tags of the media channel are not reserved");
+            assert!(lay.tag_w > 0.0);
+        });
+    }
 }

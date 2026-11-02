@@ -1,6 +1,6 @@
 [package]
 name = "nexora-studio"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2021"
 authors = ["NEXORA Studio Contributors"]
 description = "Compact, modern native desktop screen recording studio for Windows"
@@ -9,11 +9,14 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 eframe = { version = "0.31", default-features = false, features = [
     "default_fonts",
-    "glow",
     "persistence",
     "wgpu",
 ] }
 egui = "0.31"
+# Declared so `wgpu`'s DirectX 12 backend is compiled in as the native fallback next to Vulkan
+# (eframe only asks for `metal`/`webgpu`). The OpenGL backend is deliberately left out: it resolves
+# to the Intel OpenGL driver, which faulted when the Projector opened a second window.
+wgpu = { version = "24", default-features = false, features = ["dx12"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 chrono = { version = "0.4", features = ["serde"] }

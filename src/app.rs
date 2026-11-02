@@ -2196,7 +2196,7 @@ impl eframe::App for NexoraApp {
         }
     }
 
-    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+    fn on_exit(&mut self) {
         if let Some(mut writer) = self.active_mp4_writer.take() {
             writer.stop();
         }

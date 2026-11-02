@@ -1113,7 +1113,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                 ui.add_space(6.0);
                                                 ui.vertical(|ui| {
                                                     ui.label(RichText::new("NEXORA Studio - Your Easy Studio").size(14.5).strong());
-                                                    ui.label(RichText::new("Version v0.6.0 (Native Windows 64-bit)").size(11.5).color(p.text_secondary));
+                                                    ui.label(RichText::new("Version v0.7.0 (Native Windows 64-bit)").size(11.5).color(p.text_secondary));
                                                 });
                                             });
 

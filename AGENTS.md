@@ -17,6 +17,8 @@ Sebelum melakukan perubahan kode, **baca peta arsitektur lengkap di [`ARCHITECTU
      cargo build
      ```
    - Lokasi binary: `D:\Rust\.nexora-target\debug\nexora-studio.exe`.
+   - **Backend Renderer Dikunci ke Vulkan / DirectX 12 — OpenGL Dilarang:** [`src/main.rs`](file:///d:/Rust/Nexora%20Studio/src/main.rs) menyetel `renderer: eframe::Renderer::Wgpu`, `instance_descriptor.backends = VULKAN | DX12`, serta `power_preference = HighPerformance`. Fitur `glow` sengaja **tidak** dipakai di `Cargo.toml`, dan crate `wgpu` dideklarasikan langsung (`features = ["dx12"]`) agar backend DirectX 12 ikut terkompilasi sebagai cadangan Vulkan.
+   - Alasan larangan OpenGL: jalur OpenGL (backend `gles` milik `wgpu` maupun `glow`) selalu bermuara ke driver OpenGL Intel (`igxelpicd64.dll`, build 32.0.101.5972), yang melaporkan **Access Violation `0xc0000005`** ke Windows Event Log dan mematikan seluruh proses tanpa dialog ketika **Program Projector** meminta window/surface kedua. Jangan pernah mengembalikan `Backends::GL` atau fitur `glow` selama projector masih membuat window terpisah.
 
 2. **Sistem Ikon & Font Offline (Tabler Icons, Rubik, Exo):**
    - Seluruh 5.936 ikon **Tabler Icons** sudah diunduh secara offline di [`assets/icons/`](file:///d:/Rust/Nexora%20Studio/assets/icons) (`tabler-icons.ttf`, `tabler-sprite.svg`, `tabler-icons-codepoints.json`) dan di-*embed* melalui [`src/ui/icons.rs`](file:///d:/Rust/Nexora%20Studio/src/ui/icons.rs).
@@ -57,6 +59,14 @@ Sebelum melakukan perubahan kode, **baca peta arsitektur lengkap di [`ARCHITECTU
        - Teks penjelasan panjang / dokumentasi teknis parameter wajib ditempatkan di dalam collapsible toggle (`icons::CHEVRON_DOWN` / `icons::CHEVRON_UP` `Filter Guide & Tuning Tips`) yang default tertutup, sehingga jendela modal tetap ringkas, bersih, dan tidak memakan ruang vertikal layar.
    - **Audio Media Hanya Aktif Saat Live (`Program`):**
      - Suara dari `MediaSource` hanya boleh diputar ketika scene sudah ditransisikan ke **Program (`LIVE`)**, bukan saat baru disiapkan di Preview.
+   - **Gaya Tampilan Audio Mixer Dapat Diganti (`Strips` / `List` / `Columns`):**
+     - Panel `Audio Mixer` menyediakan pemilih gaya di header (ikon `icons::LAYOUT_GRID`), dan gaya aktif tersimpan di `settings.audio_mixer_view_mode` (`AudioMixerViewMode`) agar bertahan antar restart:
+       - **`Strips`** — blok penuh per kanal (fader, pemilih device, meter)._roomiest, satu-satunya gaya yang memuat pemilih device.
+       - **`List`** — satu baris ringkas per kanal: MUTE, nama, tag `IN`/`OUT`/`APP` + `PGM`/`PRV`, fader horizontal, readout %.
+       - **`Columns`** — kolom vertikal berdiri berjejer ke kanan (nama, tag, fader vertikal, readout %, tombol mute), digeser horizontal.
+     - Ketiga gaya **wajib memakai urutan kanal yang sama** (2 bus global → bus per source audio capture → media source) agar channels tidak berpindah urutan saat berganti gaya.
+     - **Kolom `List` wajib presisi sejajar:** semua baris memakai satu `MixerRowLayout` yang sama (dihitung sekali di `mixer_row_layout`), dan tiap kolom **direservasi eksak** lewat `ui.allocate_exact_size` — teks nama **wajib dilukis manual** (`paint_single_line_text`), **bukan** lewat `egui::Label`/`add_sized`, karena label hanya memakan lebar sesuai teksnya sehingga fader antar baris tidak lurus.
+     - Slot `transport` (Play/Pause) dan slot tag **wajib direservasi di semua baris** (meskipun baris tertentu tidak memakainya) supaya fader antar baris tetap lurus; tag yang tidak muat harus **dibuang serempak untuk semua baris** (bukan sebagian), jika tidak alignment fader rusak.
    - **Per-Source Audio Bus (OBS-Style) & Isolasi dari Mixer Global:**
      - Setiap source audio (`Audio Input Capture`, `Audio Output Capture`, `Application Audio Capture`) yang ada di Preview/Program wajib punya **bus mixer sendiri** (baris penuh di panel `Audio Mixer`: MUTE, badge `IN`/`OUT`/`APP`, badge `PGM`/`PRV`, pemilih device, fader, dB, meter).
      - **Mute pada `Mic / Aux` atau `Desktop Audio` TIDAK BOLEH** menyenyapkan bus source, dan sebaliknya. Setiap bus punya gain & mute terpisah.
