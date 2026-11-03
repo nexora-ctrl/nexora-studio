@@ -302,7 +302,7 @@ mod tests {
 
         let updater = UpdaterState::default();
         assert_eq!(updater.status, UpdateStatus::Idle);
-        assert_eq!(updater.current_version, "0.7.0");
+        assert_eq!(updater.current_version, "0.8.0");
     }
 
     #[test]

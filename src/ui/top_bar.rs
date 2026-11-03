@@ -48,7 +48,7 @@ pub fn render_top_bar(ctx: &egui::Context, app: &mut NexoraApp) {
                         .color(p.text_primary),
                 );
                 ui.label(
-                    RichText::new("v0.7")
+                    RichText::new("v0.8")
                         .size(11.8)
                         .color(p.text_muted),
                 );
