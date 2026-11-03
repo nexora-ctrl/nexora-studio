@@ -382,6 +382,25 @@ impl StudioState {
         false
     }
 
+    /// Moves a scene to `target_slot` in the panel list (drag-and-drop reordering).
+    ///
+    /// The list is only the display order of the scene strip: LIVE / PREVIEW selection travels
+    /// with the scene id, so reordering never changes which scene is on air. Returns `true` when
+    /// the order actually changed.
+    pub fn move_scene_to_slot(&mut self, scene_id: Uuid, target_slot: usize) -> bool {
+        let Some(idx) = self.scenes.iter().position(|s| s.id == scene_id) else {
+            return false;
+        };
+        // Clamp *before* removing, so a drop below the last row really means "bottom-most".
+        let insert_at = target_slot.min(self.scenes.len().saturating_sub(1));
+        if insert_at == idx {
+            return false;
+        }
+        let scene = self.scenes.remove(idx);
+        self.scenes.insert(insert_at, scene);
+        true
+    }
+
     pub fn has_pending_preview_changes(&self) -> bool {
         if self.auto_sync_program {
             return false;
@@ -403,6 +422,75 @@ impl StudioState {
             }
         }
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn studio_with(names: &[&str]) -> StudioState {
+        let mut studio = StudioState::default();
+        studio.scenes.clear();
+        for name in names {
+            studio.scenes.push(Scene::new(*name));
+        }
+        studio.preview_scene_id = studio.scenes[0].id;
+        studio.program_scene_id = studio.scenes[0].id;
+        studio
+    }
+
+    fn order(studio: &StudioState) -> Vec<&str> {
+        studio.scenes.iter().map(|s| s.name.as_str()).collect()
+    }
+
+    #[test]
+    fn move_scene_to_slot_reorders_scene_strip() {
+        let mut studio = studio_with(&["A", "B", "C", "D"]);
+        let b_id = studio.scenes[1].id;
+
+        // Drag B below D: the slot is counted without the dragged scene.
+        assert!(studio.move_scene_to_slot(b_id, 3));
+        assert_eq!(order(&studio), vec!["A", "C", "D", "B"]);
+
+        // Drag B back to the top of the strip.
+        assert!(studio.move_scene_to_slot(b_id, 0));
+        assert_eq!(order(&studio), vec!["B", "A", "C", "D"]);
+    }
+
+    #[test]
+    fn move_scene_to_same_slot_is_a_noop() {
+        let mut studio = studio_with(&["A", "B", "C"]);
+        let c_id = studio.scenes[2].id;
+        assert!(!studio.move_scene_to_slot(c_id, 2));
+        assert!(!studio.move_scene_to_slot(c_id, 99));
+        assert_eq!(order(&studio), vec!["A", "B", "C"]);
+    }
+
+    #[test]
+    fn move_unknown_scene_is_rejected() {
+        let mut studio = studio_with(&["A", "B"]);
+        assert!(!studio.move_scene_to_slot(Uuid::new_v4(), 0));
+        assert_eq!(order(&studio), vec!["A", "B"]);
+    }
+
+    #[test]
+    fn reordering_scenes_keeps_live_and_preview_selection() {
+        let mut studio = studio_with(&["A", "B", "C"]);
+        // Linked mode resolves LIVE from the list by id, which is exactly the guarantee under test.
+        studio.auto_sync_program = true;
+        let preview_id = studio.scenes[0].id;
+        let program_id = studio.scenes[2].id;
+        studio.preview_scene_id = preview_id;
+        studio.program_scene_id = program_id;
+
+        // Move the LIVE scene (C) to the front: nothing must go on/off air.
+        assert!(studio.move_scene_to_slot(program_id, 0));
+        assert_eq!(studio.preview_scene_id, preview_id);
+        assert_eq!(studio.program_scene_id, program_id);
+        assert_eq!(studio.scenes[0].id, program_id);
+        assert_eq!(studio.preview_scene().id, preview_id);
+        assert_eq!(studio.program_scene().id, program_id);
     }
 }
 

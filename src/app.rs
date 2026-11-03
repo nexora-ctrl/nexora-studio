@@ -75,6 +75,22 @@ pub struct SourceDragGrab {
     pub grip_offset_y: f32,
 }
 
+/// A pointer grab on a `Scenes` panel card, used for drag-and-drop reordering.
+///
+/// Scenes are a flat, purely visual list (the LIVE / PREVIEW selection travels with the scene id,
+/// not with its index), so a drop is just a move of the dragged scene to a new slot. Modelled like
+/// [`SourceDragGrab`]: a press that may still become a click (`scene_press`) and a confirmed drag
+/// (`scene_reorder_drag`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SceneDragGrab {
+    /// Scene currently held by the pointer.
+    pub scene_id: uuid::Uuid,
+    /// Index the scene held when the drag started (used to exclude it from the drop gap).
+    pub from_index: usize,
+    /// Pointer offset inside the row/card at press time, so the floating ghost keeps the grab point.
+    pub grip_offset_y: f32,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProjectorTarget {
     pub is_program: bool,
@@ -173,6 +189,10 @@ pub struct NexoraApp {
     pub source_press: Option<SourceDragGrab>,
     /// Active drag-and-drop reorder in the `Source` panel (`None` when no row is being dragged).
     pub source_reorder_drag: Option<SourceDragGrab>,
+    /// Card pressed in the `Scenes` panel: still a click until the pointer moves far enough.
+    pub scene_press: Option<SceneDragGrab>,
+    /// Active drag-and-drop reorder in the `Scenes` panel (`None` when nothing is being dragged).
+    pub scene_reorder_drag: Option<SceneDragGrab>,
     pub virtual_camera_active: bool,
     pub virtual_camera_service: Option<crate::virtual_camera::VirtualCameraService>,
     pub virtual_camera_output_type: VirtualCameraOutputType,
@@ -351,6 +371,8 @@ impl NexoraApp {
             copied_source: None,
             source_press: None,
             source_reorder_drag: None,
+            scene_press: None,
+            scene_reorder_drag: None,
             virtual_camera_active: false,
             virtual_camera_service: None,
             virtual_camera_output_type: VirtualCameraOutputType::Program,

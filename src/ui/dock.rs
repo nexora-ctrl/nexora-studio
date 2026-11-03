@@ -688,6 +688,223 @@ fn draw_dock_column_splitter(
 }
 
 /// Returns the card's outer rect so the caller can attach a width splitter to its right edge.
+/// Pointer travel (px) required before a press on a scene card turns into a reorder drag, so a
+/// plain click still only opens the scene in Preview.
+const SCENE_DRAG_THRESHOLD: f32 = 4.0;
+
+/// Resolves the `Scenes` panel drag-and-drop gesture for one frame.
+///
+/// Returns the `(scene_id, slot)` drop that has to be applied, and paints the live feedback while
+/// the drag is still in progress: the insertion indicator plus the floating ghost card that follows
+/// the pointer. The card left behind is faded by the caller.
+///
+/// `cards` must list every visible card in display order (`(scene_id, rect)`), which is what makes
+/// the drop slot resolvable even when the pointer leaves the grabbed card.
+#[allow(clippy::too_many_arguments)]
+fn resolve_scene_drag(
+    ui: &mut egui::Ui,
+    app: &mut NexoraApp,
+    cards: &[(uuid::Uuid, egui::Rect)],
+    pointer_pos: Option<Pos2>,
+    pointer_down: bool,
+    grid: bool,
+    ghost_label: Option<(String, String)>,
+    p: &ThemePalette,
+) -> Option<(uuid::Uuid, usize)> {
+    // --- Phase 1: a press only becomes a drag once the pointer clearly moves -----------------
+    if let Some(press) = app.scene_press {
+        let press_origin = ui.ctx().input(|i| i.pointer.press_origin());
+        let moved = match (press_origin, pointer_pos) {
+            (Some(origin), Some(pos)) => (pos - origin).length(),
+            // Fallback when the origin is already gone: distance from the grab point.
+            (_, Some(pos)) => cards
+                .get(press.from_index)
+                .map(|(_, r)| (pos.y - (r.top() + press.grip_offset_y)).abs())
+                .unwrap_or(0.0),
+            _ => 0.0,
+        };
+        if !pointer_down {
+            app.scene_press = None;
+        } else if moved > SCENE_DRAG_THRESHOLD && app.scene_reorder_drag.is_none() {
+            app.scene_reorder_drag = Some(press);
+        }
+    }
+
+    // --- Phase 2: live feedback, then the drop on release ------------------------------------
+    let Some(drag) = app.scene_reorder_drag else {
+        return None;
+    };
+    // The list can change mid-drag (scene added/deleted, view mode switched), so the drag is only
+    // honoured while the grabbed card is still where it was picked up.
+    let grabbed_ok = cards
+        .get(drag.from_index)
+        .map(|(id, _)| *id == drag.scene_id)
+        .unwrap_or(false);
+    if !grabbed_ok {
+        app.scene_reorder_drag = None;
+        app.scene_press = None;
+        return None;
+    }
+    let Some(pointer_pos) = pointer_pos else {
+        if !pointer_down {
+            // Pointer left the window on release: cancel instead of guessing a slot.
+            app.scene_reorder_drag = None;
+            app.scene_press = None;
+        }
+        return None;
+    };
+
+    // Cards in display order, without the dragged one.
+    let others: Vec<egui::Rect> = cards
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| *i != drag.from_index)
+        .map(|(_, (_, r))| *r)
+        .collect();
+    let slot = if grid {
+        // Reading order: cards sitting in the pointer's row to its left, plus every card above it.
+        let band = others.first().map(|r| r.height() * 0.5).unwrap_or(0.0);
+        others
+            .iter()
+            .filter(|r| {
+                let c = r.center();
+                if (c.y - pointer_pos.y).abs() <= band {
+                    c.x < pointer_pos.x
+                } else {
+                    c.y < pointer_pos.y
+                }
+            })
+            .count()
+    } else {
+        // Every row whose centre sits above the pointer has already been passed.
+        others.iter().filter(|r| r.center().y < pointer_pos.y).count()
+    };
+
+    if !pointer_down {
+        // Released: commit the drop.
+        app.scene_reorder_drag = None;
+        app.scene_press = None;
+        return Some((drag.scene_id, slot));
+    }
+
+    // --- Feedback: insertion indicator + floating ghost --------------------------------------
+    ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+    let accent = p.accent_preview;
+    let grabbed_rect = cards.get(drag.from_index).map(|(_, r)| *r);
+    let ghost_rect = if grid {
+        // Vertical indicator in the gap the card will fall into.
+        let (bar_x, bar_top, bar_bottom) = if slot < others.len() {
+            let r = others[slot];
+            (r.left() - 3.0, r.top(), r.bottom())
+        } else if let Some(r) = others.last() {
+            (r.right() + 3.0, r.top(), r.bottom())
+        } else {
+            (pointer_pos.x, pointer_pos.y - 24.0, pointer_pos.y + 24.0)
+        };
+        ui.painter()
+            .vline(bar_x, bar_top..=bar_bottom, Stroke::new(2.0_f32, accent));
+        let size = grabbed_rect
+            .map(|r| r.size())
+            .unwrap_or(Vec2::new(140.0, 90.0));
+        Rect::from_min_size(
+            Pos2::new(
+                pointer_pos.x - size.x * 0.5,
+                pointer_pos.y - drag.grip_offset_y,
+            ),
+            size,
+        )
+    } else {
+        let x0 = cards.first().map(|(_, r)| r.left()).unwrap_or(0.0);
+        let x1 = cards.last().map(|(_, r)| r.right()).unwrap_or(0.0);
+        let gap_y = if slot < others.len() {
+            others[slot].top()
+        } else {
+            others.last().map(|r| r.bottom()).unwrap_or(pointer_pos.y)
+        };
+        ui.painter()
+            .hline(x0..=x1, gap_y, Stroke::new(2.0_f32, accent));
+        let h = grabbed_rect.map(|r| r.height()).unwrap_or(38.0);
+        Rect::from_min_size(
+            Pos2::new(x0, pointer_pos.y - drag.grip_offset_y),
+            Vec2::new((x1 - x0).max(120.0), h),
+        )
+    };
+
+    // The ghost: the card lifted off the list, still readable so the user knows what is moving.
+    let clip = ui.clip_rect().intersect(ghost_rect.expand(10.0));
+    let ghost = ui.painter().with_clip_rect(clip);
+    ghost.rect_filled(
+        ghost_rect.translate(Vec2::new(0.0, 3.0)),
+        CornerRadius::same(7),
+        Color32::from_black_alpha(80),
+    );
+    ghost.rect_filled(
+        ghost_rect,
+        CornerRadius::same(6),
+        Color32::from_rgba_unmultiplied(
+            p.bg_elevated.r(),
+            p.bg_elevated.g(),
+            p.bg_elevated.b(),
+            247,
+        ),
+    );
+    ghost.rect_stroke(
+        ghost_rect,
+        CornerRadius::same(6),
+        Stroke::new(1.4_f32, accent),
+        egui::StrokeKind::Inside,
+    );
+    ghost.rect_filled(
+        Rect::from_min_max(
+            ghost_rect.min,
+            Pos2::new(ghost_rect.min.x + 4.5, ghost_rect.max.y),
+        ),
+        CornerRadius {
+            nw: 6,
+            ne: 0,
+            sw: 6,
+            se: 0,
+        },
+        accent,
+    );
+    if let Some((name, subtitle)) = ghost_label {
+        let text_x = ghost_rect.min.x + 12.0;
+        if grid {
+            // Card layout: title above, layer count below, both centred in the card body.
+            ghost.text(
+                Pos2::new(text_x, ghost_rect.center().y - 7.0),
+                egui::Align2::LEFT_CENTER,
+                &name,
+                egui::FontId::proportional(11.0),
+                p.text_primary,
+            );
+            ghost.text(
+                Pos2::new(text_x, ghost_rect.center().y + 7.0),
+                egui::Align2::LEFT_CENTER,
+                &subtitle,
+                egui::FontId::proportional(9.0),
+                p.text_secondary,
+            );
+        } else {
+            ghost.text(
+                Pos2::new(text_x, ghost_rect.center().y - 6.0),
+                egui::Align2::LEFT_CENTER,
+                &name,
+                egui::FontId::proportional(12.0),
+                p.text_primary,
+            );
+            ghost.text(
+                Pos2::new(text_x, ghost_rect.center().y + 7.5),
+                egui::Align2::LEFT_CENTER,
+                &subtitle,
+                egui::FontId::proportional(9.5),
+                p.text_secondary,
+            );
+        }
+    }
+    None
+}
+
 fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) -> Option<Rect> {
     let p = ThemePalette::for_mode(app.settings.theme);
     let (regions, card_rect) = paint_and_split_dock_card(ui, &p, size);
@@ -800,6 +1017,9 @@ fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) -> Op
             .id_salt("scenes_scroll")
             .max_height(body_size.y)
             .auto_shrink([false, false])
+            // Drag inside the strip is a *reorder*, not a scroll gesture (wheel/scrollbar still
+            // work); leaving this on would swallow the drag before a card ever sees it.
+            .drag_to_scroll(false)
             .show(ui, |ui| {
                 let mut select_preview = None;
                 let mut transition_scene_to_live = None;
@@ -813,6 +1033,20 @@ fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) -> Op
                 let total_scenes = app.studio.scenes.len();
                 let is_grid_mode =
                     app.settings.scenes_view_mode == crate::settings::ScenesViewMode::Grid;
+
+                // Drag-and-drop reorder plumbing (shared by the List and Grid layouts): the card
+                // rects are collected while laying out, and the ghost label of the grabbed card is
+                // captured so the floating copy can be painted after the layout loop.
+                let mut scene_cards: Vec<(uuid::Uuid, egui::Rect)> =
+                    Vec::with_capacity(total_scenes);
+                let mut ghost_label: Option<(String, String)> = None;
+                let (pointer_pos, pressed_now) = ui.ctx().input(|i| {
+                    (
+                        i.pointer.interact_pos().or(i.pointer.hover_pos()),
+                        i.pointer.any_pressed() && i.pointer.primary_down(),
+                    )
+                });
+                let pointer_down = ui.ctx().input(|i| i.pointer.any_down());
 
                 if is_grid_mode {
                     // ========================================================
@@ -847,8 +1081,44 @@ fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) -> Op
                                     .allocate_exact_size(Vec2::new(col_w, card_h), Sense::click());
                                 let hovered = card_resp.hovered();
 
+                                // Reorder gesture bookkeeping: remember the card position (used to
+                                // resolve the drop slot) and arm a press that may become a drag.
+                                scene_cards.push((scene.id, card_rect));
+                                if pressed_now
+                                    && (card_resp.is_pointer_button_down_on()
+                                        || ui.rect_contains_pointer(card_rect))
+                                {
+                                    let grip_offset_y = pointer_pos
+                                        .map(|pos| {
+                                            (pos.y - card_rect.top())
+                                                .clamp(0.0, card_rect.height())
+                                        })
+                                        .unwrap_or(card_rect.height() * 0.5);
+                                    app.scene_press = Some(crate::app::SceneDragGrab {
+                                        scene_id: scene.id,
+                                        from_index: scene_cards.len() - 1,
+                                        grip_offset_y,
+                                    });
+                                }
+                                let is_dragging = app
+                                    .scene_reorder_drag
+                                    .map(|d| d.scene_id)
+                                    == Some(scene.id);
+
                                 // Theme-aware Card Fill & Stroke
-                                let (card_fill, border_stroke) = match (is_pgm, is_prv) {
+                                let (card_fill, border_stroke) = if is_dragging {
+                                    // The grabbed card fades out: its ghost is what the user sees.
+                                    (
+                                        Color32::from_rgba_unmultiplied(
+                                            p.accent_preview.r(),
+                                            p.accent_preview.g(),
+                                            p.accent_preview.b(),
+                                            14,
+                                        ),
+                                        Stroke::new(1.0_f32, p.border_subtle),
+                                    )
+                                } else {
+                                    match (is_pgm, is_prv) {
                                     (true, true) => (
                                         Color32::from_rgba_unmultiplied(
                                             p.accent_program.r(),
@@ -889,6 +1159,7 @@ fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) -> Op
                                         },
                                         Stroke::new(1.0_f32, p.border_subtle),
                                     ),
+                                    }
                                 };
 
                                 ui.painter().rect_filled(
@@ -1109,9 +1380,32 @@ fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) -> Op
                                     "{}\n• Click: Open in Preview\n• Double-Click: Transition to LIVE\n• Right-Click: Scene Options",
                                     scene.name
                                 ));
+
+                                if is_dragging {
+                                    ghost_label = Some((
+                                        scene.name.clone(),
+                                        format!("{} layer(s)", src_count),
+                                    ));
+                                }
                             }
                         });
                         ui.add_space(gap);
+                    }
+
+                    // Resolve the reorder gesture once all card rects are known.
+                    if let Some((scene_id, slot)) =
+                        resolve_scene_drag(
+                            ui,
+                            app,
+                            &scene_cards,
+                            pointer_pos,
+                            pointer_down,
+                            true,
+                            ghost_label.clone(),
+                            &p,
+                        )
+                    {
+                        app.studio.move_scene_to_slot(scene_id, slot);
                     }
                 } else {
                     // ========================================================
@@ -1133,8 +1427,39 @@ fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) -> Op
 
                         let hovered = row_resp.hovered();
 
+                        // Reorder gesture bookkeeping: remember the row position (used to resolve
+                        // the drop slot) and arm a press that may still turn into a drag.
+                        scene_cards.push((scene.id, row_rect));
+                        if pressed_now
+                            && (row_resp.is_pointer_button_down_on()
+                                || ui.rect_contains_pointer(row_rect))
+                        {
+                            let grip_offset_y = pointer_pos
+                                .map(|pos| (pos.y - row_rect.top()).clamp(0.0, row_rect.height()))
+                                .unwrap_or(row_rect.height() * 0.5);
+                            app.scene_press = Some(crate::app::SceneDragGrab {
+                                scene_id: scene.id,
+                                from_index: scene_cards.len() - 1,
+                                grip_offset_y,
+                            });
+                        }
+                        let is_dragging =
+                            app.scene_reorder_drag.map(|d| d.scene_id) == Some(scene.id);
+
                         // Card Fill & Border based on LIVE / PREVIEW / STANDBY state
-                        let (card_fill, border_stroke) = match (is_pgm, is_prv) {
+                        let (card_fill, border_stroke) = if is_dragging {
+                            // The grabbed row fades out: its ghost is what the user sees moving.
+                            (
+                                Color32::from_rgba_unmultiplied(
+                                    p.accent_preview.r(),
+                                    p.accent_preview.g(),
+                                    p.accent_preview.b(),
+                                    14,
+                                ),
+                                Stroke::new(1.0_f32, p.border_subtle),
+                            )
+                        } else {
+                            match (is_pgm, is_prv) {
                             (true, true) => (
                                 Color32::from_rgba_unmultiplied(
                                     p.accent_program.r(),
@@ -1175,6 +1500,7 @@ fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) -> Op
                                 },
                                 Stroke::new(1.0_f32, p.border_subtle),
                             ),
+                            }
                         };
 
                         ui.painter()
@@ -1185,6 +1511,20 @@ fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) -> Op
                             row_rect.min,
                             Pos2::new(row_rect.min.x + 5.0, row_rect.max.y),
                         );
+                        if is_dragging {
+                            // A dragged row loses its LIVE/PREVIEW accent so only the ghost carries
+                            // the status colour while the drop target is being chosen.
+                            ui.painter().rect_filled(
+                                strip_rect,
+                                CornerRadius {
+                                    nw: 6,
+                                    ne: 0,
+                                    sw: 6,
+                                    se: 0,
+                                },
+                                p.border_subtle.gamma_multiply(0.7),
+                            );
+                        } else {
                         match (is_pgm, is_prv) {
                             (true, true) => {
                                 let mid_y = row_rect.center().y;
@@ -1253,6 +1593,7 @@ fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) -> Op
                                     p.border_subtle,
                                 );
                             }
+                        }
                         }
 
                         ui.painter().rect_stroke(
@@ -1384,16 +1725,32 @@ fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) -> Op
                         let name_area_max_x = badges_rect.min.x - 6.0;
                         let name_max_w = (name_area_max_x - text_x).max(0.0);
 
+                        // A faded placeholder reads as "this row is being moved".
+                        let (name_col, desc_col) = if is_dragging {
+                            (
+                                p.text_muted.gamma_multiply(0.65),
+                                p.text_muted.gamma_multiply(0.5),
+                            )
+                        } else {
+                            (p.text_primary, p.text_secondary)
+                        };
+
                         let name_text = truncate_to_width(&scene.name, name_max_w, SCENE_NAME_CHAR_W);
                         let name_galley = ui.painter().layout_no_wrap(
                             name_text,
                             FontId::proportional(12.0),
-                            p.text_primary,
+                            name_col,
                         );
+                        // Kept for the ghost card while this very row is the one being dragged.
+                        let ghost_subtitle = if is_dragging {
+                            Some(state_desc.clone())
+                        } else {
+                            None
+                        };
                         let desc_galley = ui.painter().layout_no_wrap(
                             state_desc,
                             FontId::proportional(9.5),
-                            p.text_secondary,
+                            desc_col,
                         );
 
                         // Comfortable vertical spacing between scene title and subtitle
@@ -1412,17 +1769,13 @@ fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) -> Op
                         let painter = ui.painter().with_clip_rect(text_clip);
 
                         // Draw clean, regular weight scene name (not bold)
-                        painter.galley(
-                            Pos2::new(text_x, text_top_y),
-                            name_galley,
-                            p.text_primary,
-                        );
+                        painter.galley(Pos2::new(text_x, text_top_y), name_galley, name_col);
 
                         // Draw subtitle with comfortable breathing room below scene name
                         painter.galley(
                             Pos2::new(text_x, text_top_y + name_h + gap_y),
                             desc_galley,
-                            p.text_secondary,
+                            desc_col,
                         );
 
                         // Right-side visual status badges
@@ -1511,6 +1864,24 @@ fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) -> Op
                             "{}\n• Click: Open in Preview\n• Double-Click: Transition to LIVE (Program)\n• Right-Click: Scene Options",
                             scene.top_display_label(idx + 1)
                         ));
+
+                        if let Some(subtitle) = ghost_subtitle {
+                            ghost_label = Some((scene.name.clone(), subtitle));
+                        }
+                    }
+
+                    // Resolve the reorder gesture once every row rect is known.
+                    if let Some((scene_id, slot)) = resolve_scene_drag(
+                        ui,
+                        app,
+                        &scene_cards,
+                        pointer_pos,
+                        pointer_down,
+                        false,
+                        ghost_label.clone(),
+                        &p,
+                    ) {
+                        app.studio.move_scene_to_slot(scene_id, slot);
                     }
                 }
 
