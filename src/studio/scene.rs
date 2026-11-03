@@ -152,6 +152,25 @@ impl Scene {
         false
     }
 
+    /// Moves a source to an explicit slot of the layer stack.
+    ///
+    /// The list order *is* the Z-order: index 0 is the front-most layer and the last index sits
+    /// behind everything else. `target_slot` is counted **without** the moved source, which is
+    /// exactly what a drag-and-drop insertion gap means (dropping it on its own slot is a no-op).
+    pub fn move_source_to_slot(&mut self, id: Uuid, target_slot: usize) -> bool {
+        let Some(idx) = self.sources.iter().position(|s| s.id == id) else {
+            return false;
+        };
+        // Clamp *before* removing, so a drop below the last row really means "bottom-most".
+        let insert_at = target_slot.min(self.sources.len().saturating_sub(1));
+        if insert_at == idx {
+            return false;
+        }
+        let item = self.sources.remove(idx);
+        self.sources.insert(insert_at, item);
+        true
+    }
+
     pub fn move_selected_source_down(&mut self) -> bool {
         if let Some(id) = self.selected_source_id {
             if let Some(idx) = self.sources.iter().position(|s| s.id == id) {
@@ -227,3 +246,61 @@ impl Scene {
     }
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scene_with(names: &[&str]) -> Scene {
+        let mut scene = Scene::new("Test Scene");
+        for name in names {
+            let item = SourceItem::new(
+                *name,
+                SourceKind::DisplayCapture {
+                    monitor_id: "MONITOR_0".to_string(),
+                    monitor_name: "Primary Monitor (Display 1)".to_string(),
+                    resolution: (1920, 1080),
+                    capture_cursor: true,
+                },
+            );
+            scene.sources.push(item);
+        }
+        scene
+    }
+
+    fn order(scene: &Scene) -> Vec<&str> {
+        scene.sources.iter().map(|s| s.name.as_str()).collect()
+    }
+
+    #[test]
+    fn move_source_to_slot_reorders_layer_stack() {
+        let mut scene = scene_with(&["A", "B", "C", "D"]);
+        let b_id = scene.sources[1].id;
+
+        // Drag B below D: the slot is counted without the dragged source.
+        assert!(scene.move_source_to_slot(b_id, 3));
+        assert_eq!(order(&scene), vec!["A", "C", "D", "B"]);
+
+        // Drag B back to the front-most layer (index 0 = foreground).
+        assert!(scene.move_source_to_slot(b_id, 0));
+        assert_eq!(order(&scene), vec!["B", "A", "C", "D"]);
+    }
+
+    #[test]
+    fn move_source_to_same_slot_is_a_noop() {
+        let mut scene = scene_with(&["A", "B", "C"]);
+        let c_id = scene.sources[2].id;
+        // Dropping a row into its own gap must not change the order.
+        assert!(!scene.move_source_to_slot(c_id, 2));
+        assert_eq!(order(&scene), vec!["A", "B", "C"]);
+        assert!(!scene.move_source_to_slot(c_id, 99));
+        assert_eq!(order(&scene), vec!["A", "B", "C"]);
+    }
+
+    #[test]
+    fn move_unknown_source_is_rejected() {
+        let mut scene = scene_with(&["A", "B"]);
+        assert!(!scene.move_source_to_slot(Uuid::new_v4(), 0));
+        assert_eq!(order(&scene), vec!["A", "B"]);
+    }
+}

@@ -1966,24 +1966,116 @@ mod win32_capture {
         }
     }
 
+    /// Visible picture region inside a decoded frame.
+    ///
+    /// Decoders round a 1920x1080 source up to macroblock-aligned 1920x1088 surfaces and fill the
+    /// extra lines with zeros. An all-zero NV12 sample is **not** black: luma 0 with chroma 0 maps
+    /// to `(0, 154, 0)` in RGB, so blitting the padded rows paints a bright green strip along the
+    /// bottom of every video. The media type's display aperture carries the real picture size and
+    /// this struct keeps the conversion inside it.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct FrameCrop {
+        pub x: usize,
+        pub y: usize,
+        pub w: usize,
+        pub h: usize,
+    }
+
+    impl FrameCrop {
+        pub const fn full(w: usize, h: usize) -> Self {
+            Self { x: 0, y: 0, w, h }
+        }
+
+        /// Keeps the crop inside the frame so a malformed aperture can never index out of bounds.
+        pub fn clamp_to(self, frame_w: usize, frame_h: usize) -> Self {
+            if frame_w == 0 || frame_h == 0 {
+                return Self::full(1, 1);
+            }
+            let x = self.x.min(frame_w - 1);
+            let y = self.y.min(frame_h - 1);
+            Self {
+                x,
+                y,
+                w: self.w.min(frame_w - x).max(1),
+                h: self.h.min(frame_h - y).max(1),
+            }
+        }
+    }
+
+    /// Reads the row pitch and the visible picture region advertised by a Media Foundation type.
+    ///
+    /// `MF_MT_FRAME_SIZE` is the *allocation* size (1088 for a 1080p source) while the display
+    /// apertures describe the picture that should actually be shown; hardware decoders report the
+    /// padded row stride through `MF_MT_DEFAULT_STRIDE`. Everything falls back to the full frame
+    /// when an attribute is absent, so non-padded sources behave exactly like before.
+    fn read_frame_geometry(
+        mt: &windows::Win32::Media::MediaFoundation::IMFAttributes,
+        frame_w: usize,
+        frame_h: usize,
+    ) -> (usize, FrameCrop) {
+        use windows::Win32::Media::MediaFoundation::*;
+
+        if frame_w == 0 || frame_h == 0 {
+            return (frame_w, FrameCrop::full(frame_w, frame_h));
+        }
+
+        let mut pitch = frame_w;
+        if let Ok(stride) = unsafe { mt.GetUINT32(&MF_MT_DEFAULT_STRIDE) } {
+            let stride = (stride as i32).unsigned_abs() as usize;
+            if stride >= frame_w {
+                pitch = stride;
+            }
+        }
+
+        for key in [
+            MF_MT_GEOMETRIC_APERTURE,
+            MF_MT_MINIMUM_DISPLAY_APERTURE,
+            MF_MT_PAN_SCAN_APERTURE,
+        ] {
+            let mut buf = [0u8; std::mem::size_of::<MFVideoArea>()];
+            if unsafe { mt.GetBlob(&key, &mut buf, None) }.is_err() {
+                continue;
+            }
+            let area: MFVideoArea =
+                unsafe { std::ptr::read_unaligned(buf.as_ptr() as *const MFVideoArea) };
+            let x = area.OffsetX.value.max(0) as usize;
+            let y = area.OffsetY.value.max(0) as usize;
+            let w = area.Area.cx.max(0) as usize;
+            let h = area.Area.cy.max(0) as usize;
+            // Only trust an aperture that actually trims the padded surface.
+            if w > 0 && h > 0 && x + w <= frame_w && y + h <= frame_h && (w < frame_w || h < frame_h)
+            {
+                return (pitch, FrameCrop { x, y, w, h });
+            }
+        }
+
+        (pitch, FrameCrop::full(frame_w, frame_h))
+    }
+
     pub fn nv12_to_rgba_scaled(
         nv12: &[u8],
         src_w: usize,
         src_h: usize,
+        pitch: usize,
+        crop: FrameCrop,
         dst_w: usize,
         dst_h: usize,
         rgba: &mut [u8],
     ) {
-        let frame_size = src_w * src_h;
+        // `pitch` is the decoder's row stride (>= width), `crop` the visible picture inside the
+        // padded surface. Both come from the media type, never from guesswork.
+        let pitch = pitch.max(src_w);
+        let crop = crop.clamp_to(src_w, src_h);
+        let frame_size = pitch * src_h;
         if nv12.len() < frame_size * 3 / 2 || rgba.len() < dst_w * dst_h * 4 {
             return;
         }
         // Handle hardware decoders that pad 1080 height to 1088 macroblock lines
         let aligned_h = (src_h + 15) & !15;
-        let uv_plane_offset = if nv12.len() >= src_w * aligned_h * 3 / 2
+        let uv_plane_offset = if nv12.len() >= pitch * aligned_h * 3 / 2
             && nv12.len() != frame_size * 3 / 2
         {
-            src_w * aligned_h
+            pitch * aligned_h
         } else {
             frame_size
         };
@@ -1992,13 +2084,13 @@ mod win32_capture {
         let uv_plane = &nv12[uv_plane_offset.min(nv12.len())..];
 
         for dy in 0..dst_h {
-            let sy = (dy * src_h) / dst_h;
-            let y_offset = sy * src_w;
-            let uv_offset = (sy / 2) * src_w;
+            let sy = crop.y + (dy * crop.h) / dst_h;
+            let y_offset = sy * pitch;
+            let uv_offset = (sy / 2) * pitch;
             let out_offset = dy * dst_w * 4;
 
             for dx in 0..dst_w {
-                let sx = (dx * src_w) / dst_w;
+                let sx = crop.x + (dx * crop.w) / dst_w;
                 let y_val = y_plane.get(y_offset + sx).copied().unwrap_or(16) as i32;
                 let uv_idx = uv_offset + (sx & !1);
                 let u_val = uv_plane.get(uv_idx).copied().unwrap_or(128) as i32 - 128;
@@ -2022,20 +2114,24 @@ mod win32_capture {
         yuy2: &[u8],
         src_w: usize,
         src_h: usize,
+        pitch: usize,
+        crop: FrameCrop,
         dst_w: usize,
         dst_h: usize,
         rgba: &mut [u8],
     ) {
-        if yuy2.len() < src_w * src_h * 2 || rgba.len() < dst_w * dst_h * 4 {
+        let pitch = pitch.max(src_w);
+        let crop = crop.clamp_to(src_w, src_h);
+        if yuy2.len() < pitch * src_h * 2 || rgba.len() < dst_w * dst_h * 4 {
             return;
         }
         for dy in 0..dst_h {
-            let sy = (dy * src_h) / dst_h;
-            let in_offset = sy * src_w * 2;
+            let sy = crop.y + (dy * crop.h) / dst_h;
+            let in_offset = sy * pitch * 2;
             let out_offset = dy * dst_w * 4;
 
             for dx in 0..dst_w {
-                let sx = (dx * src_w) / dst_w;
+                let sx = crop.x + (dx * crop.w) / dst_w;
                 let pair_base = in_offset + (sx & !1) * 2;
                 let y_val = yuy2
                     .get(pair_base + (sx & 1) * 2)
@@ -2065,6 +2161,10 @@ mod win32_capture {
         reader: windows::Win32::Media::MediaFoundation::IMFSourceReader,
         width: usize,
         height: usize,
+        /// Decoder row stride in bytes (>= `width` when the surface is padded).
+        pitch: usize,
+        /// Visible picture inside the padded decoded surface (see [`FrameCrop`]).
+        crop: FrameCrop,
         is_nv12: bool,
         is_yuy2: bool,
         ended: bool,
@@ -2153,6 +2253,8 @@ mod win32_capture {
                 let mut width = 640usize;
                 let mut height = 360usize;
                 let mut frame_interval = std::time::Duration::from_millis(33);
+                let mut pitch = width;
+                let mut crop = FrameCrop::full(width, height);
 
                 if let Ok(cur_mt) =
                     reader.GetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32)
@@ -2165,6 +2267,9 @@ mod win32_capture {
                             height = h;
                         }
                     }
+                    let (p, c) = read_frame_geometry(&cur_mt, width, height);
+                    pitch = p;
+                    crop = c;
                     if let Ok(rate_packed) = cur_mt.GetUINT64(&MF_MT_FRAME_RATE) {
                         let num = (rate_packed >> 32) as u64;
                         let den = (rate_packed & 0xFFFF_FFFF) as u64;
@@ -2183,6 +2288,8 @@ mod win32_capture {
                     reader,
                     width,
                     height,
+                    pitch,
+                    crop,
                     is_nv12,
                     is_yuy2,
                     ended: false,
@@ -2258,6 +2365,9 @@ mod win32_capture {
                                     self.height = h;
                                 }
                             }
+                            let (p, c) = read_frame_geometry(&cur_mt, self.width, self.height);
+                            self.pitch = p;
+                            self.crop = c;
                         }
                     }
                     if let Some(s) = sample {
@@ -2266,39 +2376,43 @@ mod win32_capture {
                             let mut len = 0u32;
                             if buf.Lock(&mut ptr, None, Some(&mut len)).is_ok() {
                                 let slice = std::slice::from_raw_parts(ptr, len as usize);
-                                let dst_w = self.width.min(max_out_w.max(320));
-                                let dst_h = self.height.min(max_out_h.max(180));
+                                // Size the output from the *visible* picture, not the padded
+                                // surface, so the decoder's zero-filled rows never reach the GPU.
+                                let crop = self.crop.clamp_to(self.width, self.height);
+                                let pitch = self.pitch.max(self.width);
+                                let dst_w = crop.w.min(max_out_w.max(320));
+                                let dst_h = crop.h.min(max_out_h.max(180));
                                 let mut rgba = vec![0u8; dst_w * dst_h * 4];
 
-                                if self.is_nv12
-                                    && slice.len() >= self.width * self.height * 3 / 2
-                                {
+                                if self.is_nv12 && slice.len() >= pitch * self.height * 3 / 2 {
                                     nv12_to_rgba_scaled(
                                         slice,
                                         self.width,
                                         self.height,
+                                        pitch,
+                                        crop,
                                         dst_w,
                                         dst_h,
                                         &mut rgba,
                                     );
-                                } else if self.is_yuy2
-                                    && slice.len() >= self.width * self.height * 2
-                                {
+                                } else if self.is_yuy2 && slice.len() >= pitch * self.height * 2 {
                                     yuy2_to_rgba_scaled(
                                         slice,
                                         self.width,
                                         self.height,
+                                        pitch,
+                                        crop,
                                         dst_w,
                                         dst_h,
                                         &mut rgba,
                                     );
                                 } else if slice.len() >= self.width * self.height * 4 {
                                     for dy in 0..dst_h {
-                                        let sy = (dy * self.height) / dst_h;
+                                        let sy = crop.y + (dy * crop.h) / dst_h;
                                         let in_row = sy * self.width * 4;
                                         let out_row = dy * dst_w * 4;
                                         for dx in 0..dst_w {
-                                            let sx = (dx * self.width) / dst_w;
+                                            let sx = crop.x + (dx * crop.w) / dst_w;
                                             let in_idx = in_row + sx * 4;
                                             let out_idx = out_row + dx * 4;
                                             rgba[out_idx] = slice[in_idx + 2];
@@ -2318,6 +2432,7 @@ mod win32_capture {
                 None
             }
         }
+
     }
 
     thread_local! {
@@ -2525,6 +2640,71 @@ pub fn get_window_size(_hwnd_u64: u64) -> Option<(u32, u32)> {
 #[cfg(test)]
 mod tests {
     use super::copy_bgra_to_rgba;
+
+    /// A decoder pads 1080p to 1088 macroblock lines and zero-fills the extra rows. All-zero NV12
+    /// converts to `(0, 154, 0)` — the bright green strip that used to run along the bottom of every
+    /// video — so the crop must cut those rows before they reach the texture.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn nv12_padding_rows_are_cropped_away() {
+        use super::win32_capture::{nv12_to_rgba_scaled, FrameCrop};
+        let (w, h) = (16usize, 16usize);
+        // Real picture = 16x12 of limited-range black (Y=16, U=V=128); padding rows stay zero.
+        let mut nv12 = vec![16u8; w * h];
+        nv12.extend(std::iter::repeat(128u8).take(w * h / 2));
+        for row in 12..h {
+            for x in 0..w {
+                nv12[row * w + x] = 0;
+            }
+        }
+        for row in 6..h / 2 {
+            for x in 0..w {
+                nv12[w * h + row * w + x] = 0;
+            }
+        }
+
+        let crop = FrameCrop { x: 0, y: 0, w, h: 12 };
+        let mut rgba = vec![0u8; w * 12 * 4];
+        nv12_to_rgba_scaled(&nv12, w, h, w, crop, w, 12, &mut rgba);
+
+        let last = 11 * w * 4;
+        let px = (rgba[last], rgba[last + 1], rgba[last + 2]);
+        assert_ne!(px, (0, 154, 0), "baris bawah masih memakai baris padding");
+        assert_eq!(px, (0, 0, 0), "baris bawah harus hitam pekat");
+    }
+
+    /// Hardware decoders may report a row stride wider than the picture; the conversion must walk
+    /// rows with that pitch instead of assuming a tightly packed plane.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn nv12_honours_padded_row_pitch() {
+        use super::win32_capture::{nv12_to_rgba_scaled, FrameCrop};
+        let (w, h, pitch) = (16usize, 4usize, 24usize);
+        let mut nv12 = vec![255u8; pitch * h];
+        for row in 0..h {
+            for x in 0..w {
+                nv12[row * pitch + x] = 16;
+            }
+        }
+        let mut chroma = vec![255u8; pitch * (h / 2)];
+        for row in 0..h / 2 {
+            for x in 0..w {
+                chroma[row * pitch + x] = 128;
+            }
+        }
+        nv12.extend_from_slice(&chroma);
+
+        let mut rgba = vec![0u8; w * h * 4];
+        nv12_to_rgba_scaled(&nv12, w, h, pitch, FrameCrop::full(w, h), w, h, &mut rgba);
+        for row in 0..h {
+            let i = row * w * 4;
+            assert_eq!(
+                (rgba[i], rgba[i + 1], rgba[i + 2]),
+                (0, 0, 0),
+                "row {row} terbaca dari area padding stride"
+            );
+        }
+    }
 
     /// The GDI capture path yields BGRA; egui needs RGBA with an opaque alpha lane. GDI leaves the
     /// alpha byte of a 32bpp `BI_RGB` DIB undefined, so it must be forced rather than copied.

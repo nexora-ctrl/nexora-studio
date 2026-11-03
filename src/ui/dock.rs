@@ -2193,6 +2193,9 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) -> O
         egui::ScrollArea::vertical()
             .id_salt("sources_scroll")
             .max_height(body_size.y)
+            // Drag-to-scroll would swallow the row drag used for reordering the layer stack;
+            // the wheel and the scroll bar keep the list scrollable.
+            .drag_to_scroll(false)
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 let scene = app.studio.preview_scene_mut();
@@ -2229,7 +2232,25 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) -> O
                 let row_w = (body_size.x - 4.0).max(150.0);
                 ui.spacing_mut().item_spacing.y = 4.0;
 
-                for src in &mut scene.sources {
+                // Row rectangles are collected while the list is laid out so the drop gap can be
+                // resolved from the pointer position even after it leaves the grabbed row.
+                let mut row_rects: Vec<(uuid::Uuid, egui::Rect)> =
+                    Vec::with_capacity(scene.sources.len());
+                // Label of the grabbed row, reused to paint the floating ghost after the loop.
+                let mut drag_label: Option<String> = None;
+
+                // Raw pointer state drives the reorder gesture: a press arms a row and moving far
+                // enough turns that press into a drag, so a plain click still only selects.
+                let (pointer_pos, pressed_now) = ui.ctx().input(|i| {
+                    (
+                        i.pointer.interact_pos().or(i.pointer.hover_pos()),
+                        i.pointer.any_pressed() && i.pointer.primary_down(),
+                    )
+                });
+                // Moving less than this keeps the press a click, so selection stays snappy.
+                const REORDER_DRAG_THRESHOLD: f32 = 4.0;
+
+                for (src_index, src) in scene.sources.iter_mut().enumerate() {
                     let is_sel = cur_sel == Some(src.id);
                     let src_id = src.id;
                     let is_locked = src.locked;
@@ -2245,6 +2266,7 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) -> O
                     let row_h = 31.0;
                     let (row_rect, _) =
                         ui.allocate_exact_size(Vec2::new(row_w, row_h), Sense::hover());
+                    row_rects.push((src_id, row_rect));
 
                     // Reserve right-hand zone for action buttons ([Play] [Mute] [Eye] [Lock] or [Prev] [Next] [Eye] [Lock])
                     let btn_count = if is_media || is_presentation { 4 } else { 2 };
@@ -2257,16 +2279,56 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) -> O
                         ),
                     );
 
+                    // The row keeps a plain `click` sense, so hovering and selecting look and feel
+                    // exactly as before; the reorder gesture is tracked from the raw pointer below
+                    // (a `Sense::drag` row would be eaten by the enclosing scroll area).
                     let row_resp = ui.interact(
                         select_rect,
                         ui.id().with(("source_row_select", src_id)),
                         Sense::click(),
                     );
                     let hovered = row_resp.hovered() || ui.rect_contains_pointer(row_rect);
+                    // Two independent hit tests: the widget response (press started on the row)
+                    // and the raw rect test, so the gesture arms even if one of them misses.
+                    if pressed_now
+                        && (row_resp.is_pointer_button_down_on()
+                            || ui.rect_contains_pointer(select_rect))
+                    {
+                        // Only a press that starts on the row may become a drag reorder.
+                        let grip_offset_y = pointer_pos
+                            .map(|p| (p.y - row_rect.top()).clamp(0.0, row_rect.height()))
+                            .unwrap_or(row_rect.height() * 0.5);
+                        app.source_press = Some(crate::app::SourceDragGrab {
+                            source_id: src_id,
+                            from_index: src_index,
+                            grip_offset_y,
+                        });
+                        tracing::debug!(
+                            target: "nexora::dnd",
+                            source = %src_id,
+                            index = src_index,
+                            "row pressed (reorder candidate)"
+                        );
+                    }
+                    let is_dragging =
+                        app.source_reorder_drag.as_ref().map(|d| d.source_id) == Some(src_id);
 
                     // Card Fill & Border (matching Scenes card style + optional color tag tint)
                     let tag_tint = color_tag_tint(src.color_tag);
-                    let (card_fill, border_stroke, strip_col) = if is_sel {
+                    let (card_fill, border_stroke, strip_col) = if is_dragging {
+                        // The grabbed row leaves a faded placeholder behind; the ghost card that
+                        // follows the pointer is what the user actually sees moving.
+                        (
+                            Color32::from_rgba_unmultiplied(
+                                p.accent_preview.r(),
+                                p.accent_preview.g(),
+                                p.accent_preview.b(),
+                                14,
+                            ),
+                            Stroke::new(1.0_f32, p.border_subtle),
+                            p.border_subtle.gamma_multiply(0.7),
+                        )
+                    } else if is_sel {
                         let base_fill = tag_tint.unwrap_or_else(|| {
                             Color32::from_rgba_unmultiplied(
                                 p.accent_preview.r(),
@@ -2337,7 +2399,10 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) -> O
                     );
 
                     // Draw Source Icon & Name (and optional Filter badge) inside `select_rect`
-                    let text_col = if !src.visible {
+                    let text_col = if is_dragging {
+                        // The grabbed row fades out while its floating ghost follows the pointer.
+                        p.text_muted.gamma_multiply(0.65)
+                    } else if !src.visible {
                         p.text_muted
                     } else if is_sel {
                         p.text_primary
@@ -2350,6 +2415,9 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) -> O
                     } else {
                         format!("{}  {}", src.kind.tabler_icon(), src.name)
                     };
+                    if is_dragging {
+                        drag_label = Some(label_text.clone());
+                    }
 
                     let text_clip = Rect::from_min_max(
                         Pos2::new(row_rect.min.x + 11.0, row_rect.min.y),
@@ -2385,7 +2453,7 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) -> O
                         );
                     });
                     row_resp.on_hover_text(format!(
-                        "{}\n• Click anywhere on row: Select Source\n• Double-click: Open Properties\n• Right-click: Source Options",
+                        "{}\n• Click anywhere on row: Select Source\n• Double-click: Open Properties\n• Right-click: Source Options\n• Drag row up/down: Change layer order (top = front)",
                         src.kind.summary()
                     ));
 
@@ -2587,6 +2655,157 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) -> O
                         }
                     }
                 }
+                // --- Drag & Drop Reorder (Z-Order) -------------------------------------------
+                // The list order *is* the Z-order (index 0 = front-most layer), so dropping a row
+                // simply moves that source to a new slot in the stack.
+                let pointer_down = ui.ctx().input(|i| i.pointer.any_down());
+                // A press becomes a drag only after the pointer clearly moves, so a click keeps
+                // selecting the row exactly like before.
+                if let Some(press) = app.source_press {
+                    let press_origin = ui.ctx().input(|i| i.pointer.press_origin());
+                    let moved = match (press_origin, pointer_pos) {
+                        (Some(origin), Some(p)) => (p - origin).length(),
+                        // Fallback when the origin is already gone: distance from the grab point.
+                        (_, Some(p)) => row_rects
+                            .get(press.from_index)
+                            .map(|(_, r)| (p.y - (r.top() + press.grip_offset_y)).abs())
+                            .unwrap_or(0.0),
+                        _ => 0.0,
+                    };
+                    if !pointer_down {
+                        app.source_press = None;
+                    } else if moved > REORDER_DRAG_THRESHOLD && app.source_reorder_drag.is_none() {
+                        app.source_reorder_drag = Some(press);
+                        new_selected = Some(press.source_id);
+                        tracing::debug!(
+                            target: "nexora::dnd",
+                            source = %press.source_id,
+                            from = press.from_index,
+                            "reorder drag started"
+                        );
+                    }
+                }
+
+                let mut drop_slot: Option<(uuid::Uuid, usize)> = None;
+                if let Some(drag) = app.source_reorder_drag {
+                    // The list can change mid-drag (source deleted, scene switched, panel
+                    // re-laid out), so only honour the drag while the grabbed row is still there.
+                    let grabbed_ok = row_rects
+                        .get(drag.from_index)
+                        .map(|(id, _)| *id == drag.source_id)
+                        .unwrap_or(false);
+                    if !grabbed_ok {
+                        // The grabbed row vanished: cancel without touching the order.
+                        app.source_reorder_drag = None;
+                        app.source_press = None;
+                    } else if let Some(pointer_pos) = pointer_pos {
+                        // Rows in display order, without the dragged one.
+                        let others: Vec<egui::Rect> = row_rects
+                            .iter()
+                            .enumerate()
+                            .filter(|(i, _)| *i != drag.from_index)
+                            .map(|(_, (_, r))| *r)
+                            .collect();
+                        // The gap the source falls into: every row whose centre sits above the
+                        // pointer has already been passed.
+                        let slot = others
+                            .iter()
+                            .filter(|r| r.center().y < pointer_pos.y)
+                            .count();
+                        if !pointer_down {
+                            // Released: commit the drop.
+                            drop_slot = Some((drag.source_id, slot));
+                            app.source_reorder_drag = None;
+                            app.source_press = None;
+                            tracing::debug!(
+                                target: "nexora::dnd",
+                                source = %drag.source_id,
+                                from = drag.from_index,
+                                to = slot,
+                                "reorder drop"
+                            );
+                        } else {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                        // Gap indicator drawn between the two rows the source lands between.
+                        let gap_y = if slot < others.len() {
+                            others[slot].top()
+                        } else {
+                            others.last().map(|r| r.bottom()).unwrap_or(pointer_pos.y)
+                        };
+                        let x0 = row_rects.first().map(|(_, r)| r.left()).unwrap_or(0.0);
+                        let x1 = row_rects.last().map(|(_, r)| r.right()).unwrap_or(0.0);
+                        ui.painter().hline(
+                            x0..=x1,
+                            gap_y,
+                            Stroke::new(2.0_f32, p.accent_preview),
+                        );
+
+                        // Floating ghost card: the row lifted off the list and stuck to the
+                        // pointer, so the item being dragged is unmistakable.
+                        if let Some(label) = drag_label.as_deref() {
+                            let ghost_rect = Rect::from_min_size(
+                                Pos2::new(x0, pointer_pos.y - drag.grip_offset_y),
+                                Vec2::new((x1 - x0).max(120.0), 31.0),
+                            );
+                            let clip = ui.clip_rect().intersect(ghost_rect.expand(8.0));
+                            let ghost = ui.painter().with_clip_rect(clip);
+                            // Soft drop shadow underneath the card.
+                            ghost.rect_filled(
+                                ghost_rect.translate(Vec2::new(0.0, 3.0)),
+                                CornerRadius::same(7),
+                                Color32::from_black_alpha(80),
+                            );
+                            ghost.rect_filled(
+                                ghost_rect,
+                                CornerRadius::same(6),
+                                Color32::from_rgba_unmultiplied(
+                                    p.bg_elevated.r(),
+                                    p.bg_elevated.g(),
+                                    p.bg_elevated.b(),
+                                    245,
+                                ),
+                            );
+                            ghost.rect_stroke(
+                                ghost_rect,
+                                CornerRadius::same(6),
+                                Stroke::new(1.4_f32, p.accent_preview),
+                                egui::StrokeKind::Inside,
+                            );
+                            ghost.rect_filled(
+                                Rect::from_min_max(
+                                    ghost_rect.min,
+                                    Pos2::new(ghost_rect.min.x + 4.5, ghost_rect.max.y),
+                                ),
+                                CornerRadius {
+                                    nw: 6,
+                                    ne: 0,
+                                    sw: 6,
+                                    se: 0,
+                                },
+                                p.accent_preview,
+                            );
+                            ghost.text(
+                                Pos2::new(ghost_rect.min.x + 11.0, ghost_rect.center().y),
+                                egui::Align2::LEFT_CENTER,
+                                label,
+                                egui::FontId::proportional(12.0),
+                                p.text_primary,
+                            );
+                            }
+                        }
+                    } else if !pointer_down {
+                        // Pointer left the window on release: cancel instead of guessing a slot.
+                        app.source_reorder_drag = None;
+                        app.source_press = None;
+                    }
+                }
+                let mut reordered = false;
+                if let Some((drag_id, slot)) = drop_slot {
+                    if scene.move_source_to_slot(drag_id, slot) {
+                        reordered = true;
+                    }
+                }
+
                 let sel_src = scene
                     .sources
                     .iter()
@@ -2601,6 +2820,10 @@ fn render_sources_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) -> O
                 }
                 if vis_changed {
                     app.studio.sync_media_transport_to_program();
+                    app.studio.sync_if_linked();
+                }
+                if reordered {
+                    // Layer order changed, so the linked Program has to follow the Preview.
                     app.studio.sync_if_linked();
                 }
 

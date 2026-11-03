@@ -36,6 +36,7 @@ Sebelum melakukan perubahan kode, **baca peta arsitektur lengkap di [`ARCHITECTU
      - Baris **atas** di panel `Source` (`index 0`) = **di depan layar (foreground)**.
      - Baris **bawah** di panel `Source` (`index terakhir`) = **di belakang layar (background)**.
      - Render kanvas & projector wajib menggunakan `sources.iter().rev()`, sedangkan *hit-testing* klik kanvas menggunakan `sources.iter()`.
+     - **Drag & Drop Urutan Layer (OBS-Style):** Baris panel `Source` wajib bisa diseret naik/turun untuk mengubah Z-order (`Sense::click_and_drag()` pada kartu baris, tanpa tombol/ikon *handle* terpisah). Saat diseret, baris yang dipegang menyala dengan aksen Preview, kursor berubah `Grab`/`Grabbing`, dan sebuah garis indikator (2px, warna `accent_preview`) digambar pada celah tempat source akan dijatuhkan. Drop dihitung dari *slot* yang tidak menyertakan source yang diseret (tanpa item, tidak ada perubahan urutan), lalu dieksekusi oleh `Scene::move_source_to_slot()`. Perubahan Z-order hanya menyentuh Preview; Program mengikuti lewat `sync_if_linked()` (isolasi Program tetap dijaga sebelum `TRANSITION ->`).
    - **Seleksi Baris Full-Width (`Scenes` & `Source`):**
      - Setiap item di panel `Scenes` dan `Source` wajib berupa kartu baris penuh (*full-width row card*) sehingga pengguna dapat memilih item dengan mengklik di mana saja pada baris tersebut (tidak harus tepat di atas teks).
      - Kartu `Scenes` wajib menampilkan indikator visual `👁 PREVIEW` (Teal) dan `● LIVE` (Merah).
@@ -138,3 +139,9 @@ Sebelum melakukan perubahan kode, **baca peta arsitektur lengkap di [`ARCHITECTU
      - **Dialog Modal Virtual Camera:** Menampilkan pilihan *Output Type* (`Program (Default)`, `Preview`, `Scene`) serta *Output Selection* (hanya aktif saat memilih `Scene`).
      - **Indikator Siaran:** Menampilkan badge aktif pada status bar bawah (`VCam: LIVE (...)`) dan highlight visual tombol aktif di panel Controls saat Virtual Camera berjalan.
    - **Larangan Mutlak:** Dilarang menambahkan fitur *live streaming* / RTMP / cloud / login.
+
+4. **Geometri Frame Decoder Media Foundation (Padding 1088 & Row Pitch):**
+   - Decoder membulatkan 1920x1080 ke permukaan **1920x1088** (kelipatan makroblok) dan mengisi baris sisa dengan **nol**. Sampel NV12 yang semuanya nol **bukan hitam**: luma 0 + chroma 0 dikonversi menjadi **`(0, 154, 0)`**, sehingga blit baris padding menghasilkan **garis hijau** di bawah setiap video. Jadi jangan pernah memakai `MF_MT_FRAME_SIZE` mentah sebagai tinggi gambar.
+   - Ukuran gambar yang terlihat diambil dari *display aperture* (`MF_MT_GEOMETRIC_APERTURE` → `MF_MT_MINIMUM_DISPLAY_APERTURE` → `MF_MT_PAN_SCAN_APERTURE`) melalui `win32_capture::read_frame_geometry`, lalu disimpan sebagai `FrameCrop` pada `MfMediaFileSession`; konversi (`nv12_to_rgba_scaled`, `yuy2_to_rgba_scaled`, jalur RGBA32) **wajib** memakai `crop` tersebut.
+   - Lebar baris permukaan decoder bisa lebih besar dari lebar gambar (`MF_MT_DEFAULT_STRIDE`); indeks piksel harus memakai `pitch` (stride), bukan `width`, agar baris tidak terbaca miring dari area padding.
+   - Kedua perilaku ini dijaga *unit test* `nv12_padding_rows_are_cropped_away` dan `nv12_honours_padded_row_pitch` di [`src/capture/mod.rs`](file:///d:/Rust/Nexora%20Studio/src/capture/mod.rs). Jangan menghapusnya saat refactor.
