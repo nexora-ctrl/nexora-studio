@@ -14,6 +14,7 @@ use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 use std::time::Duration;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SettingsCategory {
@@ -146,6 +147,9 @@ pub struct NexoraApp {
     pub add_scene_name_buffer: String,
     pub show_rename_scene_dialog: bool,
     pub rename_scene_buffer: String,
+    pub show_save_favorite_scene_dialog: bool,
+    pub save_favorite_scene_target: Option<(Uuid, String)>,
+    pub save_favorite_scene_name_buffer: String,
     pub show_source_properties_dialog: bool,
     pub show_source_filters_dialog: bool,
     /// OBS-style per-source **audio** filter chain modal (Gain / Noise Gate / Noise Suppression).
@@ -332,6 +336,9 @@ impl NexoraApp {
             add_scene_name_buffer: String::new(),
             show_rename_scene_dialog: false,
             rename_scene_buffer: String::new(),
+            show_save_favorite_scene_dialog: false,
+            save_favorite_scene_target: None,
+            save_favorite_scene_name_buffer: String::new(),
             show_source_properties_dialog: false,
             show_source_filters_dialog: false,
             show_audio_filters_dialog: false,
@@ -1324,6 +1331,78 @@ impl NexoraApp {
         }
     }
 
+    /// Saves a scene as a reusable Favorite Scene Template
+    pub fn save_scene_as_favorite(&mut self, scene_id: Uuid, template_name: &str) {
+        let clean_name = template_name.trim();
+        if clean_name.is_empty() {
+            return;
+        }
+        let sources = self
+            .studio
+            .scenes
+            .iter()
+            .find(|s| s.id == scene_id)
+            .map(|s| s.sources.clone())
+            .unwrap_or_default();
+
+        let template = crate::settings::FavoriteSceneTemplate::new(clean_name, &sources);
+        if let Some(existing) = self
+            .settings
+            .favorite_scene_templates
+            .iter_mut()
+            .find(|t| t.name.eq_ignore_ascii_case(clean_name))
+        {
+            *existing = template;
+        } else {
+            self.settings.favorite_scene_templates.push(template);
+        }
+        self.save_all_state();
+        self.recording.last_message = format!("Saved Favorite Scene: '{}'", clean_name);
+    }
+
+    /// Deletes a saved Favorite Scene Template by ID
+    pub fn delete_favorite_scene_template(&mut self, template_id: Uuid) {
+        if let Some(idx) = self
+            .settings
+            .favorite_scene_templates
+            .iter()
+            .position(|t| t.id == template_id)
+        {
+            let removed = self.settings.favorite_scene_templates.remove(idx);
+            self.save_all_state();
+            self.recording.last_message = format!("Removed Favorite Scene: '{}'", removed.name);
+        }
+    }
+
+    /// Adds a new scene from a Favorite Scene Template
+    pub fn add_scene_from_favorite(&mut self, template_id: Uuid, custom_name: Option<String>) -> Option<Uuid> {
+        let template = self
+            .settings
+            .favorite_scene_templates
+            .iter()
+            .find(|t| t.id == template_id)?
+            .clone();
+
+        let name = custom_name.unwrap_or_else(|| {
+            let base = template.name.clone();
+            let mut candidate = base.clone();
+            let mut counter = 2;
+            while self.studio.scenes.iter().any(|s| s.name.eq_ignore_ascii_case(&candidate)) {
+                candidate = format!("{} {}", base, counter);
+                counter += 1;
+            }
+            candidate
+        });
+
+        let scene = template.instantiate(name);
+        let id = scene.id;
+        self.studio.scenes.push(scene);
+        self.studio.preview_scene_id = id;
+        self.studio.sync_if_linked();
+        self.save_all_state();
+        Some(id)
+    }
+
     /// Applies a 1-click Screen + Camera arrangement template to the active Preview scene
     pub fn apply_quick_screen_template(&mut self, template: QuickScreenTemplate) {
         let primary_disp = self.capture_catalog.displays.first().cloned();
@@ -1460,6 +1539,7 @@ impl NexoraApp {
             || self.show_source_filters_dialog
             || self.show_audio_filters_dialog
             || self.show_save_layout_dialog
+            || self.show_save_favorite_scene_dialog
             || self.show_add_source_dialog
             || self.show_virtual_camera_dialog
     }

@@ -1025,6 +1025,7 @@ fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) -> Op
                 let mut transition_scene_to_live = None;
                 let mut rename_scene_target = None;
                 let mut duplicate_scene_target = None;
+                let mut save_favorite_scene_target = None;
                 let mut delete_scene_target = None;
                 let mut add_new_scene_requested = false;
 
@@ -1358,6 +1359,14 @@ fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) -> Op
                                         .clicked()
                                     {
                                         duplicate_scene_target = Some(scene_id);
+                                        ui.close_menu();
+                                    }
+                                    if ui
+                                        .button(format!("{} Save to Favorite Scene...", icons::STAR))
+                                        .clicked()
+                                    {
+                                        save_favorite_scene_target =
+                                            Some((scene_id, scene_name_for_menu.clone()));
                                         ui.close_menu();
                                     }
                                     if total_scenes > 1
@@ -1844,6 +1853,14 @@ fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) -> Op
                                 duplicate_scene_target = Some(scene_id);
                                 ui.close_menu();
                             }
+                            if ui
+                                .button(format!("{} Save to Favorite Scene...", icons::STAR))
+                                .clicked()
+                            {
+                                save_favorite_scene_target =
+                                    Some((scene_id, scene_name_for_menu.clone()));
+                                ui.close_menu();
+                            }
                             if total_scenes > 1
                                 && ui
                                     .button(
@@ -1901,6 +1918,11 @@ fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) -> Op
                 if let Some(id) = duplicate_scene_target {
                     app.studio.preview_scene_id = id;
                     app.studio.duplicate_preview_scene();
+                }
+                if let Some((id, current_name)) = save_favorite_scene_target {
+                    app.save_favorite_scene_target = Some((id, current_name.clone()));
+                    app.save_favorite_scene_name_buffer = current_name;
+                    app.show_save_favorite_scene_dialog = true;
                 }
                 if let Some(id) = delete_scene_target {
                     app.studio.delete_scene(id);

@@ -238,6 +238,47 @@ impl Default for ScreenLayoutPreset {
     }
 }
 
+/// A saved Favorite Scene Template containing a name, creation timestamp, and the full list of
+/// sources (transforms, visual filters, webcam styling, text settings, etc.) ready to be instantiated.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FavoriteSceneTemplate {
+    pub id: uuid::Uuid,
+    pub name: String,
+    pub created_at: String,
+    pub sources: Vec<crate::studio::source::SourceItem>,
+}
+
+impl FavoriteSceneTemplate {
+    pub fn new(name: impl Into<String>, sources: &[crate::studio::source::SourceItem]) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4(),
+            name: name.into(),
+            created_at: chrono::Local::now().format("%Y-%m-%d %H:%M").to_string(),
+            sources: sources.to_vec(),
+        }
+    }
+
+    /// Instantiates this template into a fresh, independent Scene with brand new unique IDs for each source.
+    pub fn instantiate(&self, new_scene_name: String) -> crate::studio::scene::Scene {
+        let mut cloned_sources = Vec::with_capacity(self.sources.len());
+        let mut selected = None;
+        for (i, src) in self.sources.iter().enumerate() {
+            let mut copy = src.clone();
+            copy.id = uuid::Uuid::new_v4();
+            if i == 0 {
+                selected = Some(copy.id);
+            }
+            cloned_sources.push(copy);
+        }
+        crate::studio::scene::Scene {
+            id: uuid::Uuid::new_v4(),
+            name: new_scene_name,
+            sources: cloned_sources,
+            selected_source_id: selected,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppSettings {
@@ -273,6 +314,8 @@ pub struct AppSettings {
     pub scenes_view_mode: ScenesViewMode,
     /// Which arrangement the Audio Mixer panel uses for its channels.
     pub audio_mixer_view_mode: AudioMixerViewMode,
+    #[serde(default)]
+    pub favorite_scene_templates: Vec<FavoriteSceneTemplate>,
 }
 
 impl Default for AppSettings {
@@ -303,6 +346,7 @@ impl Default for AppSettings {
             media_decode_scale: MediaDecodeScale::Performance540p,
             scenes_view_mode: ScenesViewMode::List,
             audio_mixer_view_mode: AudioMixerViewMode::Strip,
+            favorite_scene_templates: Vec::new(),
         }
     }
 }

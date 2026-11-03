@@ -1113,7 +1113,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                 ui.add_space(6.0);
                                                 ui.vertical(|ui| {
                                                     ui.label(RichText::new("NEXORA Studio - Your Easy Studio").size(14.5).strong());
-                                                    ui.label(RichText::new("Version v0.8.0 (Native Windows 64-bit)").size(11.5).color(p.text_secondary));
+                                                    ui.label(RichText::new("Version v0.9.0 (Native Windows 64-bit)").size(11.5).color(p.text_secondary));
                                                 });
                                             });
 
@@ -1251,11 +1251,16 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
         }
     }
 
-    // 1b. Add Scene Modal Dialog (Before creating scene, user can enter name or keep default)
+    // 1b. Add Scene Modal Dialog (Create empty scene or instantiate from Favorite Templates)
     if app.show_add_scene_dialog {
         let mut open = app.show_add_scene_dialog;
         let mut confirm_add = false;
         let mut cancel_add = false;
+        let mut instantiate_template_id: Option<uuid::Uuid> = None;
+        let mut delete_template_id: Option<uuid::Uuid> = None;
+
+        let has_favorites = !app.settings.favorite_scene_templates.is_empty();
+        let dialog_width = if has_favorites { 380.0 } else { 320.0 };
 
         let win_resp = egui::Window::new(format!("{} Add Scene", icons::PLUS))
             .id(egui::Id::new("nexora_add_scene_modal_win"))
@@ -1264,7 +1269,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
             .collapsible(false)
             .resizable(false)
             .auto_sized()
-            .default_width(320.0)
+            .default_width(dialog_width)
             .pivot(egui::Align2::CENTER_CENTER)
             .default_pos(ctx.screen_rect().center())
             .constrain(true)
@@ -1273,7 +1278,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                 ui.add_space(4.0);
                 ui.label(RichText::new("Enter new scene name:").strong());
                 ui.label(
-                    RichText::new("Press OK to use default name, or enter a custom scene name.")
+                    RichText::new("Press OK to create an empty scene, or choose a Favorite Template below.")
                         .size(11.0)
                         .color(ui.visuals().weak_text_color()),
                 );
@@ -1282,8 +1287,9 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                 let focus_id = ui.id().with("add_scene_focus_init");
                 let should_focus = ui.data_mut(|d| d.get_temp::<bool>(focus_id).unwrap_or(true));
 
+                let text_w = if has_favorites { 350.0 } else { 290.0 };
                 let text_resp = ui.add_sized(
-                    Vec2::new(290.0, 24.0),
+                    Vec2::new(text_w, 24.0),
                     standard_singleline_text(&mut app.add_scene_name_buffer, "Scene name..."),
                 );
 
@@ -1292,18 +1298,15 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                     ui.data_mut(|d| d.insert_temp(focus_id, false));
                 }
 
-                if text_resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                    confirm_add = true;
-                }
-                if text_resp.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                if (text_resp.lost_focus() || text_resp.has_focus()) && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                     confirm_add = true;
                 }
 
-                ui.add_space(10.0);
+                ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 8.0;
                     if ui
-                        .add(crate::ui::button_3d::Button3D::primary("OK").min_size(Vec2::new(65.0, 24.0)))
+                        .add(crate::ui::button_3d::Button3D::primary("OK (Empty)").min_size(Vec2::new(80.0, 24.0)))
                         .clicked()
                     {
                         confirm_add = true;
@@ -1315,13 +1318,92 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                         cancel_add = true;
                     }
                 });
+
+                if has_favorites {
+                    ui.add_space(10.0);
+                    ui.separator();
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new(format!("{} Favorite Scene Templates", icons::STAR_FILLED))
+                                .strong()
+                                .color(egui::Color32::from_rgb(234, 179, 8)),
+                        );
+                        ui.label(
+                            RichText::new(format!("({} saved)", app.settings.favorite_scene_templates.len()))
+                                .size(11.0)
+                                .color(ui.visuals().weak_text_color()),
+                        );
+                    });
+                    ui.add_space(4.0);
+
+                    egui::ScrollArea::vertical()
+                        .max_height(170.0)
+                        .show(ui, |ui| {
+                            for template in &app.settings.favorite_scene_templates {
+                                ui.horizontal(|ui| {
+                                    ui.spacing_mut().item_spacing.x = 6.0;
+                                    ui.label(
+                                        RichText::new(icons::STAR_FILLED)
+                                            .color(egui::Color32::from_rgb(234, 179, 8))
+                                            .size(13.0),
+                                    );
+                                    ui.vertical(|ui| {
+                                        ui.label(RichText::new(&template.name).strong());
+                                        ui.label(
+                                            RichText::new(format!(
+                                                "{} layer(s) • {}",
+                                                template.sources.len(),
+                                                template.created_at
+                                            ))
+                                            .size(10.5)
+                                            .color(ui.visuals().weak_text_color()),
+                                        );
+                                    });
+
+                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                        if ui
+                                            .button(RichText::new(icons::TRASH).color(egui::Color32::from_rgb(239, 68, 68)))
+                                            .on_hover_text("Delete this Favorite Template")
+                                            .clicked()
+                                        {
+                                            delete_template_id = Some(template.id);
+                                        }
+                                        if ui
+                                            .add(
+                                                crate::ui::button_3d::Button3D::primary("Use Template")
+                                                    .min_size(Vec2::new(95.0, 22.0)),
+                                            )
+                                            .clicked()
+                                        {
+                                            instantiate_template_id = Some(template.id);
+                                        }
+                                    });
+                                });
+                                ui.add_space(4.0);
+                            }
+                        });
+                }
             });
 
         if let Some(ref r) = win_resp {
             decorate_modal_window(ctx, &r.response, &mut open);
         }
 
-        if confirm_add {
+        if let Some(del_id) = delete_template_id {
+            app.delete_favorite_scene_template(del_id);
+        } else if let Some(inst_id) = instantiate_template_id {
+            let custom_name = {
+                let s = app.add_scene_name_buffer.trim();
+                if s.is_empty() {
+                    None
+                } else {
+                    Some(s.to_string())
+                }
+            };
+            app.add_scene_from_favorite(inst_id, custom_name);
+            app.show_add_scene_dialog = false;
+        } else if confirm_add {
             let mut final_name = app.add_scene_name_buffer.trim().to_string();
             if final_name.is_empty() {
                 final_name = app.studio.generate_unique_scene_name();
@@ -1330,6 +1412,110 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
             app.show_add_scene_dialog = false;
         } else if cancel_add || !open || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
             app.show_add_scene_dialog = false;
+        }
+    }
+
+    // 1c. Save to Favorite Scene Modal Dialog
+    if app.show_save_favorite_scene_dialog {
+        let mut open = app.show_save_favorite_scene_dialog;
+        let mut confirm_save = false;
+        let mut cancel_save = false;
+
+        let target_info = app.save_favorite_scene_target.clone();
+        let target_scene = target_info
+            .as_ref()
+            .and_then(|(id, _)| app.studio.scenes.iter().find(|s| s.id == *id));
+
+        let layer_count = target_scene.map(|s| s.sources.len()).unwrap_or(0);
+        let layer_summary = target_scene
+            .map(|s| s.auto_source_descriptor())
+            .unwrap_or("Scene");
+
+        let win_resp = egui::Window::new(format!("{} Save to Favorite Scene", icons::STAR_FILLED))
+            .id(egui::Id::new("nexora_save_favorite_scene_modal_win"))
+            .order(egui::Order::Foreground)
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .auto_sized()
+            .default_width(340.0)
+            .pivot(egui::Align2::CENTER_CENTER)
+            .default_pos(ctx.screen_rect().center())
+            .constrain(true)
+            .show(ctx, |ui| {
+                block_window_body_drag(ui);
+                ui.add_space(4.0);
+                ui.label(RichText::new("Save scene as a reusable Favorite Template:").strong());
+                ui.label(
+                    RichText::new(format!(
+                        "Includes {} layer(s) ({}) with their full transforms and filter configurations.",
+                        layer_count, layer_summary
+                    ))
+                    .size(11.0)
+                    .color(ui.visuals().weak_text_color()),
+                );
+                ui.add_space(6.0);
+
+                let focus_id = ui.id().with("save_fav_focus_init");
+                let should_focus = ui.data_mut(|d| d.get_temp::<bool>(focus_id).unwrap_or(true));
+
+                let text_resp = ui.add_sized(
+                    Vec2::new(310.0, 24.0),
+                    standard_singleline_text(
+                        &mut app.save_favorite_scene_name_buffer,
+                        "Template name...",
+                    ),
+                );
+
+                if should_focus {
+                    text_resp.request_focus();
+                    ui.data_mut(|d| d.insert_temp(focus_id, false));
+                }
+
+                if (text_resp.lost_focus() || text_resp.has_focus())
+                    && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                {
+                    confirm_save = true;
+                }
+
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 8.0;
+                    if ui
+                        .add(
+                            crate::ui::button_3d::Button3D::primary("Save Template")
+                                .min_size(Vec2::new(115.0, 24.0)),
+                        )
+                        .clicked()
+                    {
+                        confirm_save = true;
+                    }
+                    if ui
+                        .add(
+                            crate::ui::button_3d::Button3D::new("Cancel")
+                                .min_size(Vec2::new(65.0, 24.0)),
+                        )
+                        .clicked()
+                    {
+                        cancel_save = true;
+                    }
+                });
+            });
+
+        if let Some(ref r) = win_resp {
+            decorate_modal_window(ctx, &r.response, &mut open);
+        }
+
+        if confirm_save {
+            if let Some((target_id, _)) = target_info {
+                let name = app.save_favorite_scene_name_buffer.trim().to_string();
+                if !name.is_empty() {
+                    app.save_scene_as_favorite(target_id, &name);
+                }
+            }
+            app.show_save_favorite_scene_dialog = false;
+        } else if cancel_save || !open || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            app.show_save_favorite_scene_dialog = false;
         }
     }
 

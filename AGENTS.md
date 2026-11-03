@@ -116,6 +116,11 @@ Sebelum melakukan perubahan kode, **baca peta arsitektur lengkap di [`ARCHITECTU
      - Tombol + pada footer panel Scenes dan klik kanan -> Add Scene... memunculkan dialog modal konfirmasi nama scene baru terlebih dahulu (*Add Scene dialog*).
      - Input nama scene otomatis di-prefill dengan nama default unik (misal Scene 3). Pengguna dapat langsung menekan Enter atau mengklik OK untuk memakai nama default, atau mengetik nama kustom terlebih dahulu.
      - Scene baru yang ditambahkan selalu memiliki daftar layer/source yang **KOSONG** secara default (sources: Vec::new()) tanpa menambahkan layer default apapun.
+   - **Fitur Favorite Scene Templates (Save & Instantiate Template):**
+     - Klik kanan pada Scene di panel Scenes (mode List maupun Grid) menyediakan opsi **`⭐ Save to Favorite Scene...`**.
+     - Dialog modal konfirmasi menampilkan jumlah layer, deskripsi ringkas, serta kolom nama template yang dapat disesuaikan.
+     - Template tersimpan permanen di `AppSettings::favorite_scene_templates` dan dapat diakses saat membuat scene baru melalui tombol `+` (*Add Scene dialog*).
+     - Pada dialog Add Scene, pengguna dapat memilih membuat *Empty Scene* biasa atau memilih salah satu *Favorite Template* yang sudah disimpan (`Use Template`) lengkap dengan tombol hapus template (*Trash*). Saat template diinstansiasi, setiap layer menerima UUID baru yang independen sehingga aman diedit tanpa mengubah template aslinya.
    - **Menu Transform & Manipulasi Kanvas Langsung (OBS-Style):**
      - Klik kanan pada layer di Preview canvas atau panel Sources menampilkan submenu **Transform ▸**:
        - Rotasi: `Rotate 90 degrees CW`, `Rotate 90 degrees CCW`, `Rotate 180 degrees`.

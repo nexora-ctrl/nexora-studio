@@ -465,6 +465,10 @@ pub const HEART: &str = "\u{eabe}";
 pub const HEART_FILLED: &str = "\u{f67c}";
 /// `ti-sparkles` — Sparkles / Vision Icon
 pub const SPARKLES: &str = "\u{f6d7}";
+/// `ti-star` — Star / Favorite Outline
+pub const STAR: &str = "\u{eb2e}";
+/// `ti-star-filled` — Star Filled / Favorite Active
+pub const STAR_FILLED: &str = "\u{f6a6}";
 
 
 

@@ -211,6 +211,45 @@ mod tests {
     }
 
     #[test]
+    fn favorite_scene_template_workflow_and_serialization() {
+        use crate::settings::{AppSettings, FavoriteSceneTemplate};
+        use crate::studio::source::{SourceItem, SourceKind};
+        use crate::studio::StudioState;
+
+        let mut studio = StudioState::default();
+        studio.scenes[0].sources.push(SourceItem::new(
+            "My Cam",
+            SourceKind::WebcamDevice {
+                device_id: "cam_1".to_string(),
+                device_name: "HD Webcam".to_string(),
+                resolution: (1280, 720),
+                corner_radius: 16.0,
+                border_thickness: 2.0,
+                border_color_rgba: [255, 255, 255, 255],
+            },
+        ));
+
+        // 1. Create template
+        let template = FavoriteSceneTemplate::new("Webcam Layout", &studio.scenes[0].sources);
+        assert_eq!(template.name, "Webcam Layout");
+        assert_eq!(template.sources.len(), studio.scenes[0].sources.len());
+
+        // 2. Instantiate template into a new scene
+        let new_scene = template.instantiate("Scene From Favorite".to_string());
+        assert_eq!(new_scene.name, "Scene From Favorite");
+        assert_eq!(new_scene.sources.len(), template.sources.len());
+        assert_ne!(new_scene.sources[0].id, template.sources[0].id, "Sources must receive fresh UUIDs");
+
+        // 3. Roundtrip serialization inside AppSettings
+        let mut settings = AppSettings::default();
+        settings.favorite_scene_templates.push(template);
+        let json = serde_json::to_string_pretty(&settings).expect("serialize settings with favorite templates");
+        let restored: AppSettings = serde_json::from_str(&json).expect("deserialize settings with favorite templates");
+        assert_eq!(restored.favorite_scene_templates.len(), 1);
+        assert_eq!(restored.favorite_scene_templates[0].name, "Webcam Layout");
+    }
+
+    #[test]
     fn scene_naming_and_empty_sources_by_default() {
         let mut studio = StudioState::default();
         let name1 = studio.generate_unique_scene_name();
@@ -302,7 +341,7 @@ mod tests {
 
         let updater = UpdaterState::default();
         assert_eq!(updater.status, UpdateStatus::Idle);
-        assert_eq!(updater.current_version, "0.8.0");
+        assert_eq!(updater.current_version, "0.9.0");
     }
 
     #[test]
