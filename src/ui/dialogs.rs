@@ -961,6 +961,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                                                         app.updater.clone(),
                                                                                         dl_url.clone(),
                                                                                         latest_version.clone(),
+                                                                                        file_size_bytes,
                                                                                         ui.ctx().clone(),
                                                                                     );
                                                                                 }
@@ -983,8 +984,8 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                     crate::platform::updater::UpdateStatus::Downloading {
                                                         latest_version,
                                                         progress,
-                                                        downloaded_mb: _,
-                                                        total_mb: _,
+                                                        downloaded_mb,
+                                                        total_mb,
                                                     } => {
                                                         const CARD_W: f32 = 460.0;
                                                         ui.allocate_ui_with_layout(
@@ -998,14 +999,34 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                                     .inner_margin(egui::Margin::symmetric(16, 14))
                                                                     .show(ui, |ui| {
                                                                         ui.set_width(CARD_W - 32.0);
-                                                                        ui.label(RichText::new(format!("Downloading Update {}...", latest_version)).strong());
+                                                                        ui.horizontal(|ui| {
+                                                                            ui.label(RichText::new(icons::CLOUD_DOWNLOAD).size(20.0).color(p.accent_primary));
+                                                                            ui.add_space(6.0);
+                                                                            ui.label(RichText::new(format!("Downloading Update {}...", latest_version)).strong());
+                                                                        });
+                                                                        ui.add_space(8.0);
+                                                                        ui.add(egui::ProgressBar::new(progress).show_percentage().animate(true));
                                                                         ui.add_space(6.0);
-                                                                        ui.add(egui::ProgressBar::new(progress).show_percentage());
+                                                                        ui.horizontal(|ui| {
+                                                                            ui.label(
+                                                                                RichText::new(format!("{:.1} MB / {:.1} MB ({:.0}%)", downloaded_mb, total_mb, progress * 100.0))
+                                                                                    .small()
+                                                                                    .strong()
+                                                                                    .color(p.text_primary),
+                                                                            );
+                                                                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                                                ui.label(
+                                                                                    RichText::new("Mengunduh dari GitHub CDN...")
+                                                                                        .small()
+                                                                                        .color(p.text_secondary),
+                                                                                );
+                                                                            });
+                                                                        });
                                                                         ui.add_space(4.0);
                                                                         ui.label(
-                                                                            RichText::new("Downloading new binary directly from GitHub. Please do not close the application...")
+                                                                            RichText::new("Harap jangan menutup aplikasi selama proses unduhan berlangsung.")
                                                                                 .small()
-                                                                                .color(p.text_secondary),
+                                                                                .color(p.text_muted),
                                                                         );
                                                                     });
                                                             },

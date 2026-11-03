@@ -207,20 +207,24 @@ pub fn check_for_updates_async(state: Arc<Mutex<UpdaterState>>, ctx: egui::Conte
     });
 }
 
-/// Downloads the new update binary asynchronously
+/// Downloads the new update binary asynchronously with real-time byte & progress tracking
 pub fn start_download_async(
     state: Arc<Mutex<UpdaterState>>,
     download_url: String,
     latest_version: String,
+    expected_size_bytes: Option<u64>,
     ctx: egui::Context,
 ) {
+    let total_bytes_f32 = expected_size_bytes.unwrap_or(33_993_216) as f32; // Default ~32.4 MiB
+    let total_mb = total_bytes_f32 / (1024.0 * 1024.0);
+
     {
         let mut st = lock_state(&state);
         st.status = UpdateStatus::Downloading {
             latest_version: latest_version.clone(),
-            progress: 0.05,
+            progress: 0.01,
             downloaded_mb: 0.0,
-            total_mb: 31.0,
+            total_mb,
         };
     }
     ctx.request_repaint();
@@ -229,48 +233,101 @@ pub fn start_download_async(
         let temp_dir = std::env::temp_dir();
         let target_path = temp_dir.join(format!("nexora-studio-update-{}.exe", latest_version));
 
-        let res = Command::new("curl.exe")
-            .args([
-                "-L",
-                "-o",
-                &target_path.to_string_lossy(),
-                &download_url,
-            ])
-            .output();
+        // Clean up any stale partial download
+        if target_path.exists() {
+            let _ = std::fs::remove_file(&target_path);
+        }
 
-        let mut st = lock_state(&state);
-        match res {
-            Ok(out) if out.status.success() && target_path.exists() => {
-                if let Ok(meta) = std::fs::metadata(&target_path) {
-                    if meta.len() > 1_000_000 {
-                        st.status = UpdateStatus::ReadyToRestart {
-                            new_version: latest_version,
-                            downloaded_path: target_path,
-                        };
-                    } else {
-                        st.status = UpdateStatus::Failed {
-                            error: "Downloaded binary file size is invalid.".to_string(),
-                        };
-                    }
-                } else {
-                    st.status = UpdateStatus::Failed {
-                        error: "Failed to read downloaded update file.".to_string(),
-                    };
-                }
-            }
-            Ok(out) => {
-                let err_msg = String::from_utf8_lossy(&out.stderr).to_string();
-                st.status = UpdateStatus::Failed {
-                    error: format!("Failed to download update file: {}", err_msg),
-                };
-            }
+        let mut cmd = Command::new("curl.exe");
+        cmd.args([
+            "-L",
+            "--retry", "3",
+            "--retry-delay", "1",
+            "-o",
+            &target_path.to_string_lossy(),
+            &download_url,
+        ]);
+
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+
+        let mut child = match cmd.spawn() {
+            Ok(c) => c,
             Err(e) => {
+                let mut st = lock_state(&state);
                 st.status = UpdateStatus::Failed {
                     error: format!("Failed to launch downloader: {}", e),
                 };
+                ctx.request_repaint();
+                return;
+            }
+        };
+
+        // Poll downloaded file size on disk periodically to provide smooth real-time progress updates
+        loop {
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    let mut st = lock_state(&state);
+                    if status.success() && target_path.exists() {
+                        if let Ok(meta) = std::fs::metadata(&target_path) {
+                            if meta.len() > 1_000_000 {
+                                st.status = UpdateStatus::ReadyToRestart {
+                                    new_version: latest_version,
+                                    downloaded_path: target_path,
+                                };
+                            } else {
+                                st.status = UpdateStatus::Failed {
+                                    error: "Downloaded binary file size is invalid.".to_string(),
+                                };
+                            }
+                        } else {
+                            st.status = UpdateStatus::Failed {
+                                error: "Failed to read downloaded update file.".to_string(),
+                            };
+                        }
+                    } else {
+                        st.status = UpdateStatus::Failed {
+                            error: format!("Download incomplete or interrupted (exit code: {})", status),
+                        };
+                    }
+                    ctx.request_repaint();
+                    break;
+                }
+                Ok(None) => {
+                    // Downloader still active: inspect downloaded file size
+                    if let Ok(meta) = std::fs::metadata(&target_path) {
+                        let cur_bytes = meta.len() as f32;
+                        let progress = (cur_bytes / total_bytes_f32).clamp(0.01, 0.98);
+                        let downloaded_mb = cur_bytes / (1024.0 * 1024.0);
+
+                        let mut st = lock_state(&state);
+                        if let UpdateStatus::Downloading {
+                            progress: ref mut p,
+                            downloaded_mb: ref mut d,
+                            ..
+                        } = st.status
+                        {
+                            *p = progress;
+                            *d = downloaded_mb;
+                        }
+                        ctx.request_repaint();
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                }
+                Err(e) => {
+                    let mut st = lock_state(&state);
+                    st.status = UpdateStatus::Failed {
+                        error: format!("Error monitoring downloader: {}", e),
+                    };
+                    ctx.request_repaint();
+                    break;
+                }
             }
         }
-        ctx.request_repaint();
     });
 }
 

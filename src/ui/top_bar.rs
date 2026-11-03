@@ -392,23 +392,32 @@ pub fn render_top_bar(ctx: &egui::Context, app: &mut NexoraApp) {
                     let _ = app.settings.save();
                 }
 
-                // Smooth green badge right beside Studio Mode: ON when update is available
-                let update_available = {
-                    // `unwrap_or_else(into_inner)` rather than `unwrap()`: a poisoned updater mutex
-                    // (background thread panicked while holding it) must not crash the UI render.
+                // Smooth dynamic updater badge right beside Studio Mode
+                let updater_badge = {
                     let st = app
                         .updater
                         .lock()
                         .unwrap_or_else(|poisoned| poisoned.into_inner());
-                    matches!(st.status, crate::platform::updater::UpdateStatus::UpdateAvailable { .. })
+                    match st.status {
+                        crate::platform::updater::UpdateStatus::UpdateAvailable { .. } => {
+                            Some(("Update Available · Update Now".to_string(), icons::SPARKLES, "A new version of NEXORA Studio is available! Click to open Update Preferences."))
+                        }
+                        crate::platform::updater::UpdateStatus::Downloading { progress, .. } => {
+                            Some((format!("Downloading Update ({:.0}%)...", progress * 100.0), icons::CLOUD_DOWNLOAD, "Download in progress. Click to view details."))
+                        }
+                        crate::platform::updater::UpdateStatus::ReadyToRestart { .. } => {
+                            Some(("Update Ready · Restart Now".to_string(), icons::REFRESH, "Update downloaded successfully! Click to install and restart."))
+                        }
+                        _ => None,
+                    }
                 };
 
-                if update_available {
+                if let Some((badge_label, badge_icon, badge_tooltip)) = updater_badge {
                     ui.add_space(4.0);
-                    let badge_btn = crate::ui::button_3d::Button3D::success("Update Available · Update Now")
-                        .icon(icons::SPARKLES)
+                    let badge_btn = crate::ui::button_3d::Button3D::success(&badge_label)
+                        .icon(badge_icon)
                         .min_size(Vec2::new(0.0, 22.0))
-                        .tooltip("A new version of NEXORA Studio is available! Click to open Update Preferences.");
+                        .tooltip(badge_tooltip);
 
                     if ui.add(badge_btn).clicked() {
                         app.show_settings_dialog = true;
