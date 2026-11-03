@@ -1487,6 +1487,49 @@ impl NexoraApp {
     /// Takes any `Event::Screenshot` delivered this frame, crops the target canvas
     /// (Program / Preview / Scene) in physical pixels and hands it to the Virtual Camera thread.
     fn forward_virtual_camera_screenshot(&mut self, ctx: &egui::Context) {
+        if !self.virtual_camera_active {
+            return;
+        }
+
+        let time_sec = ctx.input(|i| i.time);
+        if time_sec - self.last_vcam_capture_time < 1.0 / 30.0 {
+            return;
+        }
+        self.last_vcam_capture_time = time_sec;
+
+        let (target_w, target_h) = (1920, 1080);
+        let scene_to_render = match self.virtual_camera_output_type {
+            VirtualCameraOutputType::Program => self.studio.program_scene(),
+            VirtualCameraOutputType::Preview => self.studio.preview_scene(),
+            VirtualCameraOutputType::Scene => {
+                if let Some(id) = self.virtual_camera_scene_id {
+                    self.studio
+                        .scenes
+                        .iter()
+                        .find(|s| s.id == id)
+                        .unwrap_or_else(|| self.studio.program_scene())
+                } else {
+                    self.studio.program_scene()
+                }
+            }
+        };
+
+        // 1. Direct High-Resolution Offscreen Compositor for Virtual Camera
+        if let Some(composed_rgba) = crate::studio::compositor::compose_scene_to_rgba(
+            scene_to_render,
+            &self.capture_engine,
+            target_w,
+            target_h,
+            time_sec,
+        ) {
+            if let Some(svc) = self.virtual_camera_service.as_mut() {
+                svc.push_direct_rgba(composed_rgba);
+            }
+            return;
+        }
+
+        // 2. Fallback to UI viewport screenshot
+        ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
         let shot = ctx.input(|i| {
             i.raw.events.iter().rev().find_map(|e| match e {
                 egui::Event::Screenshot { image, .. } => Some(std::sync::Arc::clone(image)),
@@ -1494,9 +1537,6 @@ impl NexoraApp {
             })
         });
         let Some(image) = shot else { return };
-        if !self.virtual_camera_active {
-            return;
-        }
 
         // Choose which on-screen canvas represents the selected output
         let use_preview = match self.virtual_camera_output_type {
@@ -1518,7 +1558,7 @@ impl NexoraApp {
 
         // Convert logical points -> physical pixels, inset slightly to skip canvas border strokes
         let ppp = ctx.pixels_per_point();
-        let inset = 2.0 * ppp;
+        let inset = 1.0 * ppp;
         let img_w = image.width() as f32;
         let img_h = image.height() as f32;
         let x0 = (rect.min.x * ppp + inset).clamp(0.0, img_w);
@@ -1543,6 +1583,16 @@ impl NexoraApp {
             return;
         };
 
+        let rec_fps = self.settings.video_preset.fps().max(1) as f64;
+        let rec_interval = 1.0 / rec_fps;
+        let time_sec = ctx.input(|i| i.time);
+
+        // Rate limit frame capture to the exact video preset FPS
+        if time_sec - self.last_recording_capture_time < rec_interval {
+            return;
+        }
+        self.last_recording_capture_time = time_sec;
+
         // Mirror the live Audio Mixer panel (faders, mute, Disabled device) into the encoder
         writer.set_mixer(
             self.audio_mixer.desktop_audio.volume,
@@ -1566,6 +1616,32 @@ impl NexoraApp {
             writer.set_source_buses(bus_specs);
         }
 
+        let (target_w, target_h) = self.settings.video_preset.dimensions();
+        let time_sec = ctx.input(|i| i.time);
+        let program_scene = self.studio.program_scene();
+
+        // 1. Direct High-Resolution Offscreen Canvas Compositor (OBS Studio Architecture):
+        // Directly blits/scales the native high-resolution captured source frames (1080p Desktop Duplication,
+        // 1080p Window Capture, Webcam, Media files, Slides) into a full-resolution target buffer.
+        // This guarantees 100% pixel-perfect native quality and completely bypasses the catastrophic
+        // downscaling to the small UI preview window (~600x338) and nearest-neighbor upscaling.
+        let maybe_composed = crate::studio::compositor::compose_scene_to_rgba(
+            program_scene,
+            &self.capture_engine,
+            target_w,
+            target_h,
+            time_sec,
+        );
+
+        if let Some(composed_rgba) = maybe_composed {
+            writer.push_frame(composed_rgba, target_w, target_h);
+            self.recording.encoded_frames += 1;
+            self.recording.dropped_frames = writer.dropped_frames();
+            return;
+        }
+
+        // 2. Fallback to UI Viewport Screenshot (only when scene contains exclusively egui-only vector layers)
+        ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
         let shot = ctx.input(|i| {
             i.raw.events.iter().rev().find_map(|e| match e {
                 egui::Event::Screenshot { image, .. } => Some(std::sync::Arc::clone(image)),
@@ -1578,7 +1654,7 @@ impl NexoraApp {
         let Some(rect) = rect else { return };
 
         let ppp = ctx.pixels_per_point();
-        let inset = 2.0 * ppp;
+        let inset = 1.0 * ppp;
         let img_w = image.width() as f32;
         let img_h = image.height() as f32;
         let x0 = (rect.min.x * ppp + inset).clamp(0.0, img_w);
@@ -1591,7 +1667,6 @@ impl NexoraApp {
             return;
         }
 
-        let (target_w, target_h) = self.settings.video_preset.dimensions();
         let scaled_rgba = crate::virtual_camera::crop_and_scale_color_image(
             &image,
             x0 as usize,
@@ -2210,29 +2285,16 @@ impl eframe::App for NexoraApp {
             }
         }
 
-        // Virtual Camera & Recording: request a viewport screenshot so the real canvas output feeds the camera / encoder
-        let rec_active = self.recording.status == crate::recording::RecordingStatus::Recording;
-        let rec_fps = self.settings.video_preset.fps().max(1) as f64;
-        let rec_interval = 1.0 / rec_fps;
-
-        if rec_active && time_sec - self.last_recording_capture_time >= rec_interval {
-            self.last_recording_capture_time = time_sec;
-            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
-        } else if self.virtual_camera_active && time_sec - self.last_vcam_capture_time >= 1.0 / 30.0 {
-            self.last_vcam_capture_time = time_sec;
-            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
-        }
-
         // Responsive Repaint Engine:
-        // When actively dragging (moving mouse while holding button down) or processing new input events,
-        // immediately trigger a frame so drag positions track 1:1 with hardware pointer coordinates.
-        // When not dragging, maintain a smooth 60fps refresh cadence for audio meters, timers, and telemetry
-        // without saturating the Windows OS message pump.
+        // When recording or virtual camera is active, request continuous repaint to sync with VSync/60fps.
+        // When actively dragging, trigger immediate repaint for 1:1 hardware pointer tracking.
+        // When idle, maintain ~60fps refresh cadence for audio meters and telemetry.
+        let rec_active = self.recording.status == crate::recording::RecordingStatus::Recording;
         let is_actively_dragging = ctx.input(|i| {
             (i.pointer.is_moving() && i.pointer.any_down()) || !i.raw.events.is_empty()
         });
 
-        if is_actively_dragging {
+        if rec_active || self.virtual_camera_active || is_actively_dragging {
             ctx.request_repaint();
         } else {
             ctx.request_repaint_after(Duration::from_millis(16));

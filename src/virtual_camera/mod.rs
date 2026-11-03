@@ -339,6 +339,7 @@ impl Drop for VCamProducer {
 /// Latest captured studio frame (full viewport screenshot + canvas crop region in physical pixels).
 /// Crop & scale to 1080p is performed on the Virtual Camera thread to keep the UI thread light.
 struct PendingCanvasFrame {
+    direct_rgba: Option<Arc<Vec<u8>>>,
     image: Arc<egui::ColorImage>,
     crop: [usize; 4], // x, y, w, h
     seq: u64,
@@ -380,13 +381,17 @@ impl VirtualCameraService {
 
                 // Pick up the newest canvas frame (if any) and rescale it to 1920x1080
                 let pending = frame_clone.lock().ok().and_then(|guard| {
-                    guard.as_ref().filter(|f| f.seq != last_seq).map(|f| (Arc::clone(&f.image), f.crop, f.seq))
+                    guard.as_ref().filter(|f| f.seq != last_seq).map(|f| (f.direct_rgba.clone(), Arc::clone(&f.image), f.crop, f.seq))
                 });
-                if let Some((image, crop, seq)) = pending {
+                if let Some((direct, image, crop, seq)) = pending {
                     last_seq = seq;
-                    cached_rgba = Some(crop_and_scale_color_image(
-                        &image, crop[0], crop[1], crop[2], crop[3], 1920, 1080,
-                    ));
+                    if let Some(rgba) = direct {
+                        cached_rgba = Some((*rgba).clone());
+                    } else {
+                        cached_rgba = Some(crop_and_scale_color_image(
+                            &image, crop[0], crop[1], crop[2], crop[3], 1920, 1080,
+                        ));
+                    }
                 }
 
                 // Write the last live canvas frame (repeat it when UI is idle); placeholder until first frame
@@ -412,6 +417,23 @@ impl VirtualCameraService {
         }
     }
 
+    /// Delivers a full native resolution (1920x1080) RGBA buffer directly to the Virtual Camera
+    /// without performing viewport screenshot cropping or rescaling.
+    pub fn push_direct_rgba(&mut self, rgba: Vec<u8>) {
+        if rgba.is_empty() {
+            return;
+        }
+        self.frame_seq = self.frame_seq.wrapping_add(1).max(1);
+        if let Ok(mut guard) = self.current_frame.lock() {
+            *guard = Some(PendingCanvasFrame {
+                direct_rgba: Some(Arc::new(rgba)),
+                image: Arc::new(egui::ColorImage::example()),
+                crop: [0, 0, 0, 0],
+                seq: self.frame_seq,
+            });
+        }
+    }
+
     /// Pushes a full viewport screenshot plus the canvas crop rect (physical pixels).
     /// The Virtual Camera thread crops & scales it to 1920x1080 NV12.
     pub fn push_canvas_screenshot(&mut self, image: Arc<egui::ColorImage>, crop: [usize; 4]) {
@@ -421,6 +443,7 @@ impl VirtualCameraService {
         self.frame_seq = self.frame_seq.wrapping_add(1).max(1);
         if let Ok(mut guard) = self.current_frame.lock() {
             *guard = Some(PendingCanvasFrame {
+                direct_rgba: None,
                 image,
                 crop,
                 seq: self.frame_seq,
@@ -437,6 +460,7 @@ impl VirtualCameraService {
 }
 
 /// Crops a sub-rectangle from an `egui::ColorImage` and scales it to `out_w x out_h` RGBA8
+/// using smooth bilinear interpolation to eliminate pixelated/jagged artifacts.
 pub fn crop_and_scale_color_image(
     image: &egui::ColorImage,
     crop_x: usize,
@@ -450,25 +474,46 @@ pub fn crop_and_scale_color_image(
     let img_w = image.width();
     let img_h = image.height();
 
-    if img_w == 0 || img_h == 0 || crop_w == 0 || crop_h == 0 {
+    if img_w == 0 || img_h == 0 || crop_w == 0 || crop_h == 0 || out_w == 0 || out_h == 0 {
         return out;
     }
 
+    let x_max = img_w.saturating_sub(1);
+    let y_max = img_h.saturating_sub(1);
+
     for oy in 0..out_h {
-        let sy = crop_y + (oy * crop_h) / out_h;
-        let sy = sy.min(img_h.saturating_sub(1));
-        let row_in = sy * img_w;
+        let src_yf = crop_y as f32 + (oy as f32 * crop_h as f32) / out_h as f32;
+        let y0 = (src_yf.floor() as usize).min(y_max);
+        let y1 = (y0 + 1).min(y_max);
+        let fy = src_yf - y0 as f32;
+        let row0 = y0 * img_w;
+        let row1 = y1 * img_w;
         let row_out = oy * out_w * 4;
 
         for ox in 0..out_w {
-            let sx = crop_x + (ox * crop_w) / out_w;
-            let sx = sx.min(img_w.saturating_sub(1));
-            let px = image.pixels[row_in + sx];
+            let src_xf = crop_x as f32 + (ox as f32 * crop_w as f32) / out_w as f32;
+            let x0 = (src_xf.floor() as usize).min(x_max);
+            let x1 = (x0 + 1).min(x_max);
+            let fx = src_xf - x0 as f32;
+
+            let p00 = image.pixels[row0 + x0];
+            let p10 = image.pixels[row0 + x1];
+            let p01 = image.pixels[row1 + x0];
+            let p11 = image.pixels[row1 + x1];
+
+            let w00 = (1.0 - fx) * (1.0 - fy);
+            let w10 = fx * (1.0 - fy);
+            let w01 = (1.0 - fx) * fy;
+            let w11 = fx * fy;
+
+            let r = (p00.r() as f32 * w00 + p10.r() as f32 * w10 + p01.r() as f32 * w01 + p11.r() as f32 * w11).round() as u8;
+            let g = (p00.g() as f32 * w00 + p10.g() as f32 * w10 + p01.g() as f32 * w01 + p11.g() as f32 * w11).round() as u8;
+            let b = (p00.b() as f32 * w00 + p10.b() as f32 * w10 + p01.b() as f32 * w01 + p11.b() as f32 * w11).round() as u8;
 
             let out_idx = row_out + ox * 4;
-            out[out_idx] = px.r();
-            out[out_idx + 1] = px.g();
-            out[out_idx + 2] = px.b();
+            out[out_idx] = r;
+            out[out_idx + 1] = g;
+            out[out_idx + 2] = b;
             out[out_idx + 3] = 255;
         }
     }

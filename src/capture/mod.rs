@@ -345,6 +345,34 @@ impl LiveCaptureEngine {
         None
     }
 
+    /// Returns a clone of the latest captured high-resolution frame for a given cache key.
+    /// If the key refers to a local image ("IMG:...") that has not yet been processed by the
+    /// background worker, it loads it synchronously so there is zero latency/black frame.
+    pub fn get_latest_frame(&self, key: &str) -> Option<CapturedFrame> {
+        if let Ok(guard) = self.shared.lock() {
+            if let Some(frame) = guard.latest_frames.get(key) {
+                if frame.width > 0 && frame.height > 0 && !frame.rgba.is_empty() {
+                    return Some(frame.clone());
+                }
+            }
+        }
+        if let Some(path_str) = key.strip_prefix("IMG:") {
+            if let Ok(img) = image::open(path_str) {
+                let rgba = img.to_rgba8();
+                let (w, h) = (rgba.width() as usize, rgba.height() as usize);
+                if w > 0 && h > 0 {
+                    return Some(CapturedFrame {
+                        width: w,
+                        height: h,
+                        rgba: Arc::from(rgba.into_raw()),
+                        seq: 1,
+                    });
+                }
+            }
+        }
+        None
+    }
+
     /// Uploads and applies real-time Chroma Key, Color Key, or Luma Key filters to source frames
     pub fn get_or_update_filtered_texture(
         &mut self,
@@ -485,7 +513,7 @@ impl LiveCaptureEngine {
 }
 
 /// Applies Chroma Key, Color Key, or Luma Key in place to 32-bit RGBA pixel buffer
-fn apply_key_filter_to_rgba(
+pub(crate) fn apply_key_filter_to_rgba(
     rgba: &mut [u8],
     filter: &crate::studio::source::SourceFilterConfig,
 ) {
@@ -882,7 +910,6 @@ mod win32_capture {
     const BI_RGB: DWORD = 0;
     const DIB_RGB_COLORS: UINT = 0;
     const SRCCOPY: DWORD = 0x00CC0020;
-    const CAPTUREBLT: DWORD = 0x40000000;
     const COLORONCOLOR: i32 = 3;
     const CURSOR_SHOWING: DWORD = 0x00000001;
     const DI_NORMAL: UINT = 0x0003;
@@ -994,6 +1021,17 @@ mod win32_capture {
             offset: DWORD,
         ) -> HBITMAP;
         fn SetStretchBltMode(hdc: HDC, mode: i32) -> i32;
+        fn BitBlt(
+            hdc_dest: HDC,
+            x_dest: i32,
+            y_dest: i32,
+            w_dest: i32,
+            h_dest: i32,
+            hdc_src: HDC,
+            x_src: i32,
+            y_src: i32,
+            rop: DWORD,
+        ) -> BOOL;
         fn StretchBlt(
             hdc_dest: HDC,
             x_dest: i32,
@@ -1152,21 +1190,38 @@ mod win32_capture {
             }
 
             let old_obj = SelectObject(mem_dc, hbm);
-            SetStretchBltMode(mem_dc, COLORONCOLOR);
 
-            let ok = StretchBlt(
-                mem_dc,
-                0,
-                0,
-                dst_w as i32,
-                dst_h as i32,
-                screen_dc,
-                src_x,
-                src_y,
-                src_w as i32,
-                src_h as i32,
-                SRCCOPY | CAPTUREBLT,
-            );
+            // Fast path: BitBlt 1:1 hardware copy avoids GDI StretchBlt pipeline stalls.
+            // SRCCOPY without CAPTUREBLT avoids forcing DWM to freeze GPU composition for layered windows.
+            let is_one_to_one = src_w == dst_w as u32 && src_h == dst_h as u32;
+            let ok = if is_one_to_one {
+                BitBlt(
+                    mem_dc,
+                    0,
+                    0,
+                    dst_w as i32,
+                    dst_h as i32,
+                    screen_dc,
+                    src_x,
+                    src_y,
+                    SRCCOPY,
+                )
+            } else {
+                SetStretchBltMode(mem_dc, COLORONCOLOR);
+                StretchBlt(
+                    mem_dc,
+                    0,
+                    0,
+                    dst_w as i32,
+                    dst_h as i32,
+                    screen_dc,
+                    src_x,
+                    src_y,
+                    src_w as i32,
+                    src_h as i32,
+                    SRCCOPY,
+                )
+            };
 
             if ok != 0 && capture_cursor {
                 let mut ci: CURSORINFO = zeroed();
@@ -1346,7 +1401,7 @@ mod win32_capture {
                     rect.top,
                     src_w,
                     src_h,
-                    SRCCOPY | CAPTUREBLT,
+                    SRCCOPY,
                 )
             };
 

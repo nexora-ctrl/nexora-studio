@@ -297,19 +297,20 @@ impl ActiveSourceBus {
         self.spec = spec;
     }
 
-    /// Pulls every pending packet, then drains exactly one 48 kHz stereo frame.
-    /// Returns silence (fading to avoid clicks) when the stream has no data yet.
-    unsafe fn next_frame(&mut self) -> (f32, f32) {
+    /// Pulls every pending WASAPI packet once per video frame and enforces queue safety cap.
+    unsafe fn drain(&mut self) {
         if let Some(ref ep) = self.endpoint {
             ep.drain_into(&mut self.queue);
         }
-
-        // Safety cap (1.5 s) so a stalled source can never grow memory unbounded.
         let cap_len = (MIX_RATE as usize * 3) / 2;
         while self.queue.len() > cap_len {
             self.queue.pop_front();
         }
+    }
 
+    /// Drains exactly one 48 kHz stereo frame from the pre-buffered queue.
+    /// Returns silence (smoothly fading to avoid clicks) when the stream has no data yet.
+    fn next_frame(&mut self) -> (f32, f32) {
         let (l, r) = match self.resampler.next(&mut self.queue) {
             Some(v) => v,
             None => self.resampler.starved(),
@@ -720,6 +721,9 @@ fn run_mf_encoder_loop(
                         if let Some(ref m) = mic_cap {
                             m.drain_into(&mut mic_queue);
                         }
+                        for bus in &mut source_buses {
+                            bus.drain();
+                        }
 
                         // Safety cap (1.5 s) so a stalled UI can never grow memory unbounded
                         let cap_len = (MIX_RATE as usize * 3) / 2;
@@ -775,7 +779,7 @@ fn run_mf_encoder_loop(
 
                                 let (ml, mr) = match mic_res.next(&mut mic_queue) {
                                     Some(v) => v,
-                                    None => (0.0, 0.0),
+                                    None => mic_res.starved(),
                                 };
 
                                 // Global buses stay raw, exactly like OBS: filtering is the job of

@@ -1,3 +1,4 @@
+pub mod compositor;
 pub mod scene;
 pub mod source;
 

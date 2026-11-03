@@ -4374,12 +4374,13 @@ fn render_audio_filters_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                                                 );
 
                                                 // Col 2: Inactive rail mirroring the derived threshold.
+                                                let open_db = (flt.gate_threshold_db + 3.0).min(0.0);
                                                 ui.scope(|ui| {
                                                     ui.spacing_mut().slider_width = SLIDER_PARAM_RAIL_WIDTH;
-                                                    let mut dummy = flt.gate_threshold_db - 3.0;
+                                                    let mut dummy = open_db;
                                                     ui.add_enabled(
                                                         false,
-                                                        egui::Slider::new(&mut dummy, -83.0..=-3.0)
+                                                        egui::Slider::new(&mut dummy, -77.0..=0.0)
                                                             .show_value(false),
                                                     );
                                                 });
@@ -4387,7 +4388,7 @@ fn render_audio_filters_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                                                 // Col 3: Value box — identical size/font to editable rows.
                                                 slider_param_readonly_box(
                                                     ui,
-                                                    &format!("{:.1} dB", flt.gate_threshold_db - 3.0),
+                                                    &format!("{:.1} dB", open_db),
                                                     p.accent_preview,
                                                 );
 

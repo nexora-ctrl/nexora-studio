@@ -297,9 +297,12 @@ struct GateNode {
 
 impl GateNode {
     fn new(threshold_db: f32, attack_ms: f32, hold_ms: f32, release_ms: f32) -> Self {
-        let open_thresh = db_to_lin(threshold_db.clamp(-80.0, 0.0));
-        // ~3 dB of hysteresis so a signal hovering at the threshold cannot chatter.
-        let close_thresh = (open_thresh * 0.707).max(1.0e-7);
+        // threshold_db is the Close Threshold (e.g. -45 dB)
+        // open_thresh is 3 dB HIGHER (e.g. -42 dB, louder) for true hysteresis
+        let close_thresh_db = threshold_db.clamp(-80.0, -1.0);
+        let open_thresh_db = (close_thresh_db + 3.0).min(0.0);
+        let close_thresh = db_to_lin(close_thresh_db);
+        let open_thresh = db_to_lin(open_thresh_db);
         Self {
             dc: DcBlocker::new(),
             det: 0.0,
