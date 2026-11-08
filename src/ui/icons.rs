@@ -5,9 +5,9 @@ use std::sync::Arc;
 /// Also accompanied in `assets/icons/` by `tabler-sprite.svg` and `tabler-icons-codepoints.json`
 /// for offline reference and future expansion.
 const TABLER_ICONS_TTF: &[u8] = include_bytes!("../../assets/icons/tabler-icons.ttf");
-const APP_ICON_ICO: &[u8] = include_bytes!("../../assets/icons/icon.ico");
+const APP_ICON_ICO: &[u8] = include_bytes!("../../assets/icons/nexorastudio-icon.ico");
 
-/// Decodes a 32-bit BGRA DIB entry from the embedded `assets/icons/icon.ico`
+/// Decodes a 32-bit BGRA DIB or PNG entry from the embedded `assets/icons/nexorastudio-icon.ico`
 pub fn decode_embedded_ico_rgba(preferred_width: u32) -> Option<(u32, u32, Vec<u8>)> {
     let bytes = APP_ICON_ICO;
     if bytes.len() < 22 {
@@ -63,6 +63,14 @@ pub fn decode_embedded_ico_rgba(preferred_width: u32) -> Option<(u32, u32, Vec<u
         return None;
     }
 
+    // Support PNG-compressed icon entries (0x89 'P' 'N' 'G')
+    if bytes[data_off..].starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
+        if let Ok(img) = image::load_from_memory(&bytes[data_off..data_off + size]) {
+            let rgba = img.to_rgba8();
+            return Some((rgba.width(), rgba.height(), rgba.into_raw()));
+        }
+    }
+
     let header_size = u32::from_le_bytes([
         bytes[data_off],
         bytes[data_off + 1],
@@ -95,7 +103,7 @@ pub fn decode_embedded_ico_rgba(preferred_width: u32) -> Option<(u32, u32, Vec<u
     Some((width as u32, height as u32, rgba))
 }
 
-/// Loads `assets/icons/icon.ico` into `egui::IconData` for the native window and taskbar icon
+/// Loads `assets/icons/nexorastudio-icon.ico` into `egui::IconData` for the native window and taskbar icon
 pub fn load_app_window_icon() -> Option<Arc<egui::IconData>> {
     let (width, height, rgba) = decode_embedded_ico_rgba(64)
         .or_else(|| decode_embedded_ico_rgba(256))?;

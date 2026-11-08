@@ -266,7 +266,7 @@ mod tests {
 
     #[test]
     fn app_icon_ico_decodes_properly() {
-        let icon = crate::ui::icons::load_app_window_icon().expect("decode icon.ico");
+        let icon = crate::ui::icons::load_app_window_icon().expect("decode nexorastudio-icon.ico");
         assert!(icon.width >= 32 && icon.height >= 32);
         assert_eq!(icon.rgba.len(), (icon.width * icon.height * 4) as usize);
     }

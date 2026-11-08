@@ -1,3 +1,6 @@
 [build]
 target-dir = "D:/Rust/.nexora-target"
 
+[target.x86_64-pc-windows-gnu]
+rustflags = ["-C", "link-self-contained=yes"]
+

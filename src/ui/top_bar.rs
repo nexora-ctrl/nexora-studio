@@ -18,7 +18,7 @@ pub fn render_top_bar(ctx: &egui::Context, app: &mut NexoraApp) {
         )
         .show(ctx, |ui| {
             ui.horizontal_centered(|ui| {
-                // Brand Icon (`assets/icons/icon.ico`) & Title
+                // Brand Icon (`assets/icons/nexorastudio-icon.ico`) & Title
                 if let Some(ref icon_tex) = app.brand_icon_texture {
                     ui.add(
                         egui::Image::from_texture(icon_tex)

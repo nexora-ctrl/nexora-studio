@@ -3,13 +3,13 @@ use std::fs;
 use std::path::PathBuf;
 
 fn main() {
-    println!("cargo:rerun-if-changed=assets/icons/icon.ico");
+    println!("cargo:rerun-if-changed=assets/icons/nexorastudio-icon.ico");
 
     if env::var("CARGO_CFG_TARGET_OS").unwrap_or_default() != "windows" {
         return;
     }
 
-    let ico_path = PathBuf::from("assets/icons/icon.ico");
+    let ico_path = PathBuf::from("assets/icons/nexorastudio-icon.ico");
     let Ok(ico) = fs::read(&ico_path) else {
         return;
     };
