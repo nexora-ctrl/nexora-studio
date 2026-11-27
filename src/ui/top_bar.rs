@@ -39,17 +39,59 @@ pub fn render_top_bar(ctx: &egui::Context, app: &mut NexoraApp) {
                     });
                 }
 
-                // Rubik SemiBold (600) instead of Exo Medium (500): only one Exo weight is bundled
-                // offline, so the brand could not be made any heavier within that family. Rubik
-                // SemiBold is already embedded and gives the wordmark noticeably more presence.
+                // Sora SemiBold (600) with cool blue gradient for the brand wordmark
+                {
+                    let brand_text = "NEXORA Studio";
+                    let font_id = egui::FontId::new(14.5, icons::sora_semibold_family());
+                    let is_dark = ui.visuals().dark_mode;
+                    let (c0, c1, c2) = if is_dark {
+                        (
+                            Color32::from_rgb(56, 189, 248),  // Sky 400
+                            Color32::from_rgb(96, 165, 250),  // Blue 400
+                            Color32::from_rgb(129, 140, 248), // Indigo 400
+                        )
+                    } else {
+                        (
+                            Color32::from_rgb(2, 132, 199),  // Sky 600
+                            Color32::from_rgb(37, 99, 235),  // Blue 600
+                            Color32::from_rgb(67, 56, 202),  // Indigo 700
+                        )
+                    };
+                    let lerp_c = |a: Color32, b: Color32, t: f32| -> Color32 {
+                        let t = t.clamp(0.0, 1.0);
+                        Color32::from_rgb(
+                            (a.r() as f32 + (b.r() as f32 - a.r() as f32) * t).round() as u8,
+                            (a.g() as f32 + (b.g() as f32 - a.g() as f32) * t).round() as u8,
+                            (a.b() as f32 + (b.b() as f32 - a.b() as f32) * t).round() as u8,
+                        )
+                    };
+                    let mut job = egui::text::LayoutJob::default();
+                    let char_count = brand_text.chars().count().max(2);
+                    for (idx, ch) in brand_text.char_indices() {
+                        let char_idx = brand_text[..idx].chars().count();
+                        let t = char_idx as f32 / (char_count - 1) as f32;
+                        let color = if t < 0.5 {
+                            lerp_c(c0, c1, t * 2.0)
+                        } else {
+                            lerp_c(c1, c2, (t - 0.5) * 2.0)
+                        };
+                        let mut buf = [0u8; 4];
+                        let s = ch.encode_utf8(&mut buf);
+                        job.append(
+                            s,
+                            0.0,
+                            egui::TextFormat {
+                                font_id: font_id.clone(),
+                                color,
+                                ..Default::default()
+                            },
+                        );
+                    }
+                    ui.label(job);
+                }
                 ui.label(
-                    RichText::new("NEXORA Studio")
-                        .font(egui::FontId::new(15.5, icons::rubik_semibold_family()))
-                        .color(p.text_primary),
-                );
-                ui.label(
-                    RichText::new("v0.9")
-                        .size(11.8)
+                    RichText::new("v0.10")
+                        .size(10.8)
                         .color(p.text_muted),
                 );
 

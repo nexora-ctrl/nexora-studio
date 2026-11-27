@@ -304,7 +304,7 @@ mod tests {
     }
 
     #[test]
-    fn test_font_rubik_and_exo_installation() {
+    fn test_font_sora_installation() {
         let ctx = egui::Context::default();
         crate::ui::icons::install_tabler_icons(&ctx);
         let _ = ctx.run(Default::default(), |_| {});
@@ -312,13 +312,13 @@ mod tests {
         let galley = ctx.fonts(|f| {
             f.layout_no_wrap(
                 "\u{23f5}".to_owned(),
-                egui::FontId::new(12.0, crate::ui::icons::rubik_light_family()),
+                egui::FontId::new(12.0, crate::ui::icons::sora_light_family()),
                 egui::Color32::WHITE,
             )
         });
         assert_eq!(galley.rect.width(), 11.0);
 
-        // Verify Roboto Mono renders monospace numbers cleanly
+        // Verify Sora Monospace family renders numbers cleanly
         let mono_galley = ctx.fonts(|f| {
             f.layout_no_wrap(
                 "0123456789:".to_owned(),
@@ -327,6 +327,28 @@ mod tests {
             )
         });
         assert!(mono_galley.rect.width() > 0.0);
+    }
+
+    #[test]
+    fn hotkeys_config_roundtrip_and_display() {
+        use crate::settings::{AppSettings, HotkeyBinding};
+        let mut settings = AppSettings::default();
+        assert_eq!(
+            settings.hotkeys.start_stop_recording.as_ref().unwrap().display_label(),
+            "F9"
+        );
+        assert_eq!(
+            settings.hotkeys.toggle_mute_mic.as_ref().unwrap().display_label(),
+            "Ctrl + M"
+        );
+        settings.hotkeys.toggle_studio_mode = Some(HotkeyBinding::new("F8", true, true, false));
+        let json = serde_json::to_string(&settings).unwrap();
+        let decoded: AppSettings = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.hotkeys, settings.hotkeys);
+        assert_eq!(
+            decoded.hotkeys.toggle_studio_mode.unwrap().to_egui_key(),
+            Some(egui::Key::F8)
+        );
     }
 
     #[test]
@@ -341,7 +363,7 @@ mod tests {
 
         let updater = UpdaterState::default();
         assert_eq!(updater.status, UpdateStatus::Idle);
-        assert_eq!(updater.current_version, "0.9.1");
+        assert_eq!(updater.current_version, "0.10.0");
     }
 
     #[test]

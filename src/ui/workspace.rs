@@ -3461,7 +3461,7 @@ fn draw_live_subtitle_layer(
 
     let scale_factor = (rect.height() / 100.0).clamp(0.4, 2.5);
     let scaled_font_size = (font_size * scale_factor).clamp(12.0, 72.0);
-    let font_id = FontId::new(scaled_font_size, crate::ui::icons::rubik_medium_family());
+    let font_id = FontId::new(scaled_font_size, crate::ui::icons::sora_medium_family());
 
     let text_col = Color32::from_rgba_unmultiplied(
         text_color_rgba[0],

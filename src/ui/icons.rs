@@ -124,42 +124,26 @@ pub fn install_tabler_icons(ctx: &egui::Context) {
         Arc::new(FontData::from_static(TABLER_ICONS_TTF)),
     );
 
-    // 2. Rubik font family (Embedded Offline: Light 300, Regular 400, Medium 500, SemiBold 600)
+    // 2. Sora font family (Embedded Offline: Light 300, Regular 400, Medium 500, SemiBold 600, Bold 700)
     fonts.font_data.insert(
-        RUBIK_LIGHT_NAME.to_owned(),
-        Arc::new(FontData::from_static(RUBIK_LIGHT_TTF)),
+        SORA_LIGHT_NAME.to_owned(),
+        Arc::new(FontData::from_static(SORA_LIGHT_TTF)),
     );
     fonts.font_data.insert(
-        RUBIK_REGULAR_NAME.to_owned(),
-        Arc::new(FontData::from_static(RUBIK_REGULAR_TTF)),
+        SORA_REGULAR_NAME.to_owned(),
+        Arc::new(FontData::from_static(SORA_REGULAR_TTF)),
     );
     fonts.font_data.insert(
-        RUBIK_MEDIUM_NAME.to_owned(),
-        Arc::new(FontData::from_static(RUBIK_MEDIUM_TTF)),
+        SORA_MEDIUM_NAME.to_owned(),
+        Arc::new(FontData::from_static(SORA_MEDIUM_TTF)),
     );
     fonts.font_data.insert(
-        RUBIK_SEMIBOLD_NAME.to_owned(),
-        Arc::new(FontData::from_static(RUBIK_SEMIBOLD_TTF)),
-    );
-
-    // 3. Brand Title Font: Exo Medium (weight 500), embedded offline from `assets/fonts/Exo-Medium.ttf`
-    fonts.font_data.insert(
-        BRAND_FONT_NAME.to_owned(),
-        Arc::new(FontData::from_static(EXO_MEDIUM_TTF)),
-    );
-
-    // 4. Monospace Font: Roboto Mono (Google Fonts OFL), embedded offline
-    fonts.font_data.insert(
-        ROBOTO_MONO_REGULAR_NAME.to_owned(),
-        Arc::new(FontData::from_static(ROBOTO_MONO_REGULAR_TTF)),
+        SORA_SEMIBOLD_NAME.to_owned(),
+        Arc::new(FontData::from_static(SORA_SEMIBOLD_TTF)),
     );
     fonts.font_data.insert(
-        ROBOTO_MONO_MEDIUM_NAME.to_owned(),
-        Arc::new(FontData::from_static(ROBOTO_MONO_MEDIUM_TTF)),
-    );
-    fonts.font_data.insert(
-        ROBOTO_MONO_BOLD_NAME.to_owned(),
-        Arc::new(FontData::from_static(ROBOTO_MONO_BOLD_TTF)),
+        SORA_BOLD_NAME.to_owned(),
+        Arc::new(FontData::from_static(SORA_BOLD_TTF)),
     );
 
     let default_fallbacks = vec![
@@ -169,17 +153,17 @@ pub fn install_tabler_icons(ctx: &egui::Context) {
         "Ubuntu-Light".to_owned(),
     ];
 
-    // Make Rubik Regular (weight 400, clean, clear, perfectly balanced) the primary font across the entire UI
+    // Make Sora Regular (weight 400) the primary font across the entire UI
     if let Some(family) = fonts.families.get_mut(&FontFamily::Proportional) {
-        family.insert(0, RUBIK_REGULAR_NAME.to_owned());
-        family.push(RUBIK_MEDIUM_NAME.to_owned());
-        family.push(RUBIK_LIGHT_NAME.to_owned());
+        family.insert(0, SORA_REGULAR_NAME.to_owned());
+        family.push(SORA_MEDIUM_NAME.to_owned());
+        family.push(SORA_LIGHT_NAME.to_owned());
         family.push("tabler-icons".to_owned());
     }
     if let Some(family) = fonts.families.get_mut(&FontFamily::Monospace) {
-        family.insert(0, ROBOTO_MONO_REGULAR_NAME.to_owned());
-        family.push(ROBOTO_MONO_MEDIUM_NAME.to_owned());
-        family.push(ROBOTO_MONO_BOLD_NAME.to_owned());
+        family.insert(0, SORA_REGULAR_NAME.to_owned());
+        family.push(SORA_MEDIUM_NAME.to_owned());
+        family.push(SORA_BOLD_NAME.to_owned());
         family.push("tabler-icons".to_owned());
     }
 
@@ -191,117 +175,108 @@ pub fn install_tabler_icons(ctx: &egui::Context) {
     };
 
     fonts.families.insert(
-        FontFamily::Name(RUBIK_LIGHT_NAME.into()),
-        make_family_list(RUBIK_LIGHT_NAME),
+        FontFamily::Name(SORA_LIGHT_NAME.into()),
+        make_family_list(SORA_LIGHT_NAME),
     );
     fonts.families.insert(
-        FontFamily::Name(RUBIK_REGULAR_NAME.into()),
-        make_family_list(RUBIK_REGULAR_NAME),
+        FontFamily::Name(SORA_REGULAR_NAME.into()),
+        make_family_list(SORA_REGULAR_NAME),
     );
     fonts.families.insert(
-        FontFamily::Name(RUBIK_MEDIUM_NAME.into()),
-        make_family_list(RUBIK_MEDIUM_NAME),
+        FontFamily::Name(SORA_MEDIUM_NAME.into()),
+        make_family_list(SORA_MEDIUM_NAME),
     );
     fonts.families.insert(
-        FontFamily::Name(RUBIK_SEMIBOLD_NAME.into()),
-        make_family_list(RUBIK_SEMIBOLD_NAME),
+        FontFamily::Name(SORA_SEMIBOLD_NAME.into()),
+        make_family_list(SORA_SEMIBOLD_NAME),
     );
     fonts.families.insert(
-        FontFamily::Name(BRAND_FONT_NAME.into()),
-        make_family_list(BRAND_FONT_NAME),
+        FontFamily::Name(SORA_BOLD_NAME.into()),
+        make_family_list(SORA_BOLD_NAME),
     );
     fonts.families.insert(
-        FontFamily::Name(ROBOTO_MONO_REGULAR_NAME.into()),
-        make_family_list(ROBOTO_MONO_REGULAR_NAME),
-    );
-    fonts.families.insert(
-        FontFamily::Name(ROBOTO_MONO_MEDIUM_NAME.into()),
-        make_family_list(ROBOTO_MONO_MEDIUM_NAME),
-    );
-    fonts.families.insert(
-        FontFamily::Name(ROBOTO_MONO_BOLD_NAME.into()),
-        make_family_list(ROBOTO_MONO_BOLD_NAME),
+        FontFamily::Name("tabler-icons".into()),
+        vec!["tabler-icons".to_owned()],
     );
 
     ctx.set_fonts(fonts);
 }
 
-/// Rubik Light (weight 300) — SIL Open Font License, see `assets/fonts/Rubik-OFL.txt`
-const RUBIK_LIGHT_TTF: &[u8] = include_bytes!("../../assets/fonts/Rubik-Light.ttf");
-/// Rubik Regular (weight 400) — SIL Open Font License, see `assets/fonts/Rubik-OFL.txt`
-const RUBIK_REGULAR_TTF: &[u8] = include_bytes!("../../assets/fonts/Rubik-Regular.ttf");
-/// Rubik Medium (weight 500) — SIL Open Font License
-const RUBIK_MEDIUM_TTF: &[u8] = include_bytes!("../../assets/fonts/Rubik-Medium.ttf");
-/// Rubik SemiBold (weight 600) — SIL Open Font License
-const RUBIK_SEMIBOLD_TTF: &[u8] = include_bytes!("../../assets/fonts/Rubik-SemiBold.ttf");
+/// Sora Light (weight 300) — SIL Open Font License, see `assets/fonts/Sora-OFL.txt`
+const SORA_LIGHT_TTF: &[u8] = include_bytes!("../../assets/fonts/Sora-Light.ttf");
+/// Sora Regular (weight 400) — SIL Open Font License, see `assets/fonts/Sora-OFL.txt`
+const SORA_REGULAR_TTF: &[u8] = include_bytes!("../../assets/fonts/Sora-Regular.ttf");
+/// Sora Medium (weight 500) — SIL Open Font License, see `assets/fonts/Sora-OFL.txt`
+const SORA_MEDIUM_TTF: &[u8] = include_bytes!("../../assets/fonts/Sora-Medium.ttf");
+/// Sora SemiBold (weight 600) — SIL Open Font License, see `assets/fonts/Sora-OFL.txt`
+const SORA_SEMIBOLD_TTF: &[u8] = include_bytes!("../../assets/fonts/Sora-SemiBold.ttf");
+/// Sora Bold (weight 700) — SIL Open Font License, see `assets/fonts/Sora-OFL.txt`
+const SORA_BOLD_TTF: &[u8] = include_bytes!("../../assets/fonts/Sora-Bold.ttf");
 
-/// Exo Medium (wght 500) — SIL Open Font License, see `assets/fonts/Exo-OFL.txt`
-const EXO_MEDIUM_TTF: &[u8] = include_bytes!("../../assets/fonts/Exo-Medium.ttf");
+pub const SORA_LIGHT_NAME: &str = "sora-light";
+pub const SORA_REGULAR_NAME: &str = "sora-regular";
+pub const SORA_MEDIUM_NAME: &str = "sora-medium";
+pub const SORA_SEMIBOLD_NAME: &str = "sora-semibold";
+pub const SORA_BOLD_NAME: &str = "sora-bold";
 
-/// Roboto Mono Regular (weight 400) — SIL Open Font License, see `assets/fonts/RobotoMono-OFL.txt`
-const ROBOTO_MONO_REGULAR_TTF: &[u8] = include_bytes!("../../assets/fonts/RobotoMono-Regular.ttf");
-/// Roboto Mono Medium (weight 500) — SIL Open Font License
-const ROBOTO_MONO_MEDIUM_TTF: &[u8] = include_bytes!("../../assets/fonts/RobotoMono-Medium.ttf");
-/// Roboto Mono Bold (weight 700) — SIL Open Font License
-const ROBOTO_MONO_BOLD_TTF: &[u8] = include_bytes!("../../assets/fonts/RobotoMono-Bold.ttf");
-
-pub const RUBIK_LIGHT_NAME: &str = "rubik-light";
-pub const RUBIK_REGULAR_NAME: &str = "rubik-regular";
-pub const RUBIK_MEDIUM_NAME: &str = "rubik-medium";
-pub const RUBIK_SEMIBOLD_NAME: &str = "rubik-semibold";
-pub const BRAND_FONT_NAME: &str = "exo-medium";
-pub const ROBOTO_MONO_REGULAR_NAME: &str = "roboto-mono-regular";
-pub const ROBOTO_MONO_MEDIUM_NAME: &str = "roboto-mono-medium";
-pub const ROBOTO_MONO_BOLD_NAME: &str = "roboto-mono-bold";
-
-/// Font family handle for Roboto Mono (Clean, modern monospace for code, metrics, and clocks)
-pub fn roboto_mono_family() -> FontFamily {
-    FontFamily::Name(ROBOTO_MONO_REGULAR_NAME.into())
+/// Font family handle for Tabler Icons directly (avoids text font ascent/descent distortion)
+pub fn icon_font_family() -> FontFamily {
+    FontFamily::Name("tabler-icons".into())
 }
 
-/// Font family handle for the brand title (Exo 500, works fully offline)
+/// Font family handle for the brand title (Sora SemiBold 600, works fully offline)
 pub fn brand_font_family() -> FontFamily {
-    FontFamily::Name(BRAND_FONT_NAME.into())
+    FontFamily::Name(SORA_SEMIBOLD_NAME.into())
 }
 
-/// Font family handle for Rubik Light (weight 300, slender & clean)
-pub fn rubik_light_family() -> FontFamily {
-    FontFamily::Name(RUBIK_LIGHT_NAME.into())
+/// Font family handle for Sora Light (weight 300, slender & clean)
+pub fn sora_light_family() -> FontFamily {
+    FontFamily::Name(SORA_LIGHT_NAME.into())
 }
 
-/// Font family handle for Rubik Regular (weight 400)
-pub fn rubik_family() -> FontFamily {
-    FontFamily::Name(RUBIK_REGULAR_NAME.into())
+/// Font family handle for Sora Regular (weight 400)
+pub fn sora_family() -> FontFamily {
+    FontFamily::Name(SORA_REGULAR_NAME.into())
 }
 
-/// Font family handle for Rubik Medium (weight 500)
-pub fn rubik_medium_family() -> FontFamily {
-    FontFamily::Name(RUBIK_MEDIUM_NAME.into())
+/// Font family handle for Sora Medium (weight 500)
+pub fn sora_medium_family() -> FontFamily {
+    FontFamily::Name(SORA_MEDIUM_NAME.into())
 }
 
-/// Font family handle for Rubik SemiBold (weight 600)
-pub fn rubik_semibold_family() -> FontFamily {
-    FontFamily::Name(RUBIK_SEMIBOLD_NAME.into())
+/// Font family handle for Sora SemiBold (weight 600)
+pub fn sora_semibold_family() -> FontFamily {
+    FontFamily::Name(SORA_SEMIBOLD_NAME.into())
 }
 
-/// Helper to produce a FontId with Rubik Light at given size
-pub fn font_rubik_light(size: f32) -> egui::FontId {
-    egui::FontId::new(size, rubik_light_family())
+/// Font family handle for Sora Bold (weight 700)
+pub fn sora_bold_family() -> FontFamily {
+    FontFamily::Name(SORA_BOLD_NAME.into())
 }
 
-/// Helper to produce a FontId with Rubik Regular at given size
-pub fn font_rubik(size: f32) -> egui::FontId {
-    egui::FontId::new(size, rubik_family())
+/// Helper to produce a FontId with Sora Light at given size
+pub fn font_sora_light(size: f32) -> egui::FontId {
+    egui::FontId::new(size, sora_light_family())
 }
 
-/// Helper to produce a FontId with Rubik Medium at given size
-pub fn font_rubik_medium(size: f32) -> egui::FontId {
-    egui::FontId::new(size, rubik_medium_family())
+/// Helper to produce a FontId with Sora Regular at given size
+pub fn font_sora(size: f32) -> egui::FontId {
+    egui::FontId::new(size, sora_family())
 }
 
-/// Helper to produce a FontId with Rubik SemiBold at given size
-pub fn font_rubik_semibold(size: f32) -> egui::FontId {
-    egui::FontId::new(size, rubik_semibold_family())
+/// Helper to produce a FontId with Sora Medium at given size
+pub fn font_sora_medium(size: f32) -> egui::FontId {
+    egui::FontId::new(size, sora_medium_family())
+}
+
+/// Helper to produce a FontId with Sora SemiBold at given size
+pub fn font_sora_semibold(size: f32) -> egui::FontId {
+    egui::FontId::new(size, sora_semibold_family())
+}
+
+/// Helper to produce a FontId with Sora Bold at given size
+pub fn font_sora_bold(size: f32) -> egui::FontId {
+    egui::FontId::new(size, sora_bold_family())
 }
 
 // ============================================================================
@@ -353,6 +328,10 @@ pub const COPY: &str = "\u{ea7a}";
 pub const CLIPBOARD: &str = "\u{ea6f}";
 /// `ti-edit` — Rename / Edit Item
 pub const EDIT: &str = "\u{ea98}";
+/// `ti-keyboard` — Hotkeys / Keyboard Shortcuts
+pub const KEYBOARD: &str = "\u{ebd6}";
+/// `ti-search` — Search / Filter
+pub const SEARCH: &str = "\u{eb1c}";
 
 /// `ti-volume` — Desktop Audio Active
 pub const VOLUME: &str = "\u{eb51}";

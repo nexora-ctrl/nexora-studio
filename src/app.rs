@@ -23,6 +23,7 @@ pub enum SettingsCategory {
     VideoOutput,
     HardwarePerformance,
     AudioMixer,
+    Hotkeys,
     Update,
     About,
 }
@@ -162,6 +163,7 @@ pub struct NexoraApp {
     pub show_save_layout_dialog: bool,
     pub save_layout_name_buffer: String,
     pub show_add_source_dialog: bool,
+    pub add_source_search: String,
     pub add_source_selected_type: crate::studio::source::AddSourceType,
     pub add_source_name_buffer: String,
     pub add_source_file_path: String,
@@ -222,6 +224,8 @@ pub struct NexoraApp {
     /// Signature of the per-source audio bus list last handed to the encoder, so fader / device
     /// changes are forwarded exactly once and identical frames are skipped.
     last_source_bus_signature: String,
+    /// Transient target ID when the user is rebinding a hotkey in Preferences -> Hotkeys
+    pub hotkey_capture_target: Option<&'static str>,
 }
 
 impl NexoraApp {
@@ -349,6 +353,7 @@ impl NexoraApp {
             show_save_layout_dialog: false,
             save_layout_name_buffer: String::new(),
             show_add_source_dialog: false,
+            add_source_search: String::new(),
             add_source_selected_type: crate::studio::source::AddSourceType::DisplayCapture,
             add_source_name_buffer: String::new(),
             add_source_file_path: String::new(),
@@ -403,6 +408,7 @@ impl NexoraApp {
             last_vcam_capture_time: 0.0,
             last_recording_capture_time: 0.0,
             last_source_bus_signature: String::new(),
+            hotkey_capture_target: None,
         };
 
         if loaded_from_disk {
@@ -1849,6 +1855,7 @@ impl NexoraApp {
 
     pub fn open_add_source_dialog(&mut self, source_type: crate::studio::source::AddSourceType) {
         self.show_add_source_dialog = true;
+        self.add_source_search.clear();
         self.add_source_selected_type = source_type;
         self.add_source_error_message = None;
         self.add_source_open_properties = false;
@@ -2301,6 +2308,72 @@ impl eframe::App for NexoraApp {
                 self.advance_presentation_slide(1);
             } else if prev_slide {
                 self.advance_presentation_slide(-1);
+            }
+
+            // Custom Studio Hotkeys (Preferences -> Hotkeys)
+            let hk = self.settings.hotkeys.clone();
+            let (
+                do_rec_toggle,
+                do_rec_pause,
+                do_transition,
+                do_mute_mic,
+                do_mute_desk,
+                do_studio_mode,
+                scene_idx,
+            ) = ctx.input(|i| {
+                let rec = hk.start_stop_recording.as_ref().is_some_and(|b| b.matches(i));
+                let pause = hk.pause_resume_recording.as_ref().is_some_and(|b| b.matches(i));
+                let trans = hk.transition.as_ref().is_some_and(|b| b.matches(i));
+                let mic = hk.toggle_mute_mic.as_ref().is_some_and(|b| b.matches(i));
+                let desk = hk.toggle_mute_desktop.as_ref().is_some_and(|b| b.matches(i));
+                let sm = hk.toggle_studio_mode.as_ref().is_some_and(|b| b.matches(i));
+                let s_idx = if hk.switch_scene_1.as_ref().is_some_and(|b| b.matches(i)) {
+                    Some(0usize)
+                } else if hk.switch_scene_2.as_ref().is_some_and(|b| b.matches(i)) {
+                    Some(1)
+                } else if hk.switch_scene_3.as_ref().is_some_and(|b| b.matches(i)) {
+                    Some(2)
+                } else if hk.switch_scene_4.as_ref().is_some_and(|b| b.matches(i)) {
+                    Some(3)
+                } else {
+                    None
+                };
+                (rec, pause, trans, mic, desk, sm, s_idx)
+            });
+
+            if do_rec_toggle {
+                if self.recording.status == crate::recording::RecordingStatus::Idle {
+                    self.start_recording_session();
+                } else {
+                    self.stop_recording_session();
+                }
+            }
+            if do_rec_pause && self.recording.status != crate::recording::RecordingStatus::Idle {
+                self.toggle_recording_pause();
+            }
+            if do_transition && self.settings.panels.studio_mode {
+                self.studio.transition_preview_to_program();
+            }
+            if do_mute_mic {
+                self.audio_mixer.microphone.muted = !self.audio_mixer.microphone.muted;
+            }
+            if do_mute_desk {
+                self.audio_mixer.desktop_audio.muted = !self.audio_mixer.desktop_audio.muted;
+            }
+            if do_studio_mode {
+                self.settings.panels.studio_mode = !self.settings.panels.studio_mode;
+                self.studio.sync_if_linked();
+            }
+            if let Some(idx) = scene_idx {
+                if let Some(scene) = self.studio.scenes.get(idx) {
+                    let id = scene.id;
+                    self.studio.preview_scene_id = id;
+                    if self.settings.panels.studio_mode {
+                        self.studio.sync_if_linked();
+                    } else {
+                        self.studio.transition_preview_to_program();
+                    }
+                }
             }
         }
 

@@ -304,7 +304,7 @@ fn paint_icon_action_btn_sized(
         egui::StrokeKind::Inside,
     );
 
-    let font_id = egui::FontId::proportional(11.5);
+    let font_id = egui::FontId::new(12.5, crate::ui::icons::icon_font_family());
     let galley = ui
         .painter()
         .layout_no_wrap(icon.to_string(), font_id, icon_col);
@@ -929,49 +929,51 @@ fn render_scenes_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) -> Op
             }
             ui.add_space(3.0);
 
-            // Toggle Tampilan List vs Grid
+            // Toggle Tampilan List vs Grid (centered icon buttons without button_padding clipping)
             let is_grid = app.settings.scenes_view_mode == crate::settings::ScenesViewMode::Grid;
-            let (grid_bg, grid_fg) = if is_grid {
-                (p.accent_preview.gamma_multiply(0.35), p.accent_preview)
-            } else {
-                (Color32::TRANSPARENT, p.text_muted)
+            let paint_view_toggle = |ui: &mut egui::Ui, icon: &str, active: bool, tooltip: &str| -> bool {
+                let (rect, resp) = ui.allocate_exact_size(Vec2::new(24.0, 22.0), Sense::click());
+                if resp.hovered() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
+                let bg = if active {
+                    p.accent_preview.gamma_multiply(0.35)
+                } else if resp.hovered() {
+                    ui.visuals().widgets.hovered.bg_fill
+                } else {
+                    Color32::TRANSPARENT
+                };
+                let fg = if active {
+                    p.accent_preview
+                } else if resp.hovered() {
+                    p.text_primary
+                } else {
+                    p.text_muted
+                };
+                let stroke = if active {
+                    Stroke::new(1.0_f32, p.accent_preview)
+                } else {
+                    Stroke::NONE
+                };
+                ui.painter().rect(rect, CornerRadius::same(5), bg, stroke, egui::StrokeKind::Inside);
+                let galley = ui.painter().layout_no_wrap(
+                    icon.to_string(),
+                    egui::FontId::new(13.0, icons::icon_font_family()),
+                    fg,
+                );
+                let pos = Pos2::new(
+                    rect.center().x - galley.size().x * 0.5,
+                    rect.center().y - galley.size().y * 0.5,
+                );
+                ui.painter().galley(pos, galley, fg);
+                let clicked = resp.clicked();
+                resp.on_hover_text(tooltip);
+                clicked
             };
-            if ui
-                .add(
-                    egui::Button::new(RichText::new(icons::LAYOUT_GRID).size(13.0).color(grid_fg))
-                        .fill(grid_bg)
-                        .stroke(if is_grid {
-                            Stroke::new(1.0_f32, p.accent_preview)
-                        } else {
-                            Stroke::NONE
-                        })
-                        .min_size(Vec2::new(22.0, 20.0)),
-                )
-                .on_hover_text("Grid View (with Source Thumbnails)")
-                .clicked()
-            {
+            if paint_view_toggle(ui, icons::LAYOUT_GRID, is_grid, "Grid View (with Source Thumbnails)") {
                 app.settings.scenes_view_mode = crate::settings::ScenesViewMode::Grid;
             }
-
-            let (list_bg, list_fg) = if !is_grid {
-                (p.accent_preview.gamma_multiply(0.35), p.accent_preview)
-            } else {
-                (Color32::TRANSPARENT, p.text_muted)
-            };
-            if ui
-                .add(
-                    egui::Button::new(RichText::new(icons::LIST).size(13.0).color(list_fg))
-                        .fill(list_bg)
-                        .stroke(if !is_grid {
-                            Stroke::new(1.0_f32, p.accent_preview)
-                        } else {
-                            Stroke::NONE
-                        })
-                        .min_size(Vec2::new(22.0, 20.0)),
-                )
-                .on_hover_text("List View")
-                .clicked()
-            {
+            if paint_view_toggle(ui, icons::LIST, !is_grid, "List View") {
                 app.settings.scenes_view_mode = crate::settings::ScenesViewMode::List;
             }
 
@@ -4274,15 +4276,33 @@ fn paint_mixer_thin_meter(
     }
 
     if peak_hold > 0.008 {
-        let x = rect.min.x + rect.width() * peak_hold.clamp(0.0, 1.0);
+        let hold_norm = peak_hold.clamp(0.0, 1.0);
+        let x = rect.min.x + rect.width() * hold_norm;
+        let peak_color = if hold_norm >= 0.88 {
+            p.meter_clip
+        } else if hold_norm >= 0.70 {
+            p.meter_warn
+        } else {
+            Color32::WHITE
+        };
         painter.rect_filled(
             Rect::from_min_max(
                 Pos2::new(x - 1.0, rect.min.y),
                 Pos2::new(x + 1.0, rect.max.y),
             ),
             CornerRadius::same(1),
-            Color32::WHITE,
+            peak_color,
         );
+        if hold_norm >= 0.98 {
+            painter.rect_filled(
+                Rect::from_min_max(
+                    Pos2::new(rect.max.x - 4.0, rect.min.y),
+                    rect.max,
+                ),
+                CornerRadius::same(1),
+                p.meter_clip,
+            );
+        }
     }
 }
 
@@ -4744,15 +4764,33 @@ fn paint_mixer_vertical_meter(
     }
 
     if peak_hold > 0.008 {
-        let y = rect.max.y - rect.height() * peak_hold.clamp(0.0, 1.0);
+        let hold_norm = peak_hold.clamp(0.0, 1.0);
+        let y = rect.max.y - rect.height() * hold_norm;
+        let peak_color = if hold_norm >= 0.88 {
+            p.meter_clip
+        } else if hold_norm >= 0.70 {
+            p.meter_warn
+        } else {
+            Color32::WHITE
+        };
         painter.rect_filled(
             Rect::from_min_max(
                 Pos2::new(rect.min.x, y - 1.0),
                 Pos2::new(rect.max.x, y + 1.0),
             ),
             CornerRadius::ZERO,
-            Color32::WHITE,
+            peak_color,
         );
+        if hold_norm >= 0.98 {
+            painter.rect_filled(
+                Rect::from_min_max(
+                    rect.min,
+                    Pos2::new(rect.max.x, rect.min.y + 4.0),
+                ),
+                CornerRadius::ZERO,
+                p.meter_clip,
+            );
+        }
     }
 }
 
@@ -4908,9 +4946,13 @@ fn render_audio_mixer_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) 
                 }
             };
             let mut chosen: Option<crate::settings::AudioMixerViewMode> = None;
-            ui.menu_button(
-                RichText::new(mode_icon).size(13.0).color(p.accent_preview),
-                |ui| {
+            ui.scope(|ui| {
+                ui.spacing_mut().button_padding = egui::vec2(5.0, 3.5);
+                ui.menu_button(
+                    RichText::new(mode_icon)
+                        .font(egui::FontId::new(13.0, icons::icon_font_family()))
+                        .color(p.accent_preview),
+                    |ui| {
                     ui.set_min_width(150.0);
                     for (m, label, icon) in [
                         (
@@ -4937,6 +4979,7 @@ fn render_audio_mixer_panel(ui: &mut egui::Ui, app: &mut NexoraApp, size: Vec2) 
             )
             .response
             .on_hover_text(format!("Mixer layout: {mode_label}"));
+            });
             if let Some(m) = chosen {
                 app.settings.audio_mixer_view_mode = m;
             }
@@ -5493,6 +5536,16 @@ fn paint_level_meter(
             Stroke::new(0.5_f32, egui::Color32::from_white_alpha(150)),
             egui::StrokeKind::Inside,
         );
+        if hold_norm >= 0.98 {
+            painter.rect_filled(
+                Rect::from_min_max(
+                    Pos2::new(meter_rect.max.x - 5.0, meter_rect.min.y),
+                    meter_rect.max,
+                ),
+                CornerRadius { nw: 0, sw: 0, ne: 3, se: 3 },
+                p.meter_clip,
+            );
+        }
     }
 
     meter_resp

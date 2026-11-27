@@ -279,6 +279,167 @@ impl FavoriteSceneTemplate {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct HotkeyBinding {
+    pub key: String,
+    #[serde(default)]
+    pub ctrl: bool,
+    #[serde(default)]
+    pub shift: bool,
+    #[serde(default)]
+    pub alt: bool,
+}
+
+const KEY_NAME_TABLE: &[(eframe::egui::Key, &str)] = {
+    use eframe::egui::Key;
+    &[
+        (Key::F1, "F1"),
+        (Key::F2, "F2"),
+        (Key::F3, "F3"),
+        (Key::F4, "F4"),
+        (Key::F5, "F5"),
+        (Key::F6, "F6"),
+        (Key::F7, "F7"),
+        (Key::F8, "F8"),
+        (Key::F9, "F9"),
+        (Key::F10, "F10"),
+        (Key::F11, "F11"),
+        (Key::F12, "F12"),
+        (Key::A, "A"),
+        (Key::B, "B"),
+        (Key::C, "C"),
+        (Key::D, "D"),
+        (Key::E, "E"),
+        (Key::F, "F"),
+        (Key::G, "G"),
+        (Key::H, "H"),
+        (Key::I, "I"),
+        (Key::J, "J"),
+        (Key::K, "K"),
+        (Key::L, "L"),
+        (Key::M, "M"),
+        (Key::N, "N"),
+        (Key::O, "O"),
+        (Key::P, "P"),
+        (Key::Q, "Q"),
+        (Key::R, "R"),
+        (Key::S, "S"),
+        (Key::T, "T"),
+        (Key::U, "U"),
+        (Key::V, "V"),
+        (Key::W, "W"),
+        (Key::X, "X"),
+        (Key::Y, "Y"),
+        (Key::Z, "Z"),
+        (Key::Num0, "0"),
+        (Key::Num1, "1"),
+        (Key::Num2, "2"),
+        (Key::Num3, "3"),
+        (Key::Num4, "4"),
+        (Key::Num5, "5"),
+        (Key::Num6, "6"),
+        (Key::Num7, "7"),
+        (Key::Num8, "8"),
+        (Key::Num9, "9"),
+        (Key::Space, "Space"),
+        (Key::Enter, "Enter"),
+        (Key::Tab, "Tab"),
+        (Key::Backspace, "Backspace"),
+        (Key::Insert, "Insert"),
+        (Key::Delete, "Delete"),
+        (Key::Home, "Home"),
+        (Key::End, "End"),
+        (Key::PageUp, "PageUp"),
+        (Key::PageDown, "PageDown"),
+        (Key::ArrowUp, "Up"),
+        (Key::ArrowDown, "Down"),
+        (Key::ArrowLeft, "Left"),
+        (Key::ArrowRight, "Right"),
+    ]
+};
+
+impl HotkeyBinding {
+    pub fn new(key: &str, ctrl: bool, shift: bool, alt: bool) -> Self {
+        Self {
+            key: key.to_string(),
+            ctrl,
+            shift,
+            alt,
+        }
+    }
+
+    pub fn from_egui_key(key: eframe::egui::Key) -> Option<&'static str> {
+        KEY_NAME_TABLE
+            .iter()
+            .find(|(k, _)| *k == key)
+            .map(|(_, name)| *name)
+    }
+
+    pub fn to_egui_key(&self) -> Option<eframe::egui::Key> {
+        KEY_NAME_TABLE
+            .iter()
+            .find(|(_, name)| name.eq_ignore_ascii_case(&self.key))
+            .map(|(k, _)| *k)
+    }
+
+    pub fn display_label(&self) -> String {
+        let mut parts = Vec::with_capacity(4);
+        if self.ctrl {
+            parts.push("Ctrl");
+        }
+        if self.alt {
+            parts.push("Alt");
+        }
+        if self.shift {
+            parts.push("Shift");
+        }
+        parts.push(&self.key);
+        parts.join(" + ")
+    }
+
+    pub fn matches(&self, input: &eframe::egui::InputState) -> bool {
+        let Some(k) = self.to_egui_key() else {
+            return false;
+        };
+        input.modifiers.ctrl == self.ctrl
+            && input.modifiers.shift == self.shift
+            && input.modifiers.alt == self.alt
+            && input.key_pressed(k)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct HotkeysConfig {
+    pub start_stop_recording: Option<HotkeyBinding>,
+    pub pause_resume_recording: Option<HotkeyBinding>,
+    pub transition: Option<HotkeyBinding>,
+    pub toggle_mute_mic: Option<HotkeyBinding>,
+    pub toggle_mute_desktop: Option<HotkeyBinding>,
+    pub toggle_studio_mode: Option<HotkeyBinding>,
+    pub switch_scene_1: Option<HotkeyBinding>,
+    pub switch_scene_2: Option<HotkeyBinding>,
+    pub switch_scene_3: Option<HotkeyBinding>,
+    pub switch_scene_4: Option<HotkeyBinding>,
+}
+
+impl Default for HotkeysConfig {
+    fn default() -> Self {
+        Self {
+            start_stop_recording: Some(HotkeyBinding::new("F9", false, false, false)),
+            pause_resume_recording: Some(HotkeyBinding::new("F10", false, false, false)),
+            transition: Some(HotkeyBinding::new("F12", false, false, false)),
+            toggle_mute_mic: Some(HotkeyBinding::new("M", true, false, false)),
+            toggle_mute_desktop: Some(HotkeyBinding::new("M", true, true, false)),
+            toggle_studio_mode: None,
+            switch_scene_1: Some(HotkeyBinding::new("1", true, false, false)),
+            switch_scene_2: Some(HotkeyBinding::new("2", true, false, false)),
+            switch_scene_3: Some(HotkeyBinding::new("3", true, false, false)),
+            switch_scene_4: Some(HotkeyBinding::new("4", true, false, false)),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppSettings {
@@ -316,6 +477,8 @@ pub struct AppSettings {
     pub audio_mixer_view_mode: AudioMixerViewMode,
     #[serde(default)]
     pub favorite_scene_templates: Vec<FavoriteSceneTemplate>,
+    #[serde(default)]
+    pub hotkeys: HotkeysConfig,
 }
 
 impl Default for AppSettings {
@@ -347,6 +510,7 @@ impl Default for AppSettings {
             scenes_view_mode: ScenesViewMode::List,
             audio_mixer_view_mode: AudioMixerViewMode::Strip,
             favorite_scene_templates: Vec::new(),
+            hotkeys: HotkeysConfig::default(),
         }
     }
 }

@@ -78,7 +78,7 @@ pub(crate) fn standard_slider_param_row<T: egui::emath::Numeric>(
         ui.style_mut().drag_value_text_style = egui::TextStyle::Small;
         ui.style_mut().text_styles.insert(
             egui::TextStyle::Small,
-            egui::FontId::new(SLIDER_PARAM_FONT_SIZE, crate::ui::icons::rubik_family()),
+            egui::FontId::new(SLIDER_PARAM_FONT_SIZE, crate::ui::icons::sora_family()),
         );
         changed |= ui
             .add_sized(
@@ -411,20 +411,20 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
             .pivot(egui::Align2::CENTER_CENTER)
             .default_pos(ctx.screen_rect().center())
             .constrain(true)
-            .fixed_size(Vec2::new(760.0, 485.0))
+            .auto_sized()
             .show(ctx, |ui| {
                 block_window_body_drag(ui);
                 let p = ThemePalette::for_mode(app.settings.theme);
-                const LEFT_COL_W: f32 = 180.0;
-                const RIGHT_COL_W: f32 = 540.0;
-                const BODY_H: f32 = 385.0;
-                const FIELD_W: f32 = 270.0;
+                const LEFT_COL_W: f32 = 168.0;
+                const RIGHT_COL_W: f32 = 512.0;
+                const BODY_H: f32 = 262.0;
+                const LABEL_W: f32 = 142.0;
+                const FIELD_W: f32 = 285.0;
                 const FIELD_H: f32 = 24.0;
 
-                ui.set_width(735.0);
-                ui.set_min_width(735.0);
-                ui.set_max_width(735.0);
-                ui.set_height(BODY_H + 45.0);
+                ui.set_width(692.0);
+                ui.set_min_width(692.0);
+                ui.set_max_width(692.0);
 
                 // Two-Column Body: Categories on left, Category Content Options on right
                 ui.horizontal(|ui| {
@@ -456,6 +456,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                         (SettingsCategory::VideoOutput, icons::VIDEO, "Video & Output"),
                                         (SettingsCategory::HardwarePerformance, icons::CPU, "Hardware & GPU"),
                                         (SettingsCategory::AudioMixer, icons::VOLUME, "Audio & Mixer"),
+                                        (SettingsCategory::Hotkeys, icons::KEYBOARD, "Hotkeys"),
                                         (SettingsCategory::Update, icons::WORLD, "Update"),
                                         (SettingsCategory::About, icons::INFO_CIRCLE, "About & System"),
                                     ];
@@ -529,6 +530,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                 SettingsCategory::VideoOutput => (icons::VIDEO, "Video & Recording Output Options"),
                                 SettingsCategory::HardwarePerformance => (icons::CPU, "Hardware GPU & Engine Options"),
                                 SettingsCategory::AudioMixer => (icons::VOLUME, "Audio System & Mixer Options"),
+                                SettingsCategory::Hotkeys => (icons::KEYBOARD, "Global Keyboard Shortcuts & Hotkeys"),
                                 SettingsCategory::Update => (icons::WORLD, "Update Application Options"),
                                 SettingsCategory::About => (icons::INFO_CIRCLE, "About Application & System Options"),
                             };
@@ -556,16 +558,17 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                 .inner_margin(egui::Margin::same(12))
                                 .show(ui, |ui| {
                                     ui.set_width(RIGHT_COL_W - 24.0);
-                                    ui.set_height(BODY_H - 62.0);
+                                    ui.set_min_height(BODY_H - 58.0);
 
                                     match app.settings_category {
                                         SettingsCategory::General => {
-                                            ui.label(RichText::new("USER INTERFACE & THEME").size(11.5).strong().color(p.text_muted));
+                                            ui.label(RichText::new("USER INTERFACE & THEME").size(11.0).strong().color(p.text_muted));
                                             ui.add_space(4.0);
 
                                             egui::Grid::new("settings_general_grid")
                                                 .num_columns(2)
-                                                .spacing([12.0, 10.0])
+                                                .min_col_width(LABEL_W)
+                                                .spacing([10.0, 7.0])
                                                 .show(ui, |ui| {
                                                     ui.label("UI Theme Mode:");
                                                     ui.horizontal(|ui| {
@@ -615,12 +618,13 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                         }
 
                                         SettingsCategory::VideoOutput => {
-                                            ui.label(RichText::new("RECORDING RESOLUTION & ENCODING").size(11.5).strong().color(p.text_muted));
+                                            ui.label(RichText::new("RECORDING RESOLUTION & ENCODING").size(11.0).strong().color(p.text_muted));
                                             ui.add_space(4.0);
 
                                             egui::Grid::new("settings_video_grid")
                                                 .num_columns(2)
-                                                .spacing([12.0, 10.0])
+                                                .min_col_width(LABEL_W)
+                                                .spacing([10.0, 7.0])
                                                 .show(ui, |ui| {
                                                     ui.label("Resolution & FPS:");
                                                     egui::ComboBox::from_id_salt("pref_res_fps")
@@ -672,12 +676,13 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                         }
 
                                         SettingsCategory::HardwarePerformance => {
-                                            ui.label(RichText::new("HARDWARE & GRAPHICS ACCELERATION").size(11.5).strong().color(p.text_muted));
+                                            ui.label(RichText::new("HARDWARE & GRAPHICS ACCELERATION").size(11.0).strong().color(p.text_muted));
                                             ui.add_space(4.0);
 
                                             egui::Grid::new("settings_hw_grid")
                                                 .num_columns(2)
-                                                .spacing([12.0, 10.0])
+                                                .min_col_width(LABEL_W)
+                                                .spacing([10.0, 7.0])
                                                 .show(ui, |ui| {
                                                     ui.label("Hardware GPU / VGA:");
                                                     let current_gpu_idx = app.settings.preferred_gpu_index.unwrap_or(0);
@@ -733,12 +738,13 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                         }
 
                                         SettingsCategory::AudioMixer => {
-                                            ui.label(RichText::new("AUDIO SYSTEM & DEVICES").size(11.5).strong().color(p.text_muted));
+                                            ui.label(RichText::new("AUDIO SYSTEM & DEVICES").size(11.0).strong().color(p.text_muted));
                                             ui.add_space(4.0);
 
                                             egui::Grid::new("settings_audio_grid")
                                                 .num_columns(2)
-                                                .spacing([12.0, 10.0])
+                                                .min_col_width(LABEL_W)
+                                                .spacing([10.0, 7.0])
                                                 .show(ui, |ui| {
                                                     ui.label("Master Sample Rate:");
                                                     ui.label(RichText::new("48.000 Hz (48 kHz Broadcast Standard)").monospace());
@@ -778,6 +784,124 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                         }
 
 
+                                        SettingsCategory::Hotkeys => {
+                                            ui.horizontal(|ui| {
+                                                ui.label(RichText::new("KEYBOARD SHORTCUTS").size(11.0).strong().color(p.text_muted));
+                                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                    if ui.small_button("Reset Defaults").on_hover_text("Restore default studio hotkeys").clicked() {
+                                                        app.settings.hotkeys = crate::settings::HotkeysConfig::default();
+                                                        app.hotkey_capture_target = None;
+                                                    }
+                                                });
+                                            });
+                                            ui.add_space(4.0);
+
+                                            // Capture next pressed non-modifier key when a row is armed
+                                            if let Some(target_id) = app.hotkey_capture_target {
+                                                let captured: Option<Option<crate::settings::HotkeyBinding>> = ctx.input(|i| {
+                                                    if i.key_pressed(egui::Key::Escape) {
+                                                        return Some(None);
+                                                    }
+                                                    for ev in &i.events {
+                                                        if let egui::Event::Key { key, pressed: true, modifiers, .. } = ev {
+                                                            if let Some(name) = crate::settings::HotkeyBinding::from_egui_key(*key) {
+                                                                return Some(Some(crate::settings::HotkeyBinding::new(
+                                                                    name,
+                                                                    modifiers.ctrl,
+                                                                    modifiers.shift,
+                                                                    modifiers.alt,
+                                                                )));
+                                                            }
+                                                        }
+                                                    }
+                                                    None
+                                                });
+                                                if let Some(result) = captured {
+                                                    if let Some(binding) = result {
+                                                        match target_id {
+                                                            "rec_toggle" => app.settings.hotkeys.start_stop_recording = Some(binding),
+                                                            "rec_pause" => app.settings.hotkeys.pause_resume_recording = Some(binding),
+                                                            "transition" => app.settings.hotkeys.transition = Some(binding),
+                                                            "mute_mic" => app.settings.hotkeys.toggle_mute_mic = Some(binding),
+                                                            "mute_desk" => app.settings.hotkeys.toggle_mute_desktop = Some(binding),
+                                                            "studio_mode" => app.settings.hotkeys.toggle_studio_mode = Some(binding),
+                                                            "scene_1" => app.settings.hotkeys.switch_scene_1 = Some(binding),
+                                                            "scene_2" => app.settings.hotkeys.switch_scene_2 = Some(binding),
+                                                            "scene_3" => app.settings.hotkeys.switch_scene_3 = Some(binding),
+                                                            "scene_4" => app.settings.hotkeys.switch_scene_4 = Some(binding),
+                                                            _ => {}
+                                                        }
+                                                    }
+                                                    app.hotkey_capture_target = None;
+                                                }
+                                            }
+
+                                            egui::ScrollArea::vertical()
+                                                .id_salt("settings_hotkeys_scroll")
+                                                .max_height(185.0)
+                                                .auto_shrink([false, true])
+                                                .show(ui, |ui| {
+                                                    let rows: [(&'static str, &str, Option<crate::settings::HotkeyBinding>); 10] = [
+                                                        ("rec_toggle", "Start / Stop Recording", app.settings.hotkeys.start_stop_recording.clone()),
+                                                        ("rec_pause", "Pause / Resume Recording", app.settings.hotkeys.pause_resume_recording.clone()),
+                                                        ("transition", "Transition (Preview → Program)", app.settings.hotkeys.transition.clone()),
+                                                        ("mute_mic", "Mute / Unmute Mic", app.settings.hotkeys.toggle_mute_mic.clone()),
+                                                        ("mute_desk", "Mute / Unmute Desktop Audio", app.settings.hotkeys.toggle_mute_desktop.clone()),
+                                                        ("studio_mode", "Toggle Studio Mode", app.settings.hotkeys.toggle_studio_mode.clone()),
+                                                        ("scene_1", "Switch to Scene 1", app.settings.hotkeys.switch_scene_1.clone()),
+                                                        ("scene_2", "Switch to Scene 2", app.settings.hotkeys.switch_scene_2.clone()),
+                                                        ("scene_3", "Switch to Scene 3", app.settings.hotkeys.switch_scene_3.clone()),
+                                                        ("scene_4", "Switch to Scene 4", app.settings.hotkeys.switch_scene_4.clone()),
+                                                    ];
+                                                    egui::Grid::new("settings_hotkeys_grid")
+                                                        .num_columns(3)
+                                                        .min_col_width(180.0)
+                                                        .spacing([8.0, 5.0])
+                                                        .show(ui, |ui| {
+                                                            for (id, label, binding) in rows {
+                                                                let is_capturing = app.hotkey_capture_target == Some(id);
+                                                                ui.label(label);
+                                                                let key_text = if is_capturing {
+                                                                    "Press key... (Esc)".to_string()
+                                                                } else {
+                                                                    binding
+                                                                        .as_ref()
+                                                                        .map(|b| b.display_label())
+                                                                        .unwrap_or_else(|| "Not set".to_string())
+                                                                };
+                                                                let bind_btn = egui::Button::new(
+                                                                    RichText::new(key_text)
+                                                                        .size(11.0)
+                                                                        .color(if is_capturing { p.accent_preview } else { p.text_primary }),
+                                                                )
+                                                                .min_size(Vec2::new(145.0, 22.0));
+                                                                if ui.add(bind_btn).on_hover_text("Click then press a key combination").clicked() {
+                                                                    app.hotkey_capture_target = if is_capturing { None } else { Some(id) };
+                                                                }
+                                                                if ui.add_enabled(binding.is_some(), egui::Button::new("Clear").min_size(Vec2::new(48.0, 22.0))).clicked() {
+                                                                    match id {
+                                                                        "rec_toggle" => app.settings.hotkeys.start_stop_recording = None,
+                                                                        "rec_pause" => app.settings.hotkeys.pause_resume_recording = None,
+                                                                        "transition" => app.settings.hotkeys.transition = None,
+                                                                        "mute_mic" => app.settings.hotkeys.toggle_mute_mic = None,
+                                                                        "mute_desk" => app.settings.hotkeys.toggle_mute_desktop = None,
+                                                                        "studio_mode" => app.settings.hotkeys.toggle_studio_mode = None,
+                                                                        "scene_1" => app.settings.hotkeys.switch_scene_1 = None,
+                                                                        "scene_2" => app.settings.hotkeys.switch_scene_2 = None,
+                                                                        "scene_3" => app.settings.hotkeys.switch_scene_3 = None,
+                                                                        "scene_4" => app.settings.hotkeys.switch_scene_4 = None,
+                                                                        _ => {}
+                                                                    }
+                                                                    if is_capturing {
+                                                                        app.hotkey_capture_target = None;
+                                                                    }
+                                                                }
+                                                                ui.end_row();
+                                                            }
+                                                        });
+                                                });
+                                        }
+
                                         SettingsCategory::Update => {
                                             ui.label(RichText::new("APPLICATION UPDATE").size(11.5).strong().color(p.text_muted));
                                             ui.add_space(8.0);
@@ -792,21 +916,21 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                             };
 
                                             ui.vertical_centered(|ui| {
-                                                ui.add_space(18.0);
-
-                                                // Centered World/Globe Icon matching reference design
-                                                ui.label(RichText::new(icons::WORLD).size(38.0).color(p.accent_primary));
                                                 ui.add_space(6.0);
 
-                                                ui.label(RichText::new("NEXORA Studio Auto-Updater").size(14.5).strong().color(p.text_primary));
+                                                // Centered World/Globe Icon matching reference design
+                                                ui.label(RichText::new(icons::WORLD).size(32.0).color(p.accent_primary));
+                                                ui.add_space(4.0);
+
+                                                ui.label(RichText::new("NEXORA Studio Auto-Updater").size(13.5).strong().color(p.text_primary));
                                                 ui.add_space(2.0);
                                                 ui.label(
                                                     RichText::new(format!("Installed Version: v{} (Native 64-bit)", crate::platform::updater::CURRENT_VERSION))
-                                                        .size(11.5)
+                                                        .size(11.0)
                                                         .color(p.text_secondary),
                                                 );
 
-                                                ui.add_space(20.0);
+                                                ui.add_space(10.0);
 
                                                 match status {
                                                     crate::platform::updater::UpdateStatus::Idle => {
@@ -913,7 +1037,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                         release_notes,
                                                         file_size_bytes,
                                                     } => {
-                                                        const CARD_W: f32 = 470.0;
+                                                        const CARD_W: f32 = 450.0;
                                                         ui.allocate_ui_with_layout(
                                                             Vec2::new(CARD_W, 0.0),
                                                             egui::Layout::top_down(egui::Align::Center),
@@ -1134,7 +1258,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                                 ui.add_space(6.0);
                                                 ui.vertical(|ui| {
                                                     ui.label(RichText::new("NEXORA Studio - Your Easy Studio").size(14.5).strong());
-                                                    ui.label(RichText::new("Version v0.9.1 (Native Windows 64-bit)").size(11.5).color(p.text_secondary));
+                                                    ui.label(RichText::new("Version v0.10.0 (Native Windows 64-bit)").size(11.5).color(p.text_secondary));
                                                 });
                                             });
 
@@ -1697,78 +1821,414 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
             .show(ctx, |ui| {
                 block_window_body_drag(ui);
                 let p = ThemePalette::for_mode(app.settings.theme);
-                const PROP_FIELD_W: f32 = 280.0;
+                const PROP_LABEL_W: f32 = 148.0;
+                const PROP_FIELD_W: f32 = 290.0;
                 const PROP_FIELD_H: f32 = 24.0;
-                ui.set_width(495.0);
-                ui.set_max_width(495.0);
+                ui.set_width(485.0);
+                ui.set_max_width(485.0);
+
+                let prop_section_group =
+                    |ui: &mut egui::Ui, title: &str, add_contents: &mut dyn FnMut(&mut egui::Ui)| {
+                        egui::Frame::new()
+                            .fill(egui::Color32::TRANSPARENT)
+                            .stroke(Stroke::new(1.0_f32, p.border_subtle))
+                            .corner_radius(CornerRadius::same(6))
+                            .inner_margin(egui::Margin::symmetric(10, 7))
+                            .show(ui, |ui| {
+                                ui.set_width(ui.available_width());
+                                ui.label(
+                                    RichText::new(title)
+                                        .font(egui::FontId::new(
+                                            11.0,
+                                            crate::ui::icons::sora_medium_family(),
+                                        ))
+                                        .color(p.text_secondary),
+                                );
+                                ui.add_space(3.0);
+                                add_contents(ui);
+                            });
+                        ui.add_space(6.0);
+                    };
 
                 if let Some(src) = app.studio.preview_scene_mut().selected_source_mut() {
                     let mut pending_tv_template: Option<TvTextTemplate> = None;
                     egui::ScrollArea::vertical()
                         .id_salt("source_props_scroll_area")
-                        .max_height(480.0)
+                        .max_height(520.0)
                         .auto_shrink([false, true])
                         .show(ui, |ui| {
-                            egui::Grid::new("source_props_grid")
-                        .num_columns(2)
-                        .spacing([12.0, 8.0])
-                        .show(ui, |ui| {
-                            ui.label("Source Name:");
-                            any_changed |= ui
-                                .add_sized(
-                                    Vec2::new(PROP_FIELD_W, PROP_FIELD_H),
-                                    standard_singleline_text(&mut src.name, "Source name..."),
-                                )
-                                .changed();
-                            ui.end_row();
-
-                            ui.label("Source Type:");
-                            ui.horizontal(|ui| {
-                                ui.label(
-                                    RichText::new(format!(
-                                        "{} {}",
-                                        src.kind.tabler_icon(),
-                                        src.kind.type_name()
-                                    ))
-                                    .strong(),
-                                );
-                                let is_device_source = matches!(
-                                    src.kind,
-                                    SourceKind::DisplayCapture { .. }
-                                        | SourceKind::WindowCapture { .. }
-                                        | SourceKind::GameCapture { .. }
-                                        | SourceKind::WebcamDevice { .. }
-                                );
-                                if is_device_source {
-                                    let refresh_btn = crate::ui::button_3d::Button3D::new("Refresh Devices")
-                                        .icon(icons::REFRESH)
-                                        .min_size(Vec2::new(120.0, 22.0))
-                                        .tooltip("Re-scan connected displays, cameras, and open windows");
-                                    if ui.add(refresh_btn).clicked() {
-                                        refresh_catalog = true;
-                                    }
-                                }
-                            });
-                            ui.end_row();
-
-                            ui.label("Color Label:");
-                            egui::ComboBox::from_id_salt("prop_color_combo")
-                                .selected_text(src.color_tag.label())
-                                .width(PROP_FIELD_W)
-                                .truncate()
-                                .show_ui(ui, |ui| {
-                                    for tag in SourceColorTag::all() {
+                            // ── Section 1: General ───────────────────────────────────────────
+                            prop_section_group(ui, "General", &mut |ui| {
+                                egui::Grid::new("source_props_general_grid")
+                                    .num_columns(2)
+                                    .min_col_width(PROP_LABEL_W)
+                                    .spacing([10.0, 5.0])
+                                    .show(ui, |ui| {
+                                        ui.label("Source Name:");
                                         any_changed |= ui
-                                            .selectable_value(
-                                                &mut src.color_tag,
-                                                *tag,
-                                                tag.label(),
+                                            .add_sized(
+                                                Vec2::new(PROP_FIELD_W, PROP_FIELD_H),
+                                                standard_singleline_text(&mut src.name, "Source name..."),
                                             )
                                             .changed();
-                                    }
-                                });
-                            ui.end_row();
+                                        ui.end_row();
 
+                                        ui.label("Source Type:");
+                                        ui.horizontal(|ui| {
+                                            ui.label(
+                                                RichText::new(format!(
+                                                    "{} {}",
+                                                    src.kind.tabler_icon(),
+                                                    src.kind.type_name()
+                                                ))
+                                                .strong(),
+                                            );
+                                            let is_device_source = matches!(
+                                                src.kind,
+                                                SourceKind::DisplayCapture { .. }
+                                                    | SourceKind::WindowCapture { .. }
+                                                    | SourceKind::GameCapture { .. }
+                                                    | SourceKind::WebcamDevice { .. }
+                                            );
+                                            if is_device_source {
+                                                let refresh_btn =
+                                                    crate::ui::button_3d::Button3D::new("Refresh Devices")
+                                                        .icon(icons::REFRESH)
+                                                        .min_size(Vec2::new(118.0, 22.0))
+                                                        .tooltip("Re-scan connected displays, cameras, and open windows");
+                                                if ui.add(refresh_btn).clicked() {
+                                                    refresh_catalog = true;
+                                                }
+                                            }
+                                        });
+                                        ui.end_row();
+
+                                        ui.label("Color Label:");
+                                        ui.allocate_ui_with_layout(
+                                            Vec2::new(PROP_FIELD_W, PROP_FIELD_H),
+                                            egui::Layout::left_to_right(egui::Align::Center),
+                                            |ui| {
+                                                ui.set_max_width(PROP_FIELD_W);
+                                                egui::ComboBox::from_id_salt("prop_color_combo")
+                                                    .selected_text(src.color_tag.label())
+                                                    .width(PROP_FIELD_W)
+                                                    .truncate()
+                                                    .show_ui(ui, |ui| {
+                                                        for tag in SourceColorTag::all() {
+                                                            any_changed |= ui
+                                                                .selectable_value(
+                                                                    &mut src.color_tag,
+                                                                    *tag,
+                                                                    tag.label(),
+                                                                )
+                                                                .changed();
+                                                        }
+                                                    });
+                                            },
+                                        );
+                                        ui.end_row();
+                                    });
+                            });
+
+                            if let SourceKind::MediaSource {
+                                is_local_file,
+                                file_path,
+                                loop_playback,
+                                restart_on_activate,
+                                use_hardware_decoding,
+                                hide_when_ended,
+                                close_when_inactive,
+                                speed_percent,
+                                volume,
+                                muted,
+                                is_playing,
+                                color_range,
+                                restart_nonce,
+                            } = &mut src.kind
+                            {
+                                // ── Section 2: Media & Hardware Decode ───────────────────────
+                                prop_section_group(ui, "Media & Hardware Decode", &mut |ui| {
+                                    egui::Grid::new("source_props_media_decode_grid")
+                                        .num_columns(2)
+                                        .min_col_width(PROP_LABEL_W)
+                                        .spacing([10.0, 5.0])
+                                        .show(ui, |ui| {
+                                            ui.label("Source Mode:");
+                                            any_changed |=
+                                                ui.checkbox(is_local_file, "Local File").changed();
+                                            ui.end_row();
+
+                                            ui.label(if *is_local_file {
+                                                "Media File:"
+                                            } else {
+                                                "Input URL / Path:"
+                                            });
+                                            ui.allocate_ui_with_layout(
+                                                Vec2::new(PROP_FIELD_W, PROP_FIELD_H),
+                                                egui::Layout::left_to_right(egui::Align::Center),
+                                                |ui| {
+                                                    let btn_w = 82.0;
+                                                    let input_w = (PROP_FIELD_W
+                                                        - btn_w
+                                                        - ui.spacing().item_spacing.x)
+                                                        .max(120.0);
+                                                    any_changed |= ui
+                                                        .add_sized(
+                                                            Vec2::new(input_w, PROP_FIELD_H),
+                                                            standard_singleline_text(
+                                                                file_path,
+                                                                "Select .mp4, .mkv, .mp3, .wav...",
+                                                            ),
+                                                        )
+                                                        .changed();
+                                                    let browse_btn =
+                                                        crate::ui::button_3d::Button3D::new("Browse...")
+                                                            .icon(icons::FOLDER_OPEN)
+                                                            .min_size(Vec2::new(btn_w, PROP_FIELD_H))
+                                                            .tooltip("Browse local Video (.mp4, .mkv, .mov, .avi) or Audio (.mp3, .wav, .flac, .m4a) file");
+                                                    if ui.add(browse_btn).clicked() {
+                                                        if let Some(picked) =
+                                                            crate::platform::pick_media_file_dialog()
+                                                        {
+                                                            *file_path =
+                                                                picked.to_string_lossy().to_string();
+                                                            *is_playing = true;
+                                                            *restart_nonce =
+                                                                restart_nonce.wrapping_add(1);
+                                                            any_changed = true;
+                                                        }
+                                                    }
+                                                },
+                                            );
+                                            ui.end_row();
+
+                                            ui.label("Hardware GPU:");
+                                            let gpu_label = gpus
+                                                .iter()
+                                                .find(|g| g.index == selected_gpu_idx)
+                                                .map(|g| g.display_label())
+                                                .unwrap_or_else(|| {
+                                                    "GPU 0: Default System VGA".to_string()
+                                                });
+                                            ui.allocate_ui_with_layout(
+                                                Vec2::new(PROP_FIELD_W, PROP_FIELD_H),
+                                                egui::Layout::left_to_right(egui::Align::Center),
+                                                |ui| {
+                                                    ui.set_max_width(PROP_FIELD_W);
+                                                    egui::ComboBox::from_id_salt("prop_media_gpu_combo")
+                                                        .selected_text(gpu_label.clone())
+                                                        .width(PROP_FIELD_W)
+                                                        .truncate()
+                                                        .show_ui(ui, |ui| {
+                                                            for gpu in &gpus {
+                                                                if ui
+                                                                    .selectable_label(
+                                                                        selected_gpu_idx == gpu.index,
+                                                                        gpu.display_label(),
+                                                                    )
+                                                                    .clicked()
+                                                                {
+                                                                    selected_gpu_idx = gpu.index;
+                                                                    gpu_or_scale_changed = true;
+                                                                }
+                                                            }
+                                                        })
+                                                        .response
+                                                        .on_hover_text(gpu_label);
+                                                },
+                                            );
+                                            ui.end_row();
+
+                                            ui.label("Decode Resolution:");
+                                            ui.allocate_ui_with_layout(
+                                                Vec2::new(PROP_FIELD_W, PROP_FIELD_H),
+                                                egui::Layout::left_to_right(egui::Align::Center),
+                                                |ui| {
+                                                    ui.set_max_width(PROP_FIELD_W);
+                                                    egui::ComboBox::from_id_salt(
+                                                        "prop_media_decode_scale_combo",
+                                                    )
+                                                    .selected_text(selected_decode_scale.label())
+                                                    .width(PROP_FIELD_W)
+                                                    .truncate()
+                                                    .show_ui(ui, |ui| {
+                                                        for scale in MediaDecodeScale::all() {
+                                                            if ui
+                                                                .selectable_value(
+                                                                    &mut selected_decode_scale,
+                                                                    *scale,
+                                                                    scale.label(),
+                                                                )
+                                                                .changed()
+                                                            {
+                                                                gpu_or_scale_changed = true;
+                                                            }
+                                                        }
+                                                    });
+                                                },
+                                            );
+                                            ui.end_row();
+
+                                            ui.label("YUV Color Range:");
+                                            ui.allocate_ui_with_layout(
+                                                Vec2::new(PROP_FIELD_W, PROP_FIELD_H),
+                                                egui::Layout::left_to_right(egui::Align::Center),
+                                                |ui| {
+                                                    ui.set_max_width(PROP_FIELD_W);
+                                                    egui::ComboBox::from_id_salt("media_color_range_combo")
+                                                        .selected_text(color_range.label())
+                                                        .width(PROP_FIELD_W)
+                                                        .truncate()
+                                                        .show_ui(ui, |ui| {
+                                                            for cr in MediaColorRange::all() {
+                                                                any_changed |= ui
+                                                                    .selectable_value(
+                                                                        color_range,
+                                                                        *cr,
+                                                                        cr.label(),
+                                                                    )
+                                                                    .changed();
+                                                            }
+                                                        });
+                                                },
+                                            );
+                                            ui.end_row();
+                                        });
+                                });
+
+                                // ── Section 3: Playback & Audio ──────────────────────────────
+                                prop_section_group(ui, "Playback & Audio", &mut |ui| {
+                                    egui::Grid::new("source_props_media_playback_grid")
+                                        .num_columns(2)
+                                        .min_col_width(PROP_LABEL_W)
+                                        .spacing([10.0, 5.0])
+                                        .show(ui, |ui| {
+                                            ui.label("Playback Options:");
+                                            ui.vertical(|ui| {
+                                                ui.set_max_width(PROP_FIELD_W);
+                                                egui::Grid::new("media_opts_2col")
+                                                        .num_columns(2)
+                                                        .min_col_width(136.0)
+                                                        .spacing([8.0, 3.0])
+                                                        .show(ui, |ui| {
+                                                            any_changed |=
+                                                                ui.checkbox(loop_playback, "Loop").changed();
+                                                            any_changed |= ui
+                                                                .checkbox(
+                                                                    restart_on_activate,
+                                                                    "Restart on activate",
+                                                                )
+                                                                .changed();
+                                                            ui.end_row();
+
+                                                            any_changed |= ui
+                                                                .checkbox(
+                                                                    use_hardware_decoding,
+                                                                    "DXGI / D3D11 decode",
+                                                                )
+                                                                .on_hover_text("Use hardware decoding when available (DXGI / D3D11)")
+                                                                .changed();
+                                                            any_changed |= ui
+                                                                .checkbox(
+                                                                    hide_when_ended,
+                                                                    "Hide when ended",
+                                                                )
+                                                                .changed();
+                                                            ui.end_row();
+
+                                                            any_changed |= ui
+                                                                .checkbox(
+                                                                    close_when_inactive,
+                                                                    "Close when inactive",
+                                                                )
+                                                                .changed();
+                                                            ui.label("");
+                                                            ui.end_row();
+                                                        });
+                                            });
+                                            ui.end_row();
+
+                                            ui.label("Playback Speed:");
+                                            ui.allocate_ui_with_layout(
+                                                Vec2::new(PROP_FIELD_W, PROP_FIELD_H),
+                                                egui::Layout::left_to_right(egui::Align::Center),
+                                                |ui| {
+                                                    any_changed |= ui
+                                                        .add(
+                                                            egui::Slider::new(speed_percent, 10..=200)
+                                                                .suffix("%"),
+                                                        )
+                                                        .changed();
+                                                    if *speed_percent != 100
+                                                        && ui.small_button("100%").clicked()
+                                                    {
+                                                        *speed_percent = 100;
+                                                        any_changed = true;
+                                                    }
+                                                },
+                                            );
+                                            ui.end_row();
+
+                                            ui.label("Audio Volume:");
+                                            ui.allocate_ui_with_layout(
+                                                Vec2::new(PROP_FIELD_W, PROP_FIELD_H),
+                                                egui::Layout::left_to_right(egui::Align::Center),
+                                                |ui| {
+                                                    any_changed |= ui
+                                                        .add_enabled(
+                                                            !*muted,
+                                                            egui::Slider::new(volume, 0.0..=1.0)
+                                                                .fixed_decimals(2),
+                                                        )
+                                                        .changed();
+                                                    any_changed |= ui.checkbox(muted, "Mute").changed();
+                                                },
+                                            );
+                                            ui.end_row();
+
+                                            ui.label("Transport Controls:");
+                                            ui.horizontal(|ui| {
+                                                let play_label = if *is_playing {
+                                                    format!("{} Pause", icons::PLAYER_PAUSE)
+                                                } else {
+                                                    format!("{} Play", icons::PLAYER_PLAY)
+                                                };
+                                                if ui
+                                                    .add(
+                                                        egui::Button::new(play_label)
+                                                            .min_size(Vec2::new(76.0, 22.0)),
+                                                    )
+                                                    .clicked()
+                                                {
+                                                    *is_playing = !*is_playing;
+                                                    any_changed = true;
+                                                }
+                                                if ui
+                                                    .add(
+                                                        egui::Button::new(format!(
+                                                            "{} Restart",
+                                                            icons::REFRESH
+                                                        ))
+                                                        .min_size(Vec2::new(76.0, 22.0)),
+                                                    )
+                                                    .on_hover_text("Seek media back to 00:00 and play")
+                                                    .clicked()
+                                                {
+                                                    *is_playing = true;
+                                                    *restart_nonce = restart_nonce.wrapping_add(1);
+                                                    any_changed = true;
+                                                }
+                                            });
+                                            ui.end_row();
+                                        });
+                                });
+                            } else {
+                            prop_section_group(ui, "Source Settings", &mut |ui| {
+                            egui::Grid::new("source_props_grid")
+                        .num_columns(2)
+                        .min_col_width(PROP_LABEL_W)
+                        .spacing([10.0, 5.0])
+                        .show(ui, |ui| {
                             match &mut src.kind {
                                 SourceKind::DisplayCapture {
                                     monitor_id,
@@ -1989,210 +2449,7 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                         ui.end_row();
                                     }
                                 }
-                                SourceKind::MediaSource {
-                                    is_local_file,
-                                    file_path,
-                                    loop_playback,
-                                    restart_on_activate,
-                                    use_hardware_decoding,
-                                    hide_when_ended,
-                                    close_when_inactive,
-                                    speed_percent,
-                                    volume,
-                                    muted,
-                                    is_playing,
-                                    color_range,
-                                    restart_nonce,
-                                } => {
-                                    ui.label("Source Mode:");
-                                    any_changed |=
-                                        ui.checkbox(is_local_file, "Local File").changed();
-                                    ui.end_row();
-
-                                    ui.label(if *is_local_file {
-                                        "Media File (Video / MP3):"
-                                    } else {
-                                        "Input URL / Path:"
-                                    });
-                                    ui.horizontal(|ui| {
-                                        let btn_w = 84.0;
-                                        let input_w = (PROP_FIELD_W - btn_w - ui.spacing().item_spacing.x).max(120.0);
-                                        any_changed |= ui
-                                            .add_sized(
-                                                Vec2::new(input_w, PROP_FIELD_H),
-                                                standard_singleline_text(file_path, "Select .mp4, .mkv, .mp3, .wav..."),
-                                            )
-                                            .changed();
-                                        let browse_btn = crate::ui::button_3d::Button3D::new("Browse...")
-                                            .icon(icons::FOLDER_OPEN)
-                                            .min_size(Vec2::new(btn_w, PROP_FIELD_H))
-                                            .tooltip("Browse local Video (.mp4, .mkv, .mov, .avi) or Audio (.mp3, .wav, .flac, .m4a) file");
-                                        if ui.add(browse_btn).clicked()
-                                        {
-                                            if let Some(picked) =
-                                                crate::platform::pick_media_file_dialog()
-                                            {
-                                                *file_path =
-                                                    picked.to_string_lossy().to_string();
-                                                *is_playing = true;
-                                                *restart_nonce = restart_nonce.wrapping_add(1);
-                                                any_changed = true;
-                                            }
-                                        }
-                                    });
-                                    ui.end_row();
-
-                                    ui.label("Hardware GPU / VGA:");
-                                    let gpu_label = gpus
-                                        .iter()
-                                        .find(|g| g.index == selected_gpu_idx)
-                                        .map(|g| g.display_label())
-                                        .unwrap_or_else(|| "GPU 0: Default System VGA".to_string());
-                                    egui::ComboBox::from_id_salt("prop_media_gpu_combo")
-                                        .selected_text(gpu_label.clone())
-                                        .width(PROP_FIELD_W)
-                                        .truncate()
-                                        .show_ui(ui, |ui| {
-                                            for gpu in &gpus {
-                                                if ui
-                                                    .selectable_label(
-                                                        selected_gpu_idx == gpu.index,
-                                                        gpu.display_label(),
-                                                    )
-                                                    .clicked()
-                                                {
-                                                    selected_gpu_idx = gpu.index;
-                                                    gpu_or_scale_changed = true;
-                                                }
-                                            }
-                                        })
-                                        .response
-                                        .on_hover_text(gpu_label);
-                                    ui.end_row();
-
-                                    ui.label("Video Decode Performance:");
-                                    egui::ComboBox::from_id_salt("prop_media_decode_scale_combo")
-                                        .selected_text(selected_decode_scale.label())
-                                        .width(PROP_FIELD_W)
-                                        .truncate()
-                                        .show_ui(ui, |ui| {
-                                            for scale in MediaDecodeScale::all() {
-                                                if ui
-                                                    .selectable_value(
-                                                        &mut selected_decode_scale,
-                                                        *scale,
-                                                        scale.label(),
-                                                    )
-                                                    .changed()
-                                                {
-                                                    gpu_or_scale_changed = true;
-                                                }
-                                            }
-                                        });
-                                    ui.end_row();
-
-                                    ui.label("Playback Options:");
-                                    ui.vertical(|ui| {
-                                        any_changed |=
-                                            ui.checkbox(loop_playback, "Loop").changed();
-                                        any_changed |= ui
-                                            .checkbox(
-                                                restart_on_activate,
-                                                "Restart playback when source becomes active",
-                                            )
-                                            .changed();
-                                        any_changed |= ui
-                                            .checkbox(
-                                                use_hardware_decoding,
-                                                "Use hardware decoding when available (DXGI / D3D11)",
-                                            )
-                                            .changed();
-                                        any_changed |= ui
-                                            .checkbox(
-                                                hide_when_ended,
-                                                "Show nothing when playback ends",
-                                            )
-                                            .changed();
-                                        any_changed |= ui
-                                            .checkbox(
-                                                close_when_inactive,
-                                                "Close file when inactive",
-                                            )
-                                            .changed();
-                                    });
-                                    ui.end_row();
-
-                                    ui.label("Playback Speed:");
-                                    ui.horizontal(|ui| {
-                                        any_changed |= ui
-                                            .add(
-                                                egui::Slider::new(speed_percent, 10..=200)
-                                                    .suffix("%"),
-                                            )
-                                            .changed();
-                                        if *speed_percent != 100
-                                            && ui.small_button("100%").clicked()
-                                        {
-                                            *speed_percent = 100;
-                                            any_changed = true;
-                                        }
-                                    });
-                                    ui.end_row();
-
-                                    ui.label("Audio Gain / Volume:");
-                                    ui.horizontal(|ui| {
-                                        any_changed |= ui
-                                            .add_enabled(
-                                                !*muted,
-                                                egui::Slider::new(volume, 0.0..=1.0)
-                                                    .fixed_decimals(2),
-                                            )
-                                            .changed();
-                                        any_changed |= ui.checkbox(muted, "Mute").changed();
-                                    });
-                                    ui.end_row();
-
-                                    ui.label("YUV Color Range:");
-                                    egui::ComboBox::from_id_salt("media_color_range_combo")
-                                        .selected_text(color_range.label())
-                                        .width(PROP_FIELD_W)
-                                        .truncate()
-                                        .show_ui(ui, |ui| {
-                                            for cr in MediaColorRange::all() {
-                                                any_changed |= ui
-                                                    .selectable_value(
-                                                        color_range,
-                                                        *cr,
-                                                        cr.label(),
-                                                    )
-                                                    .changed();
-                                            }
-                                        });
-                                    ui.end_row();
-
-                                    ui.label("Transport Controls:");
-                                    ui.horizontal(|ui| {
-                                        let play_label = if *is_playing {
-                                            format!("{} Pause", icons::PLAYER_PAUSE)
-                                        } else {
-                                            format!("{} Play", icons::PLAYER_PLAY)
-                                        };
-                                        if ui.button(play_label).clicked() {
-                                            *is_playing = !*is_playing;
-                                            any_changed = true;
-                                        }
-                                        if ui
-                                            .button(format!("{} Restart", icons::REFRESH))
-                                            .on_hover_text("Seek media back to 00:00 and play")
-                                            .clicked()
-                                        {
-                                            *is_playing = true;
-                                            *restart_nonce = restart_nonce.wrapping_add(1);
-                                            any_changed = true;
-                                        }
-                                    });
-                                    ui.end_row();
-                                }
+                                SourceKind::MediaSource { .. } => unreachable!(),
                                 SourceKind::ImageSource { file_path, opacity } => {
                                     ui.label("Image File:");
                                     ui.horizontal(|ui| {
@@ -3325,14 +3582,15 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                                 }
                             }
                         });
+                            });
+                            }
 
                     if let Some(tpl) = pending_tv_template {
                         src.apply_tv_text_template(tpl);
                         any_changed = true;
                     }
 
-                    ui.separator();
-                    ui.label(RichText::new("Transform & Layout Preset").strong());
+                    prop_section_group(ui, "Transform & Layout Preset", &mut |ui| {
                     ui.horizontal_wrapped(|ui| {
                         ui.spacing_mut().item_spacing = egui::vec2(5.0, 4.0);
                         ui.spacing_mut().button_padding = egui::vec2(6.0, 3.0);
@@ -3428,8 +3686,8 @@ pub fn render_dialogs(ctx: &egui::Context, app: &mut NexoraApp) {
                             .changed();
                         any_changed |= ui.checkbox(&mut src.locked, "Lock Layer").changed();
                     });
+                    });
 
-                    ui.separator();
                     ui.horizontal(|ui| {
                         ui.label(
                             RichText::new("Crop Margins (or Hold ALT + Drag edges in Preview)")
@@ -5078,12 +5336,12 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
     // `add_src_w` / `add_src_max_h` are the *content* box sizes (inside the window frame).
     let frame_x: f32 = 28.0;
     let frame_y: f32 = 28.0;
-    let add_src_w: f32 = (safe.width() - frame_x).clamp(520.0, 880.0);
-    let add_src_max_h: f32 = (safe.height() - title_h - frame_y).clamp(200.0, 720.0);
+    let add_src_w: f32 = (safe.width() - frame_x).clamp(520.0, 820.0);
+    let add_src_max_h: f32 = (safe.height() - title_h - frame_y).clamp(280.0, 500.0);
     let add_src_list_h: f32 = (add_src_max_h - content_chrome_h).max(150.0);
-    let add_src_left_w: f32 = (add_src_w * 0.40).round();
+    let add_src_left_w: f32 = (add_src_w * 0.42).round();
     let add_src_right_w: f32 = add_src_w - add_src_left_w - 24.0;
-    let add_src_field_w: f32 = add_src_right_w - 16.0;
+    let add_src_field_w: f32 = add_src_right_w - 14.0;
     let add_src_field_h: f32 = 24.0;
 
     let win_resp = egui::Window::new(format!("{} Add Source", icons::PLUS))
@@ -5108,10 +5366,10 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
 
             ui.label(
                 RichText::new("Choose a source type, then configure it before adding it to the scene.")
-                    .size(13.0)
-                    .color(p.text_primary),
+                    .size(12.0)
+                    .color(p.text_secondary),
             );
-            ui.add_space(10.0);
+            ui.add_space(6.0);
 
             let cur_selected = app.add_source_selected_type;
             let mut newly_selected = None;
@@ -5128,25 +5386,53 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                         ui.set_min_width(add_src_left_w);
                         ui.label(
                             RichText::new("SOURCE TYPES (LAYER TYPE)")
-                                .size(12.5)
+                                .size(12.0)
                                 .strong()
                                 .color(p.accent_primary),
                         );
-                        ui.add_space(6.0);
+                        ui.add_space(4.0);
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new(icons::SEARCH)
+                                    .font(egui::FontId::new(13.0, icons::icon_font_family()))
+                                    .color(p.text_muted),
+                            );
+                            let clear_w = if app.add_source_search.is_empty() { 0.0 } else { 22.0 };
+                            let search_w = (add_src_left_w - 30.0 - clear_w).max(100.0);
+                            ui.add_sized(
+                                Vec2::new(search_w, 22.0),
+                                standard_singleline_text(&mut app.add_source_search, "Filter source types..."),
+                            );
+                            if !app.add_source_search.is_empty()
+                                && ui.add(egui::Button::new("×").min_size(Vec2::new(20.0, 22.0))).clicked()
+                            {
+                                app.add_source_search.clear();
+                            }
+                        });
+                        ui.add_space(5.0);
 
+                        let q = app.add_source_search.trim().to_lowercase();
                         egui::ScrollArea::vertical()
                             .id_salt("add_source_types_scroll")
-                            .max_height(add_src_list_h - 20.0)
+                            .max_height(add_src_list_h - 48.0)
                             .auto_shrink([false, false])
                             .show(ui, |ui| {
                                 ui.spacing_mut().item_spacing.y = 5.0;
                                 ui.set_width(add_src_left_w - 8.0);
+                                let mut shown_count = 0usize;
                                 for st in crate::studio::source::AddSourceType::all() {
+                                    if !q.is_empty()
+                                        && !st.title().to_lowercase().contains(&q)
+                                        && !st.description().to_lowercase().contains(&q)
+                                    {
+                                        continue;
+                                    }
+                                    shown_count += 1;
                                     let is_active = cur_selected == *st;
                                     let (badge, is_ready) = st.status_tag();
 
                                     let (rect, resp) = ui.allocate_exact_size(
-                                        Vec2::new(ui.available_width(), 50.0),
+                                        Vec2::new(ui.available_width(), 52.0),
                                         egui::Sense::click(),
                                     );
 
@@ -5190,10 +5476,10 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
 
                                     // Icon
                                     ui.painter().text(
-                                        Pos2::new(rect.min.x + 16.0, rect.min.y + 17.0),
+                                        Pos2::new(rect.min.x + 15.0, rect.min.y + 16.5),
                                         egui::Align2::LEFT_CENTER,
                                         st.icon(),
-                                        egui::FontId::proportional(18.0),
+                                        egui::FontId::new(16.5, icons::icon_font_family()),
                                         if is_active {
                                             p.accent_primary
                                         } else {
@@ -5202,18 +5488,18 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                                     );
 
                                     // Title (pixel-truncated so it never runs into the badge)
-                                    let title_max_w = (rect.width() - 150.0).max(90.0);
+                                    let title_max_w = (rect.width() - 142.0).max(90.0);
                                     let title = truncate_pixels(
                                         ui,
                                         st.title(),
                                         title_max_w,
-                                        egui::FontId::proportional(12.5),
+                                        egui::FontId::new(11.8, icons::sora_medium_family()),
                                     );
                                     ui.painter().text(
-                                        Pos2::new(rect.min.x + 44.0, rect.min.y + 17.0),
+                                        Pos2::new(rect.min.x + 42.0, rect.min.y + 16.0),
                                         egui::Align2::LEFT_CENTER,
                                         title,
-                                        egui::FontId::proportional(12.5),
+                                        egui::FontId::new(11.8, icons::sora_medium_family()),
                                         p.text_primary,
                                     );
 
@@ -5250,18 +5536,18 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                                     );
 
                                     // Description (single line, ellipsis when too long)
-                                    let desc_max_w = (rect.width() - 54.0).max(80.0);
+                                    let desc_max_w = (rect.width() - 52.0).max(80.0);
                                     let desc = truncate_pixels(
                                         ui,
                                         st.description(),
                                         desc_max_w,
-                                        egui::FontId::proportional(10.5),
+                                        egui::FontId::proportional(10.0),
                                     );
                                     ui.painter().text(
-                                        Pos2::new(rect.min.x + 44.0, rect.min.y + 33.0),
+                                        Pos2::new(rect.min.x + 42.0, rect.min.y + 35.5),
                                         egui::Align2::LEFT_CENTER,
                                         desc,
-                                        egui::FontId::proportional(10.5),
+                                        egui::FontId::proportional(10.0),
                                         p.text_muted,
                                     );
 
@@ -5271,6 +5557,14 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                                     if resp.clicked() {
                                         newly_selected = Some(*st);
                                     }
+                                }
+                                if shown_count == 0 {
+                                    ui.add_space(12.0);
+                                    ui.label(
+                                        RichText::new("No source types match your search.")
+                                            .small()
+                                            .color(p.text_muted),
+                                    );
                                 }
                             });
                     },
@@ -5287,21 +5581,21 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                         ui.set_min_width(add_src_right_w);
                         ui.label(
                             RichText::new("SOURCE SETTINGS")
-                                .size(12.5)
+                                .size(12.0)
                                 .strong()
                                 .color(p.accent_primary),
                         );
-                        ui.add_space(6.0);
+                        ui.add_space(5.0);
 
                         // Header card: icon + title + description of the selected type
                         let hdesc_max_w = (ui.available_width() - 58.0).max(120.0);
                         let hdesc = ui.painter().layout(
                             cur_selected.description().to_string(),
-                            egui::FontId::proportional(11.0),
+                            egui::FontId::proportional(10.5),
                             p.text_secondary,
                             hdesc_max_w,
                         );
-                        let header_h = (36.0 + hdesc.size().y + 10.0).max(64.0);
+                        let header_h = (34.0 + hdesc.size().y + 10.0).max(58.0);
                         let (hrect, _) = ui.allocate_exact_size(
                             Vec2::new(ui.available_width(), header_h),
                             egui::Sense::hover(),
@@ -5314,17 +5608,17 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
                             egui::StrokeKind::Inside,
                         );
                         ui.painter().text(
-                            Pos2::new(hrect.min.x + 14.0, hrect.min.y + 18.0),
+                            Pos2::new(hrect.min.x + 14.0, hrect.min.y + 17.5),
                             egui::Align2::LEFT_CENTER,
                             cur_selected.icon(),
-                            egui::FontId::proportional(18.0),
+                            egui::FontId::new(17.0, icons::icon_font_family()),
                             p.accent_primary,
                         );
                         ui.painter().text(
-                            Pos2::new(hrect.min.x + 42.0, hrect.min.y + 18.0),
+                            Pos2::new(hrect.min.x + 42.0, hrect.min.y + 17.5),
                             egui::Align2::LEFT_CENTER,
                             cur_selected.title(),
-                            egui::FontId::proportional(13.5),
+                            egui::FontId::new(12.5, icons::sora_medium_family()),
                             p.text_primary,
                         );
                         ui.painter().galley(
@@ -5335,14 +5629,14 @@ pub fn render_add_source_dialog(ctx: &egui::Context, app: &mut NexoraApp) {
 
                         ui.add_space(8.0);
 
-                        let settings_scroll_h = (add_src_list_h - header_h - 32.0).max(120.0);
+                        let settings_scroll_h = (add_src_list_h - header_h - 30.0).max(120.0);
                         egui::ScrollArea::vertical()
                             .id_salt("add_source_settings_scroll")
                             .max_height(settings_scroll_h)
                             .auto_shrink([false, false])
                             .show(ui, |ui| {
                                 ui.set_width(add_src_right_w - 10.0);
-                                ui.spacing_mut().item_spacing.y = 4.0;
+                                ui.spacing_mut().item_spacing.y = 6.0;
 
                         // Source Name Input
                         ui.label(

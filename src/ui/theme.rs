@@ -71,26 +71,26 @@ pub fn apply_studio_theme(ctx: &egui::Context, mode: ThemeMode) {
     let p = ThemePalette::for_mode(mode);
     let mut style = Style::default();
 
-    // Clear, balanced studio typography with Rubik Regular (weight 400) and Medium (weight 500)
+    // Clear, balanced studio typography tuned for Sora's larger x-height and glyph width
     style.text_styles.insert(
         TextStyle::Heading,
-        FontId::new(14.8, crate::ui::icons::rubik_medium_family()),
+        FontId::new(13.5, crate::ui::icons::sora_medium_family()),
     );
     style.text_styles.insert(
         TextStyle::Body,
-        FontId::new(13.5, crate::ui::icons::rubik_family()),
+        FontId::new(12.2, crate::ui::icons::sora_family()),
     );
     style.text_styles.insert(
         TextStyle::Button,
-        FontId::new(13.0, crate::ui::icons::rubik_family()),
+        FontId::new(11.8, crate::ui::icons::sora_family()),
     );
     style.text_styles.insert(
         TextStyle::Small,
-        FontId::new(11.8, crate::ui::icons::rubik_family()),
+        FontId::new(10.8, crate::ui::icons::sora_family()),
     );
     style.text_styles.insert(
         TextStyle::Monospace,
-        FontId::new(12.8, egui::FontFamily::Monospace),
+        FontId::new(11.8, egui::FontFamily::Monospace),
     );
 
     // Spacing with comfortable window margins for clean modal breathing room
